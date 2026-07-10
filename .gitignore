@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime
+workspace/rule_health.json
+workspace/*.json
+
+# Large reference downloads
+references/codex-hooks-raw.html
+
+# Plugin artifacts
+plugin/node_modules/
+plugin/dist/
+# GitHub token (local only)
+.gh_token

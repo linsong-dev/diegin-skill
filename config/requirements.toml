@@ -1,0 +1,50 @@
+allow_managed_hooks_only = true
+
+[features]
+hooks = true
+
+[hooks]
+windows_managed_dir = "$env:USERPROFILE\plugins\diegin\scripts"
+
+[[hooks.SessionStart]]
+matcher = "startup|resume"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command_windows = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\plugins\diegin\scripts\diegin_session_start.ps1"'
+timeout = 30
+statusMessage = "Diegin SessionStart"
+
+[[hooks.PreToolUse]]
+matcher = ".*"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command_windows = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\plugins\diegin\scripts\diegin_pre_tool.ps1"'
+timeout = 30
+statusMessage = "Diegin PreToolUse"
+
+[[hooks.UserPromptSubmit]]
+
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command_windows = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\plugins\diegin\scripts\diegin_pre_reply.ps1"'
+timeout = 30
+statusMessage = "Diegin UserPromptInject"
+
+[[hooks.PostToolUse]]
+matcher = ".*"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command_windows = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\plugins\diegin\scripts\diegin_post_tool.ps1"'
+timeout = 30
+statusMessage = "Diegin PostToolUse"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command_windows = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\plugins\diegin\scripts\diegin_stop.ps1"'
+timeout = 30
+statusMessage = "Diegin StopReport"

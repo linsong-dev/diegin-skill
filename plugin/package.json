@@ -1,0 +1,15 @@
+{
+  "name": "@openclaw/dgen",
+  "version": "3.0.0",
+  "type": "module",
+  "private": true,
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    }
+  }
+}

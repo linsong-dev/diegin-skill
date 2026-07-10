@@ -1,0 +1,14 @@
+[
+  {
+    "id": "prec_20260618_165350_1075",
+    "conflict_rules": [
+      "learned_gbk_emoji_001"
+    ],
+    "resolution": "auto_degraded",
+    "degradation_reason": "emoji in print() crashed on GBK terminal 4 times before rule injection",
+    "winning_rule": "learned_gbk_emoji_001",
+    "winning_rule_type": "interception",
+    "decision_logic": "一二不过三：第4次写入拦截规则",
+    "created_at": "2026-06-18T16:53:50.768341"
+  }
+]
