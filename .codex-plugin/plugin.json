@@ -3,14 +3,14 @@
     "version": "3.0.0+codex.20260710051409",
     "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统。基于'守三攻七+一二不过三+举一反三'元框架",
     "author": {
-        "name": "林松"
+        "name": "linsong-dev"
     },
     "skills": "./skills/",
     "interface": {
         "displayName": "迭进·DGEN",
         "shortDescription": "AI 全域常驻自我迭代进化系统",
         "longDescription": "迭进（DGEN = Die 迭 + Gin 进）是一个场景无关的 AI 认知进化引擎",
-        "developerName": "林松",
+        "developerName": "linsong-dev",
         "category": "Productivity",
         "capabilities": [
             "Read"

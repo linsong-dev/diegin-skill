@@ -1,4 +1,4 @@
-﻿## DGEN ⚡ 迭进预检规则（系统级·全域常驻·不可跳过）
+## DGEN ⚡ 迭进预检规则（系统级·全域常驻·不可跳过）
 
 每次组织回复前必须执行迭进预检：
 
@@ -21,7 +21,7 @@
 
 **没有 [DGEN] 标记 = 迭进未激活 = 故障！**
 
-### 4. 迭进规则（16条）
+### 4. 迭进规则（17条）
 | 规则 | 严重度 | 描述 |
 |:---|:---:|:---|
 | rule_word_meaning_confirm | high | 歧义词先确认再执行 |
@@ -40,6 +40,7 @@
 | rule_encoding_no_bom_utf8 | critical | 全文件 UTF8 NoBOM 编码规则 |
 | rule_pre_deploy_encoding_audit | critical | 部署前编码三遍审计 |
 | rule_dgen_marker_every_reply | critical | 每轮回复开头必须有 [DGEN] 标记 |
+| rule_powershell_set_content_bom | critical | PowerShell Set-Content 写入 UTF-8 BOM 导致 Codex 解析失败，必须用 WriteAllText 替代 |
 
 ### 5. 情景覆盖
 - 用户回复：必须迭进预检
