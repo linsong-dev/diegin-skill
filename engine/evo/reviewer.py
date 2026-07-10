@@ -304,4 +304,4 @@ class ROIReviewer:
                 ]
             }
         }
-        return prompts.get(tier, prompts["medium"])
+        return prompts.get(tier, prompts.get("simplified", prompts["minimal"]))

@@ -1,4 +1,4 @@
-"""
+﻿"""
 迭进 · DGEN 实战调用入口
 迭进引擎入口
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from evo.main import (get_rules_for_task, arbitrate, full_review, record_behavior,
                       health_check, run_maintenance, dgen_archive, mempalace_search,
-                      auto_sandwich, record_user_feedback, auto_sandwich_trigger)
+                      auto_sandwich, record_user_feedback, auto_sandwich_trigger, generalize_rule)
 
 
 def pre_check(context: dict) -> dict:
@@ -100,6 +100,12 @@ if __name__ == "__main__":
         result = auto_sandwich_trigger(task_type, positive, negative)
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
+    elif mode == "generalize":
+        """举一反三：从单条或所有规则推导跨场景候选规则"""
+        rule_id = sys.argv[2] if len(sys.argv) > 2 else None
+        result = generalize_rule(rule_id)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
     elif mode == "sandwich_legacy":
         """守三攻七复盘（旧版无钩子）：python call_diegin.py sandwich_legacy <task_type> '<pos_json>' '<neg_json>'"""
         task_type = sys.argv[2] if len(sys.argv) > 2 else "general"
@@ -139,6 +145,8 @@ if __name__ == "__main__":
             "note": "迭进已就绪。使用规则: 守三攻七+一二不过三+三态反馈"
         }
         print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+
+
 
 
 

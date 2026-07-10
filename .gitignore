@@ -29,3 +29,6 @@ plugin/node_modules/
 plugin/dist/
 # GitHub token (local only)
 .gh_token
+
+# memory_v2 test db
+tests/memory_v2/_test_db/

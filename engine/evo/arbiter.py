@@ -99,16 +99,16 @@ class ConflictArbiter:
     # 核心仲裁逻辑（对齐 AGENTS.md）
     # ──────────────────────────────────────────────────
 
-    def resolve(self, interceptions: List[InterceptionRule],
-                patterns: List[SuccessPattern]) -> ArbitrationResult:
+    def resolve(self, interceptions, patterns):
         """
-        4层裁决（对齐 AGENTS.md §二）：
-        第1层：铁律检查（high+irreversible）
-        第2层：严重度检查（critical/high→block, medium→escalate）
-        第3层：冲突检测（置信度接近→escalate）
-        第4层：默认放行（allow）
+        5层裁决（对齐 AGENTS.md §二）：
+        第1层：铁律检查（high/critical+irreversible）
+        第2层：critical/high 严重度→block
+        第3层：medium/low触发 + 成功模式 → 置信度冲突检测
+        第4层：medium/low触发 无模式 → 严重度决定
+        第5层：默认放行（allow）
         """
-        # ═══ 第1层：铁律阻断 ═══
+        # ⭐⭐⭐ 第1层：铁律阻断 ⭐⭐⭐
         for rule in interceptions:
             severity = getattr(rule, 'severity', 'low')
             tags = getattr(rule, 'tags', []) or []
@@ -119,10 +119,10 @@ class ConflictArbiter:
                     reason=f"触及安全铁律：{getattr(rule, 'id', '?')} | 不可逆操作或合规红线"
                 )
 
-        # ═══ 第2层：严重度检查 ═══
+        # ⭐⭐⭐ 第2层：严重度检查（安全优先，模式不可穿透）⭐⭐⭐
         if interceptions:
-            # 找最高严重度
             severities = [getattr(r, 'severity', 'low') for r in interceptions]
+            # critical/high → 直接 BLOCK，不论有无成功模式
             if "critical" in severities:
                 crit_rules = [r for r in interceptions if getattr(r, 'severity', '') == "critical"]
                 return ArbitrationResult(
@@ -139,7 +139,38 @@ class ConflictArbiter:
                     reason=f"匹配高严重度规则：{high_rules[0].id}"
                 )
 
-            # medium 严重度 → ESCALATE（提问确认）
+            # ⭐⭐⭐ 第3层：攻守冲突检测（仅 medium/low + 成功模式）⭐⭐⭐
+            if patterns:
+                best_interception = max(interceptions, key=lambda x: getattr(x, 'confidence', 0) or 0)
+                best_pattern = max(patterns, key=lambda x: getattr(x, 'confidence', 0) or 0)
+                int_conf = getattr(best_interception, 'confidence', 0) or 0
+                pat_conf = getattr(best_pattern, 'confidence', 0) or 0
+                confidence_delta = abs(int_conf - pat_conf)
+
+                if confidence_delta < 0.5:
+                    self.pending_conflicts.append({
+                        "timestamp": time.time(),
+                        "interception": best_interception,
+                        "pattern": best_pattern,
+                        "delta": confidence_delta,
+                        "resolved": False,
+                    })
+                    auto_decision = self._check_degradation()
+                    if auto_decision:
+                        return auto_decision
+                    return ArbitrationResult(
+                        decision=ResolutionType.ESCALATE,
+                        conflict_set=[best_interception, best_pattern],
+                        reason=f"攻守规则置信度接近（delta={confidence_delta:.3f}），需询问用户"
+                    )
+                elif pat_conf > int_conf:
+                    return ArbitrationResult(
+                        decision=ResolutionType.ALLOW,
+                        winning_rule=best_pattern,
+                        reason=f"成功模式 {best_pattern.id} 置信度（{pat_conf}）高于拦截规则，放行"
+                    )
+
+            # ⭐⭐⭐ 第4层：严重度决定（无成功模式 / 拦截置信度更高）⭐⭐⭐
             if "medium" in severities:
                 med_rules = [r for r in interceptions if getattr(r, 'severity', '') == "medium"]
                 return ArbitrationResult(
@@ -148,50 +179,19 @@ class ConflictArbiter:
                     reason=f"匹配中严重度规则：{med_rules[0].id}，需确认后执行"
                 )
 
-            # low → 仍放行但通知
+            # low → 放行但通知
             return ArbitrationResult(
                 decision=ResolutionType.ALLOW,
                 winning_rule=interceptions[0],
                 reason=f"低严重度规则触发：{interceptions[0].id}，不影响执行"
             )
 
-        # ═══ 第3层：攻守冲突检测 ═══
-        if interceptions and patterns:
-            best_interception = max(interceptions, key=lambda x: getattr(x, 'confidence', 0) or 0)
-            best_pattern = max(patterns, key=lambda x: getattr(x, 'confidence', 0) or 0)
-            confidence_delta = abs(
-                (getattr(best_interception, 'confidence', 0) or 0) -
-                (getattr(best_pattern, 'confidence', 0) or 0)
-            )
-
-            if confidence_delta < 0.5:
-                # 加入待处理队列
-                self.pending_conflicts.append({
-                    "timestamp": time.time(),
-                    "interception": best_interception,
-                    "pattern": best_pattern,
-                    "delta": confidence_delta,
-                    "resolved": False
-                })
-
-                # 检查是否达到降级阈值
-                auto_decision = self._check_degradation()
-                if auto_decision:
-                    return auto_decision
-
-                return ArbitrationResult(
-                    decision=ResolutionType.ESCALATE,
-                    conflict_set=[best_interception, best_pattern],
-                    reason=f"攻守规则置信度接近（delta={confidence_delta:.3f}），需询问用户"
-                )
-
-        # ═══ 第4层：默认放行 ═══
+        # ⭐⭐⭐ 第5层：默认放行 ⭐⭐⭐
         return ArbitrationResult(
             decision=ResolutionType.ALLOW,
             winning_rule=None,
             reason="无规则触发或全部放行"
         )
-
     # ──────────────────────────────────────────────────
     # 自动降级（熔断保护）
     # ──────────────────────────────────────────────────

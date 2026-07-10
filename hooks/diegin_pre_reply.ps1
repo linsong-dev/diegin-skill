@@ -14,7 +14,7 @@ $dgenOutput = "[DGEN] ⚡ 迭进引擎检查中"
 
 try {
     if (Test-Path $pythonExe) {
-        # Step 1: 迭进预检
+        # Step 1: 迭进预检（同步，必须完成）
         $ctxJson = '{"message":"hook","session_id":"dgen"}'
         $checkOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
         if ($LASTEXITCODE -eq 0) {
@@ -24,12 +24,31 @@ try {
             try { "$time [HOOK:DGEN-CHECK] ERR exit=$LASTEXITCODE" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue } catch {}
         }
 
-        # Step 2: 后台自动复盘 + 规则泛化（不阻塞回复）
-        $null = Start-Job -ScriptBlock {
-            param($py, $engine)
-            $null = & $py $engine sandwich_auto 2>&1
-            $null = & $py $engine generalize_auto 2>&1
-        } -ArgumentList $pythonExe, $enginePy
+        # Step 2: 守三攻七复盘（同步执行，不阻塞回复）- 快速操作
+        try {
+            $sandwichOut = & $pythonExe $enginePy sandwich 2>&1
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+                "$time [HOOK:SANDWICH] OK | $sandwichOut" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
+            } else {
+                "$time [HOOK:SANDWICH] ERR exit=$exitCode | $sandwichOut" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
+            }
+        } catch {
+            "$time [HOOK:SANDWICH] EXCEPTION | $_" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
+        }
+
+        # Step 3: 举一反三规则泛化（同步执行）
+        try {
+            $generalizeOut = & $pythonExe $enginePy generalize 2>&1
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+                "$time [HOOK:GENERALIZE] OK | $(($generalizeOut | Measure-Object -Line).Lines) lines" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
+            } else {
+                "$time [HOOK:GENERALIZE] ERR exit=$exitCode | $generalizeOut" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
+            }
+        } catch {
+            "$time [HOOK:GENERALIZE] EXCEPTION | $_" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
+        }
     }
 } catch {
     try { "$time [HOOK:DGEN-CHECK] EXCEPTION | $_" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue } catch {}
@@ -45,6 +64,7 @@ $dgenOutput
 - 系统级拦截规则 + 成功模式
 - 守三攻七自动复盘（后台运行）
 - 一二不过三错误追踪
+- 举一反三规则泛化
 - 请在每次回复开头输出 [DGEN] 标记
 "@
 exit 0

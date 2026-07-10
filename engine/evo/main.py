@@ -79,83 +79,21 @@ from dashboard import HealthDashboard, run_health_check
 # ============================================================
 
 
-# MemPalace 适配层（迭进 ↔ 长期记忆）
-
+# Memory V2 适配层（迭进 ↔ 长期记忆）— 替代 MemPalace
 
 # ============================================================
 
-
-_MEMPALACE_AVAILABLE = False
-
-
-_MP_SCRIPT = None
-
-
-_MP_PYTHON = None
-
-
-_MP_BASE = os.environ.get('MEMPALACE_DIR', os.environ.get('OPENCLAW_HOME', ''))
-
-
-if _MP_BASE:
-
-
-    _MP_SCRIPT = Path(_MP_BASE) / 'skills' / 'mempalace-openclaw' / 'scripts' / 'archive.py'
-
-
-    _MP_PYTHON = Path(_MP_BASE) / 'skills' / 'mempalace-openclaw' / '.venv' / 'Scripts' / 'python.exe'
-
-
-else:
-
-
-    # fallback: try common locations
-
-
-    for _candidate in [
-
-
-        Path.home() / '.openclaw-迭进',
-
-
-        Path.home() / '.openclaw',
-
-
-    ]:
-
-
-        _mp_script = _candidate / 'skills' / 'mempalace-openclaw' / 'scripts' / 'archive.py'
-
-
-        _mp_python = _candidate / 'skills' / 'mempalace-openclaw' / '.venv' / 'Scripts' / 'python.exe'
-
-
-        if _mp_script.exists() and _mp_python.exists():
-
-
-            _MP_SCRIPT = _mp_script
-
-
-            _MP_PYTHON = _mp_python
-
-
-            break
-
-
-try:
-
-
-    if _MP_SCRIPT and _MP_PYTHON and _MP_SCRIPT.exists() and _MP_PYTHON.exists():
-
-
-        _MEMPALACE_AVAILABLE = True
-
-
-except Exception:
-
-
-    pass
-
+_ENGINE_DIR = str(Path(__file__).parent.parent)  # engine/
+if _ENGINE_DIR not in sys.path:
+    sys.path.insert(0, _ENGINE_DIR)
+from mindol.diegin_integration import (
+    memory_search as mempalace_search,
+    memory_archive as dgen_archive,
+    get_memory_stats,
+    close_memory,
+    memory_format_context,
+)
+_MEMPALACE_AVAILABLE = True
 
 #
 
@@ -969,85 +907,6 @@ def quad_health() -> dict:
 
     }
 
-
-def mempalace_search(query: str, max_results: int = 5) -> List[Dict]:
-
-
-    """从 MemPalace 检索历史记忆"""
-
-
-    if not _MEMPALACE_AVAILABLE:
-
-
-        return []
-
-
-    try:
-
-
-        import subprocess
-
-
-        result = subprocess.run(
-
-
-            [str(_MP_PYTHON), str(_MP_SCRIPT), "search", query, "semantic"],
-
-
-            capture_output=True, text=True, timeout=30
-
-
-        )
-
-
-        if result.returncode != 0:
-
-
-            return []
-
-
-        lines = result.stdout.strip().split("\n")
-
-
-        return [{"file": l} for l in lines if l]
-
-
-    except Exception:
-
-
-        return []
-
-
-def dgen_archive(rule_id: str, decision: str, context: Dict):
-
-
-    """迭进决策后自动归档到MemPalace"""
-
-
-    from datetime import datetime
-
-
-    content = f"""# [DGEN ⚡] 迭进决策记录
-
-
-时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-
-规则: {rule_id}
-
-
-决策: {decision}
-
-
-上下文: {json.dumps(context, ensure_ascii=False)}
-
-
-"""
-
-
-    # mempalace_archive: MemPalace not available in this runtime
-
-
 # ============================================================
 
 
@@ -1291,7 +1150,7 @@ def full_review(task_context: Dict[str, Any],
                 task_result: Dict[str, Any]) -> Dict[str, Any]:
 
 
-    """执行完整的三明治复盘（自动归档到MemPalace）"""
+    """执行完整的三明治复盘（自动归档到Memory V2）"""
 
 
     reviewer = _get_reviewer()
@@ -1300,7 +1159,7 @@ def full_review(task_context: Dict[str, Any],
     result = reviewer.full_review(task_context, task_result)
 
 
-    # MemPalace 归档：复盘后自动同步
+    # Memory V2 归档：复盘后自动同步
 
 
     if _MEMPALACE_AVAILABLE:
@@ -1534,7 +1393,7 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
     report = "".join(report_lines)
 
 
-    # 归档到MemPalace
+    # 归档到Memory V2
 
 
     if _MEMPALACE_AVAILABLE:
@@ -1597,7 +1456,7 @@ def record_user_feedback(rule_id: str, feedback: str, user_action: str = None) -
 def record_behavior(rule_id: str, action: str) -> Dict[str, Any]:
 
 
-    """记录对规则的隐性行为（触发/无视/覆盖）自动归档到MemPalace"""
+    """记录对规则的隐性行为（触发/无视/覆盖）自动归档到Memory V2"""
 
 
     tracker = _get_tracker()
@@ -1627,7 +1486,7 @@ def record_behavior(rule_id: str, action: str) -> Dict[str, Any]:
         return {"action": "unknown", "error": f"不支持的操作: {action}"}
 
 
-    # MemPalace 归档
+    # Memory V2 归档
 
 
     if _MEMPALACE_AVAILABLE:

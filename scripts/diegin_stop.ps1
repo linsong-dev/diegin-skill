@@ -1,4 +1,6 @@
-$dieginHome = "$env:USERPROFILE\.codex"
+﻿# 迭进·DGEN Stop 钩子 - 会话结束时生成合规报告
+$pluginRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$dieginHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
 $auditLog = Join-Path $dieginHome "diegin_audit.log"
 $reportFile = Join-Path $dieginHome "diegen_compliance.json"
 $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
