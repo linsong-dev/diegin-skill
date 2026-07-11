@@ -339,7 +339,7 @@ class RuleEngine:
 
         # ── 快速路径：纯关键词（无运算符、方法调用、逻辑连接词）──
         ops = ['==', '!=', '>', '<', '>=', '<=', ' and ', ' or ', ' AND ', ' OR ',
-               'startswith', 'contains', 'in ', 'not ', '.startswith(']
+               '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ']
         if not any(op in cond for op in ops):
             ctx_str = str(context).lower()
             kw = cond.lower().strip("'\"")

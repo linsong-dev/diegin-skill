@@ -1,0 +1,67 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.codex\\diegin\\hooks\\diegin_session_start.ps1\"",
+            "statusMessage": "⚡ DGEN SessionStart",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.codex\\diegin\\hooks\\diegin_pre_tool.ps1\"",
+            "statusMessage": "⚡ DGEN PreToolUse",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.codex\\diegin\\hooks\\diegin_pre_reply.ps1\"",
+            "statusMessage": "⚡ DGEN PreReply+Review",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.codex\\diegin\\hooks\\diegin_post_tool.ps1\"",
+            "statusMessage": "⚡ DGEN PostToolUse",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.codex\\diegin\\hooks\\diegin_stop.ps1\"",
+            "statusMessage": "⚡ DGEN StopReport",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

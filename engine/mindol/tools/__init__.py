@@ -1,1 +1,1 @@
-﻿"""mindol.tools - 工具集"""
+"""mindol.tools - 工具集"""

@@ -1,4 +1,4 @@
-﻿"""Tests for mindol core modules"""
+"""Tests for mindol core modules"""
 import os, sys, numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine"))
 

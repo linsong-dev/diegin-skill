@@ -1,70 +1,46 @@
-﻿# 迭进·DGEN UserPromptSubmit 钩子 - AI 回复前迭进预检
-# 由 Codex 运行时自动触发，AI 无法绕过
+$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+function Add-NoBOMLog { param([string]$Path,[string]$Message) $ts=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"; $d=Split-Path $Path -Parent; if($d-and -not(Test-Path $d)){New-Item $d -Force|Out-Null}; $oldContent=""; if(Test-Path $Path){$oldContent=[System.IO.File]::ReadAllText($Path,$script:utf8NoBOM)}; [System.IO.File]::WriteAllText($Path,"$ts $Message`r`n$oldContent",$script:utf8NoBOM) }
 
-# 从脚本路径推导插件根目录（消除硬编码）
 $pluginRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $auditLog = Join-Path $pluginRoot "diegin_audit.log"
-$pythonExe = Join-Path $pluginRoot ".venv\Scripts\python.exe"
-$enginePy = Join-Path $pluginRoot "engine\call_diegin.py"
 $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
-try { "$time [HOOK:UserPromptSubmit] FIRED | root=$pluginRoot" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue } catch {}
+$pythonExe = Join-Path $pluginRoot "bin\.venv\Scripts\python.exe"
+$enginePy = Join-Path $pluginRoot "engine\call_diegin.py"
+$stateFile = Join-Path $pluginRoot "var\state\dgen_last_reply.json"
 
-$dgenOutput = "[DGEN] ⚡ 迭进引擎检查中"
+Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:UserPromptSubmit] FIRED"
 
 try {
     if (Test-Path $pythonExe) {
-        # Step 1: 迭进预检（同步，必须完成）
-        $ctxJson = '{"message":"hook","session_id":"dgen"}'
-        $checkOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $dgenOutput = "[DGEN] ✅ 通过"
-            try { "$time [HOOK:DGEN-CHECK] OK" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue } catch {}
+        $ctxJson = '{"task_type":"user_prompt","session_id":"dgen"}'
+        $rawOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
+        $checkResult = $rawOutput | ConvertFrom-Json
+
+        # 写入状态文件（PreTool 将读取此文件）
+        $stateDir = Split-Path $stateFile -Parent
+        if (-not (Test-Path $stateDir)) { New-Item $stateDir -Force | Out-Null }
+        $state = @{
+            ts = (Get-Date -Format "o")
+            decision = $checkResult.decision
+            reason = $checkResult.reason
+            winning_rule = $checkResult.winning_rule_id
+            matched_count = $checkResult.matched_interceptions
+        }
+        $stateJson = $state | ConvertTo-Json -Compress
+        [System.IO.File]::WriteAllText($stateFile, $stateJson, $script:utf8NoBOM)
+
+        if ($checkResult.decision -eq "block" -or $checkResult.decision -eq "iron_wall_block") {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] BLOCK | $($checkResult.reason)"
+            $checkResult.display_line
         } else {
-            try { "$time [HOOK:DGEN-CHECK] ERR exit=$LASTEXITCODE" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue } catch {}
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] OK | decision=$($checkResult.decision)"
+            "[DGEN] ✅ 通过"
         }
-
-        # Step 2: 守三攻七复盘（同步执行，不阻塞回复）- 快速操作
-        try {
-            $sandwichOut = & $pythonExe $enginePy sandwich 2>&1
-            $exitCode = $LASTEXITCODE
-            if ($exitCode -eq 0) {
-                "$time [HOOK:SANDWICH] OK | $sandwichOut" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
-            } else {
-                "$time [HOOK:SANDWICH] ERR exit=$exitCode | $sandwichOut" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
-            }
-        } catch {
-            "$time [HOOK:SANDWICH] EXCEPTION | $_" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
-        }
-
-        # Step 3: 举一反三规则泛化（同步执行）
-        try {
-            $generalizeOut = & $pythonExe $enginePy generalize 2>&1
-            $exitCode = $LASTEXITCODE
-            if ($exitCode -eq 0) {
-                "$time [HOOK:GENERALIZE] OK | $(($generalizeOut | Measure-Object -Line).Lines) lines" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
-            } else {
-                "$time [HOOK:GENERALIZE] ERR exit=$exitCode | $generalizeOut" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
-            }
-        } catch {
-            "$time [HOOK:GENERALIZE] EXCEPTION | $_" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue
-        }
+    } else {
+        "[DGEN] ⚡ 迭进引擎检查中"
     }
 } catch {
-    try { "$time [HOOK:DGEN-CHECK] EXCEPTION | $_" | Add-Content -Path $auditLog -ErrorAction SilentlyContinue } catch {}
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] EXCEPTION | $_ "
+    "[DGEN] ⚡ 迭进引擎检查中"
 }
-
-# 输出迭进标记注入 AI 上下文
-@"
-$dgenOutput
-
-## DGEN ⚡ 迭进引擎已激活
-
-当前迭进规则已就绪：
-- 系统级拦截规则 + 成功模式
-- 守三攻七自动复盘（后台运行）
-- 一二不过三错误追踪
-- 举一反三规则泛化
-- 请在每次回复开头输出 [DGEN] 标记
-"@
-exit 0

@@ -1,4 +1,4 @@
-﻿"""Tests for evo.rule_engine"""
+"""Tests for evo.rule_engine"""
 import os, sys, json, tempfile, shutil
 from datetime import datetime
 from pathlib import Path

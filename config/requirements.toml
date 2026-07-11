@@ -1,4 +1,4 @@
-﻿allow_managed_hooks_only = true
+allow_managed_hooks_only = true
 
 [features]
 hooks = true

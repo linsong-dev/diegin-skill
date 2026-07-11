@@ -1,4 +1,4 @@
-﻿"""Tests for evo.arbiter"""
+"""Tests for evo.arbiter"""
 import os, sys, tempfile, shutil
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine", "evo"))

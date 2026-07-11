@@ -109,7 +109,7 @@
   },
   {
     "id": "rule_marker_001",
-    "trigger_condition": "outbound_message and not outbound_message.startswith('[DGEN')",
+    "trigger_condition": "'outbound' in context and '[DGEN]' not in str(context)",
     "action": "block_reply; re_activate_diegin",
     "severity": "high",
     "tags": [
@@ -167,7 +167,7 @@
   },
   {
     "id": "rule_subagent_marker_001",
-    "trigger_condition": "session_type == 'subagent' AND not has_diegin_rule",
+    "trigger_condition": "task_type == 'subagent' and 'diegin' not in context",
     "action": "block_reply; inject_diegin_task",
     "severity": "medium",
     "tags": [
@@ -248,7 +248,7 @@
   },
   {
     "id": "rule_check_before_conclude",
-    "trigger_condition": "output_contains_number_mismatch OR data_source_inconsistency",
+    "trigger_condition": "'mismatch' in context or 'inconsistency' in context or 'conflict' in context",
     "action": "block; cross_validate_multi_source_before_conclusion",
     "severity": "high",
     "tags": [
@@ -275,7 +275,7 @@
   },
   {
     "id": "rule_clean_verify_layered",
-    "trigger_condition": "task_contains_clean_or_remove_or_purge",
+    "trigger_condition": "task_type == 'clean' or task_type == 'remove' or task_type == 'purge' or 'clean' in context or 'remove' in context or 'purge' in context",
     "action": "block; enforce_3_layer_verify",
     "severity": "critical",
     "tags": [
@@ -305,7 +305,7 @@
   },
   {
     "id": "rule_delivery_full_audit",
-    "trigger_condition": "final_delivery OR report_final_version",
+    "trigger_condition": "task_type == 'delivery' or task_type == 'release' or task_type == 'publish' or 'delivery' in context or 'release' in context",
     "action": "block; list_every_file_confirm_in_scope",
     "severity": "critical",
     "tags": [
@@ -866,7 +866,7 @@
   },
   {
     "id": "rule_encoding_no_bom_utf8",
-    "trigger_condition": "file_io_contains_non_ascii AND NOT utf8_nobom",
+    "trigger_condition": "'non_ascii' in context or 'encoding' in context and 'utf8' not in context",
     "action": "block_execution; require_utf8_nobom",
     "severity": "critical",
     "tags": [
@@ -1482,5 +1482,103 @@
     "created_at": "2026-07-11T01:38:06.074943",
     "triggered_count": 1,
     "block_count": 1
+  },
+  {
+    "id": "rule_protect_diegin_hooks_json",
+    "trigger_condition": "'hooks.json' in context or 'config.toml' in context or 'trusted_hash' in context",
+    "action": "block_execution; notify_protected_file",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "system_safety",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "human_override",
+    "source_review": "2026-07-11-diegin-core-protect",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-11T23:25:00",
+    "valid_until": "",
+    "last_triggered": "",
+    "boundary_conditions": [
+      "用户手动修改时需先禁用此规则",
+      "与 hooks.json 无关的 JSON 操作不受影响"
+    ],
+    "invalid_conditions": [
+      "用户明确在 %DEV_ROOT%\\diegin-skill 源码目录中修改时放行"
+    ],
+    "triggered_count": 0,
+    "ignored_count": 0,
+    "override_count": 0,
+    "last_ignored": "",
+    "block_count": 0,
+    "blocked_rules": []
+  },
+  {
+    "id": "rule_protect_diegin_hook_scripts",
+    "trigger_condition": "'.ps1' in context and ('diegin' in context or 'hook' in context)",
+    "action": "block_execution; notify_protected_file",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "system_safety",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "human_override",
+    "source_review": "2026-07-11-diegin-core-protect",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-11T23:25:00",
+    "valid_until": "",
+    "last_triggered": "",
+    "boundary_conditions": [
+      "用户手动修改时需先禁用此规则"
+    ],
+    "invalid_conditions": [
+      "用户明确在 %DEV_ROOT%\\diegin-skill 源码目录中修改时放行"
+    ],
+    "triggered_count": 0,
+    "ignored_count": 0,
+    "override_count": 0,
+    "last_ignored": "",
+    "block_count": 0,
+    "blocked_rules": []
+  },
+  {
+    "id": "rule_protect_diegin_engine_rules",
+    "trigger_condition": "'engine' in context or 'evo' in context or 'rule_engine' in context or 'interception_rules' in context",
+    "action": "block_execution; notify_protected_file",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "system_safety",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "human_override",
+    "source_review": "2026-07-11-diegin-core-protect",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-11T23:25:00",
+    "valid_until": "",
+    "last_triggered": "",
+    "boundary_conditions": [
+      "用户手动修改时需先禁用此规则"
+    ],
+    "invalid_conditions": [
+      "用户明确在 %DEV_ROOT%\\diegin-skill 源码目录中修改时放行",
+      "通过插件 marketplace 正常更新时放行"
+    ],
+    "triggered_count": 0,
+    "ignored_count": 0,
+    "override_count": 0,
+    "last_ignored": "",
+    "block_count": 0,
+    "blocked_rules": []
   }
 ]
