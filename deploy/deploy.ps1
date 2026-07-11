@@ -8,7 +8,6 @@ $ErrorActionPreference = "Stop"
 $script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 function Write-NoBOM { param([string]$Path, [string]$Content) [System.IO.File]::WriteAllText($Path, $Content, $script:utf8NoBOM) }
 function Write-NoBOMJson { param([string]$Path, $Object, [int]$Depth=10) $j = $Object | ConvertTo-Json -Depth $Depth; [System.IO.File]::WriteAllText($Path, $j, $script:utf8NoBOM) }
-function Add-NoBOMLog { param([string]$Path, [string]$Message) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"; $d = Split-Path $Path -Parent; if ($d -and -not (Test-Path $d)) { New-Item $d -Force | Out-Null }; [System.IO.File]::AppendAllText($Path, "`r`n$t $Message", $script:utf8NoBOM) }
 function Test-BOM { param([string]$Path) if (-not (Test-Path $Path)) { return $false }; $b = [System.IO.File]::ReadAllBytes($Path); return ($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191) }
 
 function Write-Step {
@@ -75,9 +74,8 @@ if (-not (Test-Path $mktplFile)) {
     }
 }
 
-# ── 4. 系统 Hook ──
 Write-Step "阶段 4/7: 部署系统级 Hook" "STEP"
-`if (Test-Path "$srcRoot\deploy\hooks-template.json")`r`n    `$h = `$h -replace '%USERPROFILE%', `$env:USERPROFILE {
+if (Test-Path "$srcRoot\deploy\hooks-template.json") {
     $h = Get-Content "$srcRoot\deploy\hooks-template.json" -Encoding UTF8 -Raw
     Write-NoBOM -Path "$codexHome\hooks.json" -Content $h
     Write-Step "  hooks.json 已部署" "OK"
