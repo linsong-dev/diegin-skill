@@ -781,16 +781,16 @@ def generalize_rule(new_rule_id: str = None) -> list:
         }
 
 
-        # [????] ????????????????????????10???critical/high?
+        # [规则] 自动泛化规则超过10条critical/high时，清理旧规则
         _auto_written = []
         _high_sev = {"critical", "high"}
         
-        # ??????????????? 30 ?????????
+        # 规则数量达到30条时触发清理
         try:
             old_auto = [r for r in engine.get_interceptions(active_only=False) if r.source == "auto_generalized"]
             if len(old_auto) >= 30:
                 old_auto.sort(key=lambda r: getattr(r, "created_at", "") or "")
-                to_remove = old_auto[:-20]  # ????? 20 ?
+                to_remove = old_auto[:-20]  # 保留最新20条规则
                 for r in to_remove:
                     try:
                         engine.delete_interception(r.id)
@@ -802,7 +802,7 @@ def generalize_rule(new_rule_id: str = None) -> list:
         for c in unique_candidates:
             if len(_auto_written) >= 10:
                 break
-            # ?????
+            # 清理完成
             sev = c.get("target_severity", None)
             if sev is None and "missing_severity" in c:
                 sev_list = c["missing_severity"]
@@ -851,7 +851,7 @@ def generalize_rule(new_rule_id: str = None) -> list:
             try:
                 engine.save_all()
                 _last_generalization_check["auto_written"] = _auto_written
-                print(f"[DGEN:AUTO] ???????? {len(_auto_written)} ???")
+            print(f"[DGEN:AUTO] 自动写入 {len(_auto_written)} 条规则")
             except Exception:
                 pass
 

@@ -553,7 +553,7 @@
     "valid_until": "",
     "last_triggered": "",
     "boundary_conditions": [
-      "config.toml???[plugins.\"name@marketplace\"] enabled=true + [marketplaces.personal] source?? + marketplace.json plugins???"
+      "config.toml配置插件 marketplace.json添加plugins条目"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,
@@ -584,7 +584,7 @@
     "valid_until": "",
     "last_triggered": "",
     "boundary_conditions": [
-      "EF BB BF ??? BOM; Python 3???C++/Rust/JS?????"
+      "EF BB BF 即 UTF-8 BOM; Python 3 可处理但 C++/Rust/JS 解析器失败"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,
