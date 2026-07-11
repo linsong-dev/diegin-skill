@@ -1580,5 +1580,396 @@
     "last_ignored": "",
     "block_count": 0,
     "blocked_rules": []
+  },
+  {
+    "id": "rule_json_escape_check",
+    "trigger_condition": "'hooks.json' in context and ('escape' in context or 'write' in context or 'create' in context)",
+    "action": "check_escape_before_write; use_json_dumps",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "encoding",
+      "io_filesystem"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "json.dumps() 自动处理所有转义"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_config_hash_sync",
+    "trigger_condition": "'hooks.json' in context and ('config.toml' in context or 'trusted_hash' in context)",
+    "action": "block; enforce_hash_sync_before_restart",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "system_safety",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "修改 hooks.json 后必须在 config.toml 更新 10 处 trusted_hash"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_plugin_vs_local_hooks",
+    "trigger_condition": "'.codex' in context and 'hooks.json' in context",
+    "action": "block; check_both_hook_locations",
+    "severity": "high",
+    "tags": [
+      "global",
+      "system_safety"
+    ],
+    "logic_score": 4.5,
+    "outcome_score": 4.5,
+    "confidence": 4.5,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "~/.codex/hooks.json 和 plugin hooks 都要检查"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_engine_ops_contains_fix",
+    "trigger_condition": "'rule_engine' in context or 'trigger_condition' in context",
+    "action": "block; use_dot_contains_instead_of_bare_contains",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "engine"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-engine-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "trigger_condition 中必须用 '.contains(' 不要裸词 'contains'"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_engine_bareword_guard",
+    "trigger_condition": "'trigger_condition' in context or 'rule_engine' in context",
+    "action": "block; verify_field_exists_in_context",
+    "severity": "high",
+    "tags": [
+      "global",
+      "engine"
+    ],
+    "logic_score": 4.5,
+    "outcome_score": 4.5,
+    "confidence": 4.5,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-engine-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "不要在 trigger_condition 中使用不在 context 中的字段名"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_hook_prepend_log",
+    "trigger_condition": "'audit_log' in context or 'diegin_audit' in context or 'log' in context",
+    "action": "use_prepend_write; not_append",
+    "severity": "medium",
+    "tags": [
+      "global",
+      "hooks",
+      "io_filesystem"
+    ],
+    "logic_score": 4.0,
+    "outcome_score": 4.0,
+    "confidence": 4.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "审计日志用前置写入（新记录在最前）"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_hook_engine_parse_json",
+    "trigger_condition": "'pre_reply' in context or 'pre_tool' in context or 'diegin' in context and 'hook' in context",
+    "action": "parse_engine_json_decision; not_rely_on_exitcode",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "hooks",
+      "engine"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "钩子调引擎后必须 ConvertFrom-Json 解析 decision"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_dual_defense_state_relay",
+    "trigger_condition": "'pre_reply' in context or 'pre_tool' in context or 'state_file' in context",
+    "action": "state_relay_between_hooks; write_state_in_reply_read_in_tool",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "hooks",
+      "system_safety"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "PreReply 写状态文件 dgen_last_reply.json → PreTool 读取接力拦截"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_ai_override_state",
+    "trigger_condition": "'dgen_override' in context or 'override' in context and 'diegin' in context",
+    "action": "write_override_block; ai_precheck_before_tool",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "system_safety",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "AI 回复前 [DGEN] 预检命中保护规则时调 dgen_override.py 写 block"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_state_expire_60s",
+    "trigger_condition": "'state_file' in context or 'dgen_last_reply' in context or 'dgen_override' in context",
+    "action": "check_timestamp_before_relay; expire_after_60s",
+    "severity": "medium",
+    "tags": [
+      "global",
+      "hooks"
+    ],
+    "logic_score": 3.5,
+    "outcome_score": 4.0,
+    "confidence": 3.8,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "状态文件接力 60 秒过期，过期 block 不拦截"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_hook_scripts_location",
+    "trigger_condition": "'scripts' in context and ('diegin' in context or 'hook' in context)",
+    "action": "block; use_hooks_dir_instead_of_scripts",
+    "severity": "high",
+    "tags": [
+      "global",
+      "hooks"
+    ],
+    "logic_score": 4.0,
+    "outcome_score": 4.5,
+    "confidence": 4.3,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-hook-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "钩子脚本放 hooks/ 目录，scripts/ 已废弃"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_deploy_direction",
+    "trigger_condition": "'deploy' in context and 'diegin' in context",
+    "action": "block; enforce_source_to_runtime_direction",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "deploy",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-deploy-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "部署方向永远是 %DEV_ROOT% → ~/.codex，绝不可反向"
+    ],
+    "invalid_conditions": [
+      "用户明确在 %DEV_ROOT%\\diegin-skill 源码目录中修改时放行"
+    ]
+  },
+  {
+    "id": "rule_deploy_verify_consistency",
+    "trigger_condition": "'deploy' in context and 'verify' in context",
+    "action": "deploy_consistency_check; block_on_mismatch",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "deploy"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-deploy-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "部署前确认源码 vs 运行时关键文件字节一致"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_deploy_git_push",
+    "trigger_condition": "'push' in context and 'deploy' in context and 'diegin' in context",
+    "action": "push_first_then_deploy; verify_deploy_script_syntax",
+    "severity": "high",
+    "tags": [
+      "global",
+      "deploy"
+    ],
+    "logic_score": 4.0,
+    "outcome_score": 4.5,
+    "confidence": 4.3,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-deploy-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "先推 GitHub 再部署本地，deploy.ps1 需 PowerShell AST 语法验证"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_deploy_bom_self_check",
+    "trigger_condition": "'deploy' in context and 'bom' in context",
+    "action": "recursive_bom_audit_after_deploy",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "deploy",
+      "encoding"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-deploy-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "部署后全量递归检查 .json/.ps1/.toml/.md BOM"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_deploy_ps1_avoid_set_content",
+    "trigger_condition": "'deploy.ps1' in context or ('deploy' in context and 'ps1' in context)",
+    "action": "block; use_writealltext_not_set_content_nonewline",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "deploy",
+      "encoding"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-deploy-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "禁止 Set-Content -NoNewline，必须 [System.IO.File]::WriteAllText()"
+    ],
+    "invalid_conditions": []
+  },
+  {
+    "id": "rule_modify_source_not_runtime",
+    "trigger_condition": "'.codex' in context and ('modify' in context or 'edit' in context or 'write' in context) and ('diegin' in context or 'hook' in context or 'engine' in context)",
+    "action": "block; redirect_to_source_directory",
+    "severity": "critical",
+    "tags": [
+      "global",
+      "diegin_core_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-deploy-fix",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "所有修改必须在 %DEV_ROOT%\\diegin-skill 源码中进行，从源码同步到运行时"
+    ],
+    "invalid_conditions": [
+      "用户明确在源码目录修改时放行"
+    ]
+  },
+  {
+    "id": "rule_reply_hook_retro_first",
+    "trigger_condition": "'reply' in context and 'rule' in context",
+    "action": "retrospect_key_rules_before_reply",
+    "severity": "medium",
+    "tags": [
+      "global",
+      "efficiency"
+    ],
+    "logic_score": 3.5,
+    "outcome_score": 3.5,
+    "confidence": 3.5,
+    "source": "learned",
+    "source_review": "2026-07-12-diegin-conversation",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T01:01:43.198443",
+    "boundary_conditions": [
+      "回复前先回顾本对话中的关键规则避免重新踩坑"
+    ],
+    "invalid_conditions": []
   }
 ]

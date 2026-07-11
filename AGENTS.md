@@ -21,7 +21,8 @@
 
 **没有 [DGEN] 标记 = 迭进未激活 = 故障！**
 
-### 4. 迭进规则（17条）
+### 4. 迭进规则（63条，持续演化）
+
 | 规则 | 严重度 | 描述 |
 |:---|:---:|:---|
 | rule_word_meaning_confirm | high | 歧义词先确认再执行 |
@@ -40,7 +41,29 @@
 | rule_encoding_no_bom_utf8 | critical | 全文件 UTF8 NoBOM 编码规则 |
 | rule_pre_deploy_encoding_audit | critical | 部署前编码三遍审计 |
 | rule_dgen_marker_every_reply | critical | 每轮回复开头必须有 [DGEN] 标记 |
-| rule_powershell_set_content_bom | critical | PowerShell Set-Content 写入 UTF-8 BOM 导致 Codex 解析失败，必须用 WriteAllText 替代 |
+| rule_powershell_set_content_bom | critical | 禁止 Set-Content，必须 WriteAllText |
+| rule_json_escape_check | critical | hooks.json 写入前验证 JSON 转义 |
+| rule_config_hash_sync | critical | 修改 hooks.json 后同步 config.toml 信任哈希 |
+| rule_plugin_vs_local_hooks | high | 两份 hooks 配置都要检查 |
+| rule_json_no_bom | critical | 全 JSON 文件 UTF-8 NoBOM |
+| rule_engine_ops_contains_fix | critical | trigger_condition 用 .contains( 非裸词 contains |
+| rule_engine_bareword_guard | high | 不用不在 context 中的字段名 |
+| rule_hook_prepend_log | medium | 审计日志前置写入 |
+| rule_hook_engine_parse_json | critical | 钩子必须解析引擎 JSON decision |
+| rule_dual_defense_state_relay | critical | PreReply 写状态 → PreTool 接力拦截 |
+| rule_ai_override_state | critical | AI 回复前命中保护规则则写 override block |
+| rule_state_expire_60s | medium | 状态文件 60s 过期 |
+| rule_hook_scripts_location | high | 钩子放 hooks/ 非 scripts/ |
+| rule_deploy_direction | critical | 部署方向：源码→~/.codex，不可反向 |
+| rule_deploy_verify_consistency | critical | 部署前校验源码 vs 运行时一致性 |
+| rule_deploy_git_push | high | 先推 GitHub 再部署 |
+| rule_deploy_bom_self_check | critical | 部署后全量 BOM 审计 |
+| rule_deploy_ps1_avoid_set_content | critical | deploy.ps1 禁止 Set-Content |
+| rule_modify_source_not_runtime | critical | 修改必须在源码目录 |
+| rule_reply_hook_retro_first | medium | 回复前先回顾关键规则 |
+| rule_protect_diegin_hooks_json | critical | 保护 hooks.json + config.toml |
+| rule_protect_diegin_hook_scripts | critical | 保护 diegin/hooks/*.ps1 |
+| rule_protect_diegin_engine_rules | critical | 保护 engine/*.py + evo/rules/*.json |
 
 ### 5. 情景覆盖
 - 用户回复：必须迭进预检
