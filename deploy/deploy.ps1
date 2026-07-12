@@ -130,7 +130,7 @@ Get-ChildItem $bomFiles -Recurse -Include "*.json","*.ps1","*.toml","*.md" -Erro
         $hasBOM = $true
     }
 }
-if (-not $hasBOM) { Write-Step "  全部无 BOM ✅" "OK" }
+if (-not $hasBOM) { Write-Step "  BOM check all clean (NoBOM)" "OK" }
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
