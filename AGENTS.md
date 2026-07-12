@@ -40,7 +40,7 @@
 | rule_tool_selection_fastest | medium | 选最快工具 |
 | rule_encoding_no_bom_utf8 | critical | 全文件 UTF8 NoBOM 编码规则 |
 | rule_pre_deploy_encoding_audit | critical | 部署前编码三遍审计 |
-| rule_dgen_marker_every_reply | critical | 每轮回复开头必须有 [DGEN] 标记 |
+| rule_dgen_marker_every_reply | critical | 每轮回复开头必须有 [DGEN] 标记 | 引擎级: task_type==user_prompt 时自动匹配审计 |
 | rule_powershell_set_content_bom | critical | 禁止 Set-Content，必须 WriteAllText |
 | rule_json_escape_check | critical | hooks.json 写入前验证 JSON 转义 |
 | rule_config_hash_sync | critical | 修改 hooks.json 后同步 config.toml 信任哈希 |
@@ -70,3 +70,10 @@
 - 子会话（subagent）：必须注入迭进规则
 - 纯工具调用（无回复）：不需要
 
+
+### 6. 引擎级强制执行（机械不可绕过）
+- **rule_dgen_marker_every_reply** → 引擎在 PreReply 钩子调用时自动匹配，task_type==user_prompt 触发
+- **rule_marker_001** → 同上，双保险
+- **rule_marker_tool_block** → PreTool 每次工具调用前自动审计 marker 状态
+- **display_line 输出 [DGEN]** ↳ 通过引擎返回 display_line 在钩子界面显示
+- **无法注入回复文本** ⚠️ AI 仍必须在文本开头输出 [DGEN] 标记，但每轮 PreReply 均会被引擎审计

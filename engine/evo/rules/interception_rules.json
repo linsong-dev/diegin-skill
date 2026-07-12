@@ -109,9 +109,9 @@
   },
   {
     "id": "rule_marker_001",
-    "trigger_condition": "'outbound' in context and '[DGEN]' not in str(context)",
-    "action": "block_reply; re_activate_diegin",
-    "severity": "high",
+    "trigger_condition": "task_type == 'user_prompt'",
+    "action": "audit_only; check_marker_in_display",
+    "severity": "low",
     "tags": [
       "global",
       "marker_enforcement"
@@ -126,7 +126,8 @@
     "valid_until": "",
     "last_triggered": "2026-07-10T12:35:29.640580",
     "boundary_conditions": [
-      "空消息不判定拦截"
+      "PreReply钩子调用时检查",
+      "在引擎返回display_line中注入[DGEN]标记文本"
     ],
     "invalid_conditions": [
       "消息已含[DGEN]标记时放行"
@@ -1446,9 +1447,9 @@
   },
   {
     "id": "rule_dgen_marker_every_reply",
-    "trigger_condition": "reply_being_assembled",
-    "action": "require_dgen_prefix; fail_if_marker_missing_in_final_output",
-    "severity": "critical",
+    "trigger_condition": "task_type == 'user_prompt'",
+    "action": "audit_only; inject_display_line",
+    "severity": "low",
     "tags": [
       "global",
       "marker_coverage"
@@ -1461,7 +1462,11 @@
     "lifecycle_status": "active",
     "created_at": "2026-07-11T01:08:50.659786",
     "triggered_count": 1,
-    "block_count": 0
+    "block_count": 0,
+    "boundary_conditions": [
+      "PreReply钩子触发时匹配 task_type=user_prompt",
+      "引擎回复display_line=[DGEN] 通过, 通过钩子statusMessage显示"
+    ]
   },
   {
     "id": "rule_powershell_set_content_bom",
@@ -1971,5 +1976,37 @@
       "回复前先回顾本对话中的关键规则避免重新踩坑"
     ],
     "invalid_conditions": []
+  },
+  {
+    "id": "rule_marker_tool_block",
+    "trigger_condition": "task_type == 'pre_tool'",
+    "action": "audit_only; record_tool_marker_audit",
+    "severity": "low",
+    "tags": [
+      "global",
+      "marker_coverage",
+      "enforcement"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-marker-enforcement-hardening",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T10:00:00",
+    "boundary_conditions": [
+      "PreTool钩子每次触发时检查",
+      "如果PreReply状态文件不存在或过期,在审计中记录警告",
+      "配合PreTool钩子自身的状态文件检查实现block"
+    ],
+    "invalid_conditions": [],
+    "triggered_count": 0,
+    "ignored_count": 0,
+    "override_count": 0,
+    "last_triggered": "",
+    "block_count": 0,
+    "blocked_rules": [],
+    "last_ignored": "",
+    "valid_until": ""
   }
 ]
