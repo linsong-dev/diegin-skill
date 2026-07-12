@@ -851,7 +851,7 @@ def generalize_rule(new_rule_id: str = None) -> list:
             try:
                 engine.save_all()
                 _last_generalization_check["auto_written"] = _auto_written
-            print(f"[DGEN:AUTO] 自动写入 {len(_auto_written)} 条规则")
+                print(f"[DGEN:AUTO] 自动写入 {len(_auto_written)} 条规则")
             except Exception:
                 pass
 

@@ -93,8 +93,8 @@ class Mindol:
 
     def _persist_unit(self, unit: MemoryUnit, space: str):
         emb = unit.embedding.tobytes() if unit.embedding is not None else b""
-                _mem_sql = "INSERT OR REPLACE INTO memory_units VALUES (?,?,?,?,?,?,?,?)"
-                self._db.execute(_mem_sql,
+        _mem_sql = "INSERT OR REPLACE INTO memory_units VALUES (?,?,?,?,?,?,?,?)"
+        self._db.execute(_mem_sql,
                          (unit.uid, space, unit.text, unit.source, unit.path,
                           json.dumps(unit.metadata, ensure_ascii=False), unit.timestamp, emb))
         self._db.commit()
