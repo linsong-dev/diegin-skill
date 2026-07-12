@@ -98,7 +98,9 @@
     "created_at": "2026-06-20T23:28:50.933427",
     "valid_until": "",
     "last_triggered": "",
-    "boundary_conditions": [],
+    "boundary_conditions": [
+      "[元原则: 一二不过三]"
+    ],
     "invalid_conditions": [],
     "triggered_count": 0,
     "ignored_count": 0,
@@ -129,7 +131,8 @@
     "last_triggered": "2026-07-10T12:35:29.640580",
     "boundary_conditions": [
       "PreReply钩子调用时检查",
-      "在引擎返回display_line中注入[DGEN]标记文本"
+      "在引擎返回display_line中注入[DGEN]标记文本",
+      "[元原则: 去伪存真]"
     ],
     "invalid_conditions": [
       "消息已含[DGEN]标记时放行"
@@ -213,7 +216,9 @@
     "created_at": "2026-07-07T11:00:00.000000",
     "valid_until": "",
     "last_triggered": "",
-    "boundary_conditions": [],
+    "boundary_conditions": [
+      "[元原则: 守三]"
+    ],
     "invalid_conditions": [],
     "triggered_count": 0,
     "ignored_count": 0,
@@ -296,7 +301,8 @@
     "valid_until": "",
     "last_triggered": "",
     "boundary_conditions": [
-      "quick preview skip"
+      "quick preview skip",
+      "[元原则: 守三]"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,
@@ -325,7 +331,9 @@
     "created_at": "2026-07-07T11:00:00.000000",
     "valid_until": "",
     "last_triggered": "",
-    "boundary_conditions": [],
+    "boundary_conditions": [
+      "[元原则: 守三]"
+    ],
     "invalid_conditions": [],
     "triggered_count": 0,
     "ignored_count": 0,
@@ -438,7 +446,9 @@
     "created_at": "2026-07-07T11:00:00.000000",
     "valid_until": "",
     "last_triggered": "",
-    "boundary_conditions": [],
+    "boundary_conditions": [
+      "[元原则: 守三]"
+    ],
     "invalid_conditions": [],
     "triggered_count": 0,
     "ignored_count": 0,
@@ -466,7 +476,9 @@
     "created_at": "2026-07-07T11:00:00.000000",
     "valid_until": "",
     "last_triggered": "",
-    "boundary_conditions": [],
+    "boundary_conditions": [
+      "[元原则: 守三]"
+    ],
     "invalid_conditions": [],
     "triggered_count": 0,
     "ignored_count": 0,
@@ -886,7 +898,8 @@
     "valid_until": "",
     "last_triggered": "",
     "boundary_conditions": [
-      "第三方库不受此检查限制"
+      "第三方库不受此检查限制",
+      "[元原则: 守三]"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,
@@ -914,7 +927,9 @@
     "created_at": "2026-07-10T20:00:00.000000",
     "valid_until": "",
     "last_triggered": "",
-    "boundary_conditions": [],
+    "boundary_conditions": [
+      "[元原则: 守三]"
+    ],
     "invalid_conditions": [],
     "triggered_count": 0,
     "ignored_count": 0,
@@ -1445,7 +1460,10 @@
     "lifecycle_status": "active",
     "created_at": "2026-07-11T01:08:50.659786",
     "triggered_count": 0,
-    "block_count": 0
+    "block_count": 0,
+    "boundary_conditions": [
+      "[元原则: 攻七]"
+    ]
   },
   {
     "id": "rule_dgen_marker_every_reply",
@@ -1469,7 +1487,8 @@
     "block_count": 0,
     "boundary_conditions": [
       "PreReply钩子触发时匹配 task_type=user_prompt",
-      "引擎回复display_line=[DGEN] 通过, 通过钩子statusMessage显示"
+      "引擎回复display_line=[DGEN] 通过, 通过钩子statusMessage显示",
+      "[元原则: 去伪存真]"
     ]
   },
   {
@@ -2001,7 +2020,8 @@
     "boundary_conditions": [
       "PreTool钩子每次触发时检查",
       "如果PreReply状态文件不存在或过期,在审计中记录警告",
-      "配合PreTool钩子自身的状态文件检查实现block"
+      "配合PreTool钩子自身的状态文件检查实现block",
+      "[元原则: 去伪存真]"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,
@@ -2035,7 +2055,8 @@
       "言必有证：AI每轮输出必须带[DGEN]标记作为证据",
       "证必可验：系统通过引擎display_line验证标记存在",
       "验证为真：标记存在且匹配当前阶段状态则通过",
-      "验证不通过：记录audit但不干扰执行"
+      "验证不通过：记录audit但不干扰执行",
+      "[元原则: 去伪存真]"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,

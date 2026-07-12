@@ -105,6 +105,7 @@ class BehaviorTracker:
     def record_self_error(self, error_type: str, detail: str, task_context: Dict = None) -> Dict:
         """
         一二不过三（三错阀）：记录自身同类错误
+    # 初错立规->再错固规->三错请裁决
         第1次→创建拦截规则
         第2次→加固（置信度+1）
         第3次→通知用户干预

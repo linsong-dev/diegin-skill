@@ -1,3 +1,4 @@
+# 迭进预检运行器(守三负向纠错: 观不足->省其因->正其行)
 """
 dgen_pre_check_runner.py — 由 OpenClaw 插件调用的 Python 桥接脚本。
 通过 stdin 接收 JSON（task context），输出 JSON 预检结果到 stdout。
