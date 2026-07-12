@@ -361,15 +361,30 @@ class RuleEngine:
         except Exception:
             pass
 
-        # ── 回退：模糊关键词匹配 ──
+        # ── 回退：'x' in context 精确检查 ──
+        # AST 无法将 'context' 解析为 dict 变量，导致 'x' in context 永远 False
+        # 解决方法：手动检查含有 "in context" 的表达式
+        try:
+            if "' in context" in cond or '" in context' in cond:
+                ctx_str_lower = str(context).lower()
+                quoted = re.findall(r"'([^']+)' in context", cond)
+                for pair in quoted:
+                    q = pair[0] if pair[0] else pair[1]
+                    if q.lower() in ctx_str_lower:
+                        return True
+                return False
+        except Exception:
+            pass
+        
+        # ── 回退：关键词模糊匹配（仅用于纯关键词） ──
         try:
             ctx_str = str(context).lower()
-            cond_lower = cond.lower()
-            for op_word in ['and', 'or', 'not']:
-                cond_lower = cond_lower.replace(f' {op_word} ', ' ')
-            for word in cond_lower.split():
-                word = word.strip().strip("'").strip('"').strip("(").strip(")").strip(",")
-                if len(word) > 3 and word in ctx_str:
+            cond_lower = cond.lower().strip()
+            ops_check = ['==', '!=', '>', '<', '>=', '<=', ' and ', ' or ', '.startswith(', '.contains(', ' in ', ' not ']
+            has_ops = any(op in cond_lower for op in ops_check)
+            if not has_ops:
+                kw = cond_lower.strip("'\"")
+                if len(kw) > 3 and kw in ctx_str:
                     return True
         except Exception:
             pass
@@ -399,6 +414,9 @@ class RuleEngine:
         # 为常见布尔标记提供默认值
         scope.setdefault('has_diegin_rule', False)
         scope.setdefault('reply_unaffected', False)
+
+        # 映射 context 到字符串表示，支持 'x' in context 模式
+        scope['context'] = str(context)
 
         # 解析 AST
         try:
@@ -539,6 +557,5 @@ def init_rules_if_empty(rule_engine: RuleEngine):
             rule_engine.add_interception(rule)
         rule_engine.save_all()
         print("[OK] 种子规则注入完成，智能体已具备基础生存能力")
-
 
 
