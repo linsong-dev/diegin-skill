@@ -114,7 +114,9 @@
     "severity": "low",
     "tags": [
       "global",
-      "marker_enforcement"
+      "marker_enforcement",
+      "去伪存真",
+      "真伪门"
     ],
     "logic_score": 5.0,
     "outcome_score": 5.0,
@@ -1452,7 +1454,9 @@
     "severity": "low",
     "tags": [
       "global",
-      "marker_coverage"
+      "去伪存真",
+      "marker_coverage",
+      "真伪门"
     ],
     "logic_score": 5.0,
     "outcome_score": 5.0,
@@ -1998,6 +2002,40 @@
       "PreTool钩子每次触发时检查",
       "如果PreReply状态文件不存在或过期,在审计中记录警告",
       "配合PreTool钩子自身的状态文件检查实现block"
+    ],
+    "invalid_conditions": [],
+    "triggered_count": 0,
+    "ignored_count": 0,
+    "override_count": 0,
+    "last_triggered": "",
+    "block_count": 0,
+    "blocked_rules": [],
+    "last_ignored": "",
+    "valid_until": ""
+  },
+  {
+    "id": "rule_quwei_verification_gate",
+    "trigger_condition": "task_type == 'user_prompt'",
+    "action": "verify_dgen_marker_in_reply; record_verification_result",
+    "severity": "low",
+    "tags": [
+      "global",
+      "去伪存真",
+      "真伪门",
+      "verification"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "learned",
+    "source_review": "2026-07-12-quwei-principle-added",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-12T12:00:00",
+    "boundary_conditions": [
+      "言必有证：AI每轮输出必须带[DGEN]标记作为证据",
+      "证必可验：系统通过引擎display_line验证标记存在",
+      "验证为真：标记存在且匹配当前阶段状态则通过",
+      "验证不通过：记录audit但不干扰执行"
     ],
     "invalid_conditions": [],
     "triggered_count": 0,

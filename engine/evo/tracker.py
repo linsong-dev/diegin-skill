@@ -104,7 +104,7 @@ class BehaviorTracker:
 
     def record_self_error(self, error_type: str, detail: str, task_context: Dict = None) -> Dict:
         """
-        一二不过三：记录自身同类错误
+        一二不过三（三错阀）：记录自身同类错误
         第1次→创建拦截规则
         第2次→加固（置信度+1）
         第3次→通知用户干预
@@ -180,7 +180,7 @@ class BehaviorTracker:
         决策逻辑（定稿版）：
         你说 → 以你为准
         你沉默 → 看你怎么做
-        你没说没做 → 一二不过三兜底
+        你没说没做 → 三错阀兜底
         """
         rule, rule_type = self._resolve_rule(rule_id)
         if not rule:
@@ -249,7 +249,7 @@ class BehaviorTracker:
                     "old_confidence": old_conf,
                     "source": "沉默+行为推定", "signal": "veto_from_inconsistent_action"}
         
-        # ② 无行为可观测（既没说也没做）→ 一二不过三兜底
+        # ② 无行为可观测（既没说也没做）→ 三错阀兜底
         #  复用 ignored_count 追踪沉默次数
         rule.ignored_count += 1
         rule.last_ignored = datetime.now().isoformat()

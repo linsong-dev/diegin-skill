@@ -1216,7 +1216,7 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
     """
 
 
-    守三攻七自动化：重要工作后自动复盘
+    守三攻七：重要工作后自动复盘
 
 
     先负向纠错 → 再正向强化
@@ -1237,7 +1237,7 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
     engine = _get_engine()
 
 
-    report_lines = [f"# 守三攻七复盘 | {ts}\n"]
+    report_lines = [f"# 迭进复盘 | {ts}\n"]
 
 
     # 负向纠错（守三）
@@ -1399,7 +1399,7 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
     if _MEMPALACE_AVAILABLE:
 
 
-        dgen_archive(f"[守三攻七] {task_type}", report, "auto_review")
+        dgen_archive(f"[迭进] {task_type}", report, "auto_review")
 
 
     return {
