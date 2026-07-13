@@ -30,6 +30,7 @@ try {
     $prompt = $hookInput.prompt
 
     if (Test-Path $pythonExe) {
+        # 守三：迭进预检
         $ctx = [ordered]@{
             task_type="user_prompt"
             session_id=$hookInput.session_id
@@ -59,8 +60,25 @@ try {
             Write-Output $checkResult.display_line
             exit 1
         } else {
+            # ⚔️ 攻七：查询成功模式建议，注入上下文
+            $suggestions = ""
+            try {
+                $sugRaw = & $pythonExe $enginePy suggest $prompt 2>&1
+                $sugResult = $sugRaw | ConvertFrom-Json
+                if ($sugResult.count -gt 0 -and $sugResult.suggestions) {
+                    $sugLines = @()
+                    foreach ($s in $sugResult.suggestions) {
+                        $sugLines += "  - $($s.id): $($s.decision)"
+                    }
+                    $suggestions = "`n[攻七·推荐路径]`n" + ($sugLines -join "`n")
+                    Add-NoBOMLog -Path $auditLog -Message "$time ⚔️ 攻七 suggest injected=$($sugResult.count) patterns"
+                }
+            } catch {
+                # suggest 失败不回退 PASS 状态
+            }
+            $output = "[DGEN] PASS$suggestions"
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] OK decision=$($checkResult.decision) matched=$($checkResult.matched_interceptions)"
-            Write-Output "[DGEN] PASS"
+            Write-Output $output
         }
     } else {
         Write-Output "[DGEN] ENGINE_CHECK"
