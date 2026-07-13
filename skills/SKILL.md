@@ -6,6 +6,8 @@ description: |
   使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。
   系统级规则覆盖引擎自身保护，领域规则可插拔扩展。
   不绑定任何模型、平台或业务场景。
+author: "林松"
+repository: "https://github.com/linsong-dev/diegin-skill.git"
 metadata:
   openclaw:
     emoji: "⚡"
@@ -14,18 +16,19 @@ metadata:
         kind: venv
         bins: ["call_diegin.py"]
         label: "安装迭进引擎"
-  version: "3.0.0"
-  date: "2026-07-07"
+  version: "v3.2.0"
+  date: "2026-07-13"
 ---
 
-## 一、核心四原则（全域通用）
+## 一、核心五原则（迭进元原则·全域不可绕过）
 
 | 原则 | 方向 | 机制 |
 |:---|:---:|:---|
-| **守三**（负向纠错） | 防守 | 拆解自我→找出不足→对比提炼→总结改进→写入固化→触发执行 |
-| **攻七**（正向强化） | 进攻 | 识别优势→复盘成功案例→提炼可复用模式→主动写入系统→验证→迭代微调 |
-| **一二不过三**（兜底线） | 安全阀 | 第 1 次同类错误→自建规则；第 2 次→加固；第 3 次→通知用户 |
-| **举一反三**（跨域泛化） | 扩展 | 从单条规则推导跨场景通用候选规则 |
+| **守三**（负向纠错） | 防守 | 观不足→省其因→正其行 | 纠错类规则（clean_verify_layered / delivery_full_audit / encoding_pre_check） |
+| **攻七**（正向强化） | 进攻 | 识长处→炼精华→固其用 | 成功模式自动记录（meta_experiences.json / success_patterns.json） |
+| **一二不过三**（三错阀） | 安全阀 | 初错立规→再错固规→三错请裁决 | iron_wall_loop_001 / error_detector三态反馈 / tracker一二不过三跟踪 |
+| **举一反三**（跨域泛化） | 扩展 | 举一→反三→通百 | war_game跨域推导 / reviewer规则泛化 / 引擎自动泛化 |
+| **去伪存真**（真伪门） | 硬地板 | 言必有证→证必可验→验证为真 | marker / dgen_marker_every_reply / quwei_verification_gate / PreReply→PreTool状态文件接力 |
 
 ---
 
@@ -78,26 +81,35 @@ metadata:
 
 ### 3.1 系统级规则（始终有效）
 
-| 规则 ID | 严重度 | 触发条件 |
-|:---|---:|:---|
-| rule_decorative_marker_001 | high | matched_interceptions > 0 AND reply_unaffected |
-| rule_empty_context_001 | low | diegin_context == {} OR diegin_task_type == '' |
-| rule_gateway_client_coverage_001 | medium | message_source == 'gateway_client' AND not message.content.s |
-| rule_iron_wall_loop_001 | high | diegin_consecutive_blocks >= 3 |
-| rule_marker_001 | high | outbound_message and not outbound_message.startswith('[DGEN' |
-| rule_no_binary_hack_001 | high | task_type == 'binary_modify' AND target == 'app.asar' |
-| rule_subagent_marker_001 | medium | session_type == 'subagent' AND not has_diegin_rule |
-| rule_word_meaning_confirm | high | user_input_contains_ambiguous_word(strip|clear|migrate|clean |
-| rule_scope_full_check | high | task_type == search_or_extract AND scope_not_confirmed |
-| rule_check_before_conclude | medium | output_contains_number_mismatch OR data_source_inconsistency |
-| rule_clean_verify_layered | critical | task_contains_clean_or_remove_or_purge |
-| rule_delivery_full_audit | critical | final_delivery OR report_final_version |
-| rule_powershell_escape_triple_lock | critical | shell_type == powershell AND command_has_special_chars |
-| rule_cmd_test_before_run | high | command_length > 200 OR pipe_nesting > 2 |
-| rule_toolchain_path_verify | high | invoke_external_interpreter |
-| rule_encoding_pre_check | high | file_io_with_non_ascii_content |
-| rule_verify_command_exitcode | critical | external_command_completed |
-| rule_dry_run_before_batch | high | batch_file_operation > 3 |
+| 规则 ID | 严重度 | 描述 |
+|:---|:---:|:---|
+| rule_marker_001 | high | 外发消息不含 [DGEN] → 阻断，重新激活迭进 |
+| rule_decorative_marker_001 | high | 有匹配但回复未受影响 → 强化仲裁执行 |
+| rule_empty_context_001 | low | 引擎收到空上下文 → 标记不适用，不阻断 |
+| rule_iron_wall_loop_001 | high | 连续拦截 ≥ 3 次 → 升级通知用户 |
+| rule_subagent_marker_001 | medium | 子会话缺少迭进规则 → 注入迭进任务 |
+| rule_gateway_client_coverage_001 | medium | 外部消息无 [DGEN] → 注入标记 |
+| rule_no_binary_hack_001 | high | 禁止直接修改系统二进制文件 |
+| seed_001 | high | 高风险操作 → 阻断，强制执行风险清单 |
+| seed_002 | high | 成本不透明 → 估算成本并通过 |
+| seed_003 | medium | 规则互斥 → 自动裁决 |
+| 
+ule_marker_001 | high | 外发消息不含 [DGEN] → 阻断，重新激活迭进 |
+| 
+ule_decorative_marker_001 | high | 有匹配但回复未受影响 → 强化仲裁执行 |
+| 
+ule_empty_context_001 | low | 引擎收到空上下文 → 标记不适用，不阻断 |
+| 
+ule_iron_wall_loop_001 | high | 连续拦截 ≥ 3 次 → 升级通知用户 |
+| 
+ule_subagent_marker_001 | medium | 子会话缺少迭进规则 → 注入迭进任务 |
+| 
+ule_gateway_client_coverage_001 | medium | 外部消息无 [DGEN] → 注入标记 |
+| 
+ule_no_binary_hack_001 | high | 禁止直接修改系统二进制文件 |
+| seed_001 | high | 高风险操作 → 阻断，强制执行风险清单 |
+| seed_002 | high | 超限操作 → 阻断，强制检查清单 |
+| seed_003 | medium | 单次操作超预算 → 阻断并审批 |
 
 ### 3.2 如何创建领域规则包
 
@@ -150,7 +162,7 @@ metadata:
 | error_hit | 错误/异常触发 | 检查参数或工作质量 |
 | context_loss | 上下文裁剪导致丢失 | 从 trail 恢复关键状态 |
 | 
-| rule_conflict | 规则数不一致 | 启用优先级自动裁决 |
+ule_conflict | 规则数不一致 | 启用优先级自动裁决 |
 
 ---
 
@@ -254,3 +266,8 @@ python scripts/dgen_evolve.py   # 初始化健康度基线
 |:---|:---:|:---|
 | `rule_word_meaning_confirm` | high | 歧义词先确认再执行 |
 |
+---
+
+
+
+
