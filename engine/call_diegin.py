@@ -68,7 +68,11 @@ if __name__ == "__main__":
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif mode == "health":
+        import io
+        old_out = sys.stdout
+        sys.stdout = io.StringIO()
         result = system_health()
+        sys.stdout = old_out
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif mode == "maintain":
@@ -131,7 +135,10 @@ if __name__ == "__main__":
         
         # 加载并自检
         check_ok = self_check()
+        import io
+        _old_stdout, sys.stdout = sys.stdout, io.StringIO()
         health = system_health()
+        sys.stdout = _old_stdout
         
         # 组装接入报告
         report = {

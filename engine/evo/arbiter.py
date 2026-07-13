@@ -18,7 +18,7 @@ diegin-evo 冲突仲裁器（对齐 AGENTS.md §二 裁决定义）
   IRON_WALL_BLOCK → "iron_wall_block"  铁律：只输出拦截信息，不生成业务内容
   BLOCK           → "block"            拦截：回复开头输出拦截信息+原因
   ESCALATE        → "escalate"         升级：改为提问确认模式
-  ALLOW           → "allow"            放行：[DGEN] ✅ 通过
+  ALLOW           → "allow"            放行：[DGEN] PASS
   保留内部类型（CONFIDENCE_WIN / HUMAN_REQUIRED / AUTO_DEGRADED）用于引擎内部流转
 """
 
@@ -36,7 +36,7 @@ class ResolutionType(Enum):
     IRON_WALL_BLOCK = "iron_wall_block"   # 铁律阻断：只输出拦截信息
     BLOCK           = "block"             # 阻断：回复开头拦截信息+原因
     ESCALATE        = "escalate"          # 升级：改为提问确认模式
-    ALLOW           = "allow"             # 放行：[DGEN] ✅ 通过
+    ALLOW           = "allow"             # 放行：[DGEN] PASS
     # ── 内部流转（引擎内部）──
     CONFIDENCE_WIN  = "confidence_win"    # 置信度胜出（内部映射为 ALLOW）
     HUMAN_REQUIRED  = "human_required"    # 需人工裁决（映射为 ESCALATE）
@@ -84,13 +84,13 @@ class ConflictArbiter:
 
         # 构建裁决行
         if display_decision == "iron_wall_block":
-            line = f"[DGEN] 🛑 铁律阻断 | 裁决: iron_wall_block | 原因: {result.reason[:200]}"
+            line = f"[DGEN] IRON_BLOCK | decision: iron_wall_block | reason: {result.reason[:200]}"
         elif display_decision == "block":
-            line = f"[DGEN] 🛑 拦截 | 裁决: block | 原因: {result.reason[:200]}"
+            line = f"[DGEN] BLOCK | decision: block | reason: {result.reason[:200]}"
         elif display_decision == "escalate":
-            line = f"[DGEN] ⚠️ 需确认 | 裁决: escalate | 原因: {result.reason[:200]}"
+            line = f"[DGEN] ESCALATE | decision: escalate | reason: {result.reason[:200]}"
         else:
-            line = "[DGEN] ✅ 通过"
+            line = "[DGEN] PASS"
 
         # 附加上下文
         if result.winning_rule:

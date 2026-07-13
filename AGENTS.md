@@ -78,3 +78,26 @@
 - **rule_marker_tool_block** → PreTool 每次工具调用前自动审计 marker 状态
 - **display_line 输出 [DGEN]** ↳ 通过引擎返回 display_line 在钩子界面显示
 - **无法注入回复文本** ⚠️ AI 仍必须在文本开头输出 [DGEN] 标记，但每轮 PreReply 均会被引擎审计
+### 7. 去伪存真·真伪门（硬地板·第5元原则）
+所有声称的完成状态必须经系统门验证：
+- **言必有证**：每个阶段必须有状态文件记录
+- **证必可验**：阶段状态必须包含 status (passed/blocked/stalled)
+- **验证为真**：只有 Stop 钩子验证通过才算真·完成
+
+#### 阶段门链
+```
+session_start -> pre_reply -> pre_tool -> post_tool -> stop_verification
+   签到通过       预检通过      工具检查      执行完成       去伪存真验证
+```
+
+#### 硬地板规则
+| 规则 | 严重度 | 描述 |
+|:----|:------:|:-----|
+| rule_verification_gate_hard_floor | critical | Stop 钩子验证阶段状态完整性 |
+| rule_truth_gate_declaration | high | 去伪存真三要素保护 |
+
+#### 停滞协议
+如果 Stop 钩子发现 STALLED 状态：
+1. 诚实记录停滞阶段和原因（不伪造完成）
+2. 在后续对话开头报告：`[硬地板] 上轮阶段 X 停滞`
+3. 不上推未验证的完成声明
