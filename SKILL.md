@@ -1,4 +1,4 @@
----
+﻿---
 name: "diegin"
 description: |
   AI 全域常驻自我迭代进化系统。
@@ -231,6 +231,7 @@ python scripts/dgen_evolve.py   # 初始化健康度基线
 `
 
 ---
+
 
 ## 八、跨场景接入规则
 

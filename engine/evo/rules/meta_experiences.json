@@ -1,1 +1,62 @@
-[]
+[
+  {
+    "id": "meta_hook_deployment_001",
+    "domain": "deployment",
+    "lesson": "钩子脚本必须部署到 .codex/diegin/hooks/ 目录才能激活自动化闭环",
+    "source": "system_debug",
+    "context": "config.toml 定义了5个钩子点位但脚本目录为空，导致攻七闭环和去伪存真验证离线",
+    "insight": "引擎代码就绪后需要部署步骤才能真正运行，源码库和运行目录是分离的",
+    "applies_to": ["deploy.ps1", "hooks/*.ps1"],
+    "confidence": 5.0,
+    "created_at": "2026-07-18T19:56:00",
+    "last_verified": "2026-07-18T19:56:00"
+  },
+  {
+    "id": "meta_skill_consistency_002",
+    "domain": "plugin",
+    "lesson": "插件缓存的 SKILL.md 必须与源码一致，否则 AI 接收到的迭进知识不完整",
+    "source": "system_audit",
+    "context": "插件端 SKILL.md 仅 1KB，源码端 10KB，AI 只能看到1/10的内容",
+    "insight": "Codex 加载的是插件缓存的 SKILL.md，不是源码目录的。部署后必须同步两处",
+    "applies_to": ["SKILL.md", "plugin.json"],
+    "confidence": 5.0,
+    "created_at": "2026-07-18T19:56:00",
+    "last_verified": "2026-07-18T19:56:00"
+  },
+  {
+    "id": "meta_encoding_no_bom_003",
+    "domain": "encoding",
+    "lesson": "Set-Content 默认添加 BOM，PowerShell 写文件必须用 .NET WriteAllText 或指定 -Encoding UTF8 NoBOM",
+    "source": "rule_encoding_no_bom_utf8",
+    "context": "多次出现 Set-Content 导致 UTF-8 BOM 问题，需用 [System.IO.File]::WriteAllText 替代",
+    "insight": "PowerShell 的 Set-Content / Out-File 默认编码行为与 UTF-8 NoBOM 要求冲突",
+    "applies_to": ["*.ps1", "config/tool"],
+    "confidence": 4.8,
+    "created_at": "2026-07-18T19:56:00",
+    "last_verified": "2026-07-18T19:56:00"
+  },
+  {
+    "id": "meta_code_dedup_004",
+    "domain": "code_quality",
+    "lesson": "call_diegin.py 中 suggest 模式被重复定义了两次，需要去重避免运行时行为不确定",
+    "source": "code_review",
+    "context": "两个完全相同的 suggest 模式块（L109-L137 和 L139-L165），第二个覆盖第一个",
+    "insight": "Python 的 elif 链中重复的 mode 会导致第一个永远无法到达",
+    "applies_to": ["engine/call_diegin.py"],
+    "confidence": 5.0,
+    "created_at": "2026-07-18T19:56:00",
+    "last_verified": "2026-07-18T19:56:00"
+  },
+  {
+    "id": "meta_hook_point_chain_005",
+    "domain": "architecture",
+    "lesson": "迭进引擎依赖5个钩子组成的完整链路：SessionStart→PreToolUse→UserPromptSubmit→PostToolUse→Stop",
+    "source": "system_design",
+    "context": "钩子链路覆盖了 AI 会话全生命周期，任一缺失都会导致闭环断裂",
+    "insight": "自动化闭环完整性依赖钩子部署的全覆盖，缺一环则攻七、去伪存真、Stop验证全部离线",
+    "applies_to": ["config.toml", "hooks/*.ps1", "hooks.json"],
+    "confidence": 5.0,
+    "created_at": "2026-07-18T19:56:00",
+    "last_verified": "2026-07-18T19:56:00"
+  }
+]
