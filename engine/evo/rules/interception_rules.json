@@ -2456,5 +2456,103 @@
         "blocked_rules":  [
 
                           ]
+    },
+    {
+        "id":  "seed_debug_critical_001",
+        "trigger_condition":  "task_type == debug AND target == production",
+        "action":  "block_execution; force_confirmation",
+        "severity":  "critical",
+        "tags":  [
+                     "global",
+                     "irreversible"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "seed",
+        "source_review":  "system_init",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-19T18:41:45.828908",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "确认是否为真正的生产环境"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "seed_file_destructive_002",
+        "trigger_condition":  "op == delete AND recursive == true",
+        "action":  "block_execution; require_explicit_approval",
+        "severity":  "high",
+        "tags":  [
+                     "global",
+                     "irreversible"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "seed",
+        "source_review":  "system_init",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-19T18:41:45.828908",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "用户明确要求递归删除时放行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "seed_network_external_003",
+        "trigger_condition":  "op == network AND target != localhost",
+        "action":  "permission_check; confirm_before_send",
+        "severity":  "medium",
+        "tags":  [
+                     "global"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "seed",
+        "source_review":  "system_init",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-19T18:41:45.828908",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "已配置的网络调用例外不受影响"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
     }
 ]

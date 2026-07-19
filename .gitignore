@@ -42,3 +42,5 @@ var/state/
 # 源码不需要的目录
 pyproject.toml
 requirements.txt
+# Backup files
+*.bak
