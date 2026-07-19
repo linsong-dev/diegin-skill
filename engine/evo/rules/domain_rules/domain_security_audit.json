@@ -1,0 +1,116 @@
+[
+  {
+    "id": "domain_sec_secret_in_output",
+    "name": "输出中禁含密钥",
+    "description": "任何回复/输出中禁止出现 API Key、Token、密码等敏感信息",
+    "severity": "critical",
+    "scope": "pre_reply",
+    "trigger_condition": "reply_contains(api_key|password|token|secret|sk-[a-zA-Z0-9]+)",
+    "action": "iron_wall_block",
+    "tags": ["domain_security", "secret_protection"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "回复文本中包含疑似密钥的模式",
+      "expected": "用环境变量或占位符代替明文密钥"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:security_audit",
+    "lifecycle_status": "active",
+    "confidence": 5.0
+  },
+  {
+    "id": "domain_sec_path_traversal",
+    "name": "路径遍历防护",
+    "description": "文件操作中避免路径注入，禁止用户输入直接拼接到文件路径",
+    "severity": "high",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op IN (read,write,delete) AND arg_contains(../|..\\|~/) AND user_input_origin == true",
+    "action": "block_execution; require_sanitization",
+    "tags": ["domain_security", "path_safety"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "操作路径中包含相对路径跳转或用户输入直接拼接",
+      "expected": "使用 Resolve-Path / Path.GetFullPath 规范化路径"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:security_audit",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_sec_command_injection",
+    "name": "命令注入防护",
+    "description": "shell 命令中若包含外部输入，必须使用参数化传参而非字符串拼接",
+    "severity": "critical",
+    "scope": "pre_tool_use",
+    "trigger_condition": "tool == shell AND cmd_contains(user_input) AND safe_param == false",
+    "action": "block_execution; force_parameterized",
+    "tags": ["domain_security", "injection_protection"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "shell 命令参数直接拼接了用户输入",
+      "expected": "使用 --% / 参数化查询 / 转义函数"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:security_audit",
+    "lifecycle_status": "active",
+    "confidence": 5.0
+  },
+  {
+    "id": "domain_sec_file_permission",
+    "name": "文件权限检查",
+    "description": "写入可执行文件或系统关键路径前确认权限正确",
+    "severity": "high",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op == file_write AND target IN (System32,ProgramFiles,Windows) OR ext IN (exe,dll,ps1,sh)",
+    "action": "block_execution; require_permission_check",
+    "tags": ["domain_security", "permission"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "向系统目录写入文件或创建可执行脚本",
+      "expected": "确认目标路径是否确实需要写入"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:security_audit",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_sec_env_credential",
+    "name": "环境凭据保护",
+    "description": "读取环境变量中的凭据后不得明文输出到日志或回复",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "op == env_read AND key IN (TOKEN,KEY,SECRET,PASSWORD) AND reply_contains(result_value)",
+    "action": "block_execution; mask_output",
+    "tags": ["domain_security", "credential_protection"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "读取了凭据类环境变量并在回复中暴露",
+      "expected": "输出应显示为 *** 或 [已读取凭据]"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:security_audit",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_sec_network_egress",
+    "name": "外发网络请求审计",
+    "description": "向外部网络发送数据前确认数据不包含敏感信息",
+    "severity": "high",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op == network AND target != localhost AND request_contains(sensitive_data) == true",
+    "action": "block_execution; require_review",
+    "tags": ["domain_security", "network_safety"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "向外部服务器发送的请求中包含敏感数据",
+      "expected": "检查请求体是否有不该外传的信息"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:security_audit",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  }
+]

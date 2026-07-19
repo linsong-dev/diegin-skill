@@ -78,8 +78,8 @@ diegin-skill/
 ├── README.md               本文档
 ├── engine/                 Python 迭进引擎
 │   └── evo/rules/
-│       ├── interception_rules.json  10 条系统级拦截规则
-│       ├── success_patterns.json     6 条系统级成功模式
+│       ├── interception_rules.json  83 条系统级拦截规则（含5条种子+50条系统+28条泛化候选）
+│       ├── success_patterns.json     9 条系统级成功模式（含攻七自动化记录）
 │       └── domain_rules/            你的领域规则包
 ├── scripts/                自动化脚本
 ├── workspace/              运行时模板

@@ -198,7 +198,7 @@ diegin-skill/
 │       ├── dashboard.py                健康看板
 │       └── rules/
 │           ├── interception_rules.json  系统级规则（52 条）
-│           ├── success_patterns.json    系统级模式（5 条）
+│           ├── success_patterns.json    系统级模式（9 条）
 │           └── domain_rules/            领域规则包（用户可扩展）
 ├── scripts/                            自动化
 │   ├── dgen_evolve.py                  自动化引擎

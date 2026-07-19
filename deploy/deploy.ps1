@@ -77,6 +77,8 @@ if (-not (Test-Path $mktplFile)) {
 Write-Step "阶段 4/7: 部署系统级 Hook" "STEP"
 if (Test-Path "$srcRoot\deploy\hooks-template.json") {
     $h = Get-Content "$srcRoot\deploy\hooks-template.json" -Encoding UTF8 -Raw
+        $defaultDiegin = "$env:USERPROFILE\.codex\diegin"
+    if ($runtimeRoot -ne $defaultDiegin) { $h = $h -replace [regex]::Escape($defaultDiegin), $runtimeRoot; Write-Step "  路径已适配: $runtimeRoot" "OK" }
     Write-NoBOM -Path "$codexHome\hooks.json" -Content $h
     Write-Step "  hooks.json 已部署" "OK"
 }

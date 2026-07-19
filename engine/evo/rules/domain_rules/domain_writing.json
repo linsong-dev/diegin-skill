@@ -1,0 +1,78 @@
+[
+  {
+    "id": "domain_write_term_consistency",
+    "name": "术语一致性",
+    "description": "文档中同一术语不得混用不同名称，首次出现必须定义",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == writing AND reply_contains_term_conflict == true",
+    "action": "warn_and_suggest",
+    "tags": ["domain_writing", "quality"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "同一概念在文档中使用了不同术语表述",
+      "expected": "统一术语，首次出现加定义"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:writing",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_write_link_verify",
+    "name": "引用链接可验证",
+    "description": "文档中的引用链接必须在回复前确认未被移除或失效",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "reply_contains(http|https) AND verify_link_accessible == false",
+    "action": "warn_and_confirm",
+    "tags": ["domain_writing", "truth_gate"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "回复中包含外部链接但未验证其可访问性",
+      "expected": "重要引用链接应验证或标注来源日期"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:writing",
+    "lifecycle_status": "active",
+    "confidence": 3.5
+  },
+  {
+    "id": "domain_write_structure_depth",
+    "name": "章节层级规范",
+    "description": "文档标题层级不能跳跃（H1→H3 必须补 H2）",
+    "severity": "low",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == writing AND heading_level_jump == true",
+    "action": "suggest_fix",
+    "tags": ["domain_writing", "structure"],
+    "auto_fix": true,
+    "logic": {
+      "detect": "Markdown 标题从 H1 直接跳到 H3 缺少 H2",
+      "fix": "补充中间层级标题"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:writing",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_write_code_in_doc",
+    "name": "文档中代码示例可运行",
+    "description": "文档中提供的代码片段必须是完整可运行的，不含伪代码",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "reply_contains(code_block) AND code_is_psuedocode == true",
+    "action": "warn_and_confirm",
+    "tags": ["domain_writing", "quality"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "代码块中包含 ... 或 // TODO 等不可执行的伪代码标记",
+      "expected": "提供完整可运行的代码示例"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:writing",
+    "lifecycle_status": "active",
+    "confidence": 3.5
+  }
+]

@@ -1,0 +1,120 @@
+[
+  {
+    "id": "domain_code_syntax_before_commit",
+    "name": "提交前语法检查",
+    "description": "任何 git commit 操作前必须确认已运行语法检查，防止坏代码入库",
+    "severity": "high",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op == git_commit OR op == git_push",
+    "action": "block_execution; require_confirmation",
+    "tags": ["domain_code", "quality_gate"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "检测到 git push/commit 操作",
+      "expected": "先运行语法检查工具再提交"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:code_dev",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_code_encoding_nobom",
+    "name": "全文件编码强制",
+    "description": "代码目录下所有新建/写入文件必须用 UTF-8 NoBOM 编码",
+    "severity": "critical",
+    "scope": "post_tool_use",
+    "trigger_condition": "op == file_write AND ext IN (py,js,ts,json,md,ps1,toml,yaml)",
+    "action": "auto_fix_encoding",
+    "tags": ["domain_code", "encoding", "bom_guard"],
+    "auto_fix": true,
+    "logic": {
+      "detect": "写入文件的编码不是 UTF-8 NoBOM",
+      "fix": "自动转换为 UTF-8 NoBOM"
+    },
+    "execution": {
+      "type": "inline",
+      "method": "WriteAllText(utf8NoBOM)"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:code_dev",
+    "lifecycle_status": "active",
+    "confidence": 5.0
+  },
+  {
+    "id": "domain_code_review_comments",
+    "name": "代码审查注释规范",
+    "description": "Review 时每处反馈必须有明确的行号、优先级和可操作建议",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == code_review AND reply_contains(::code-comment)",
+    "action": "require_fields",
+    "tags": ["domain_code", "review"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "生成了 code-comment 但缺少 priority 或 body",
+      "expected": "每处 code-comment 必须包含: line, priority(0-3), body"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:code_dev",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_code_dry_run_before_batch",
+    "name": "批量操作前预演",
+    "description": "对多个文件进行批量修改/删除/移动前必须先 dry-run 确认范围",
+    "severity": "high",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op IN (delete, move, rename, batch_replace) AND count > 3",
+    "action": "block_execution; require_dry_run",
+    "tags": ["domain_code", "safety"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "批量操作目标文件超过3个",
+      "expected": "先用 dry-run 模式列出所有受影响的文件"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:code_dev",
+    "lifecycle_status": "active",
+    "confidence": 5.0
+  },
+  {
+    "id": "domain_code_todo_check",
+    "name": "禁止 TODO 未解决入库",
+    "description": "git commit 前检查代码中是否残留 TODO/FIXME/HACK 标记未处理",
+    "severity": "medium",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op == git_commit AND context_contains(TODO|FIXME|HACK)",
+    "action": "warn_and_confirm",
+    "tags": ["domain_code", "quality_gate"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "提交的代码中包含未处理的 TODO/FIXME/HACK 标记",
+      "expected": "提交前解决所有待办标记，或附明确原因"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:code_dev",
+    "lifecycle_status": "active",
+    "confidence": 3.5
+  },
+  {
+    "id": "domain_code_test_before_deploy",
+    "name": "部署前测试通过",
+    "description": "部署到生产环境前必须确认测试套件通过",
+    "severity": "critical",
+    "scope": "pre_tool_use",
+    "trigger_condition": "op == deploy AND target == production AND test_not_run == true",
+    "action": "block_execution; force_test",
+    "tags": ["domain_code", "deploy", "quality_gate"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "目标为生产环境的部署操作",
+      "expected": "先运行测试套件并确认全部通过"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:code_dev",
+    "lifecycle_status": "active",
+    "confidence": 5.0
+  }
+]
