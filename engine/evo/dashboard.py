@@ -129,6 +129,47 @@ class HealthDashboard:
             return "[WARN] 偏低（用户采纳率不足一半）"
         return "[OK] 良好"
 
+
+
+    def read_phase_gate(self):
+        fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "var", "state", "phase_state.json")
+        if not os.path.exists(fpath):
+            return {"status": "no_session", "phases": {}}
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {"status": "error", "phases": {}}
+
+    def phase_gate_display(self):
+        data = self.read_phase_gate()
+        phases = data.get("phases", {})
+        chain = ["session_start", "pre_reply", "pre_tool", "post_tool", "stop_verification"]
+        sym_map = {"passed": "+", "completed": "+", "verified": "+",
+                   "stalled": "X", "error": "X", "hard_floor_blocked": "!"}
+        rows = []
+        rows.append("-" * 36)
+        rows.append("  Phase Gate Chain")
+        rows.append("-" * 36)
+        ok = True
+        for p in chain:
+            info = phases.get(p, {})
+            st = info.get("status", "missing") if info else "missing"
+            ts = info.get("ts", "")[:19] if info else ""
+            sym = sym_map.get(st, "o")
+            if st == "missing":
+                ok = False
+                rows.append("  " + sym + " " + p + " (pending)")
+            elif st in ("stalled", "error", "hard_floor_blocked"):
+                ok = False
+                rows.append("  " + sym + " " + p + " [" + st.upper() + "] " + ts)
+            else:
+                rows.append("  " + sym + " " + p + " [" + st + "] " + ts)
+        rows.append("-" * 36)
+        rows.append("  " + ("OK" if ok else "WARN") + " Chain " + ("complete" if ok else "incomplete, check above"))
+        rows.append("-" * 36)
+        return '\n'.join(rows)
+
     def _generate_recommendations(self, entropy: float, snr: float,
                                    capacity: int, satisfaction: float,
                                    redundancy: float) -> List[str]:

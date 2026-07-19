@@ -16,6 +16,24 @@ function Add-NoBOMLog {
     }
 }
 
+function Write-PhaseState {
+    param([string]$Phase,[string]$Status,[hashtable]$Data=@{})
+    $d=Split-Path $g_sf -Parent
+    if(-not(Test-Path $d)){New-Item $d -Force|Out-Null}
+    $s=$null
+    if(Test-Path $g_sf){try{$r=[System.IO.File]::ReadAllText($g_sf,$script:utf8NoBOM);$s=$r|ConvertFrom-Json}catch{}}
+    if(-not$s){$s=[PSCustomObject]@{session_id="";phases=[PSCustomObject]@{};last_update=""}}
+    if(-not$s.phases){$s|Add-Member NoteProperty "phases" ([PSCustomObject]@{}) -Force}
+    $o=[PSCustomObject]@{ts=(Get-Date -Format "o");status=$Status}
+    $Data.Keys|ForEach-Object{$o|Add-Member NoteProperty $_ $Data[$_] -Force}
+    $s.phases|Add-Member NoteProperty $Phase $o -Force
+    $s.last_update=(Get-Date -Format "o")
+    [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
+}
+
+$g_sf=Join-Path $g_pr "var\state\phase_state.json"
+
+
 function Write-DGENContextAndExit {
     param([int]$ExitCode=1)
     $ctxTool = Join-Path $script:g_pr "var\state\diegin_pre_tool_context.json"
@@ -222,3 +240,6 @@ elseif ($st -eq "verified") { $st = "VERIFIED" }
 elseif ($st -eq "pending") { $st = "PENDING" }
 Write-DGENStatusFile -Status $st -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
 Write-DGENContextAndExit -ExitCode 0
+
+# 阶段状态写入: pre_tool
+Write-PhaseState -Phase "pre_tool" -Status "completed" -Data @{ts=(Get-Date -Format "o")}

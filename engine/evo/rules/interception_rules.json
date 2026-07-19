@@ -2038,7 +2038,7 @@
     },
     {
         "id": "rule_quwei_verification_gate",
-        "trigger_condition": "task_type == 'user_prompt'",
+        "trigger_condition": "phase == 'verify' OR verify_dgen == True",
         "action": "verify_dgen_marker_in_reply; record_verification_result",
         "severity": "low",
         "tags": [
@@ -2073,7 +2073,7 @@
     },
     {
         "id": "rule_verification_gate_hard_floor",
-        "trigger_condition": "'stop_verification' in context",
+        "trigger_condition": "phase == 'stop_verification' OR 'stop_verification' in str(context)",
         "action": "verify_phase_state; report_if_stalled",
         "severity": "critical",
         "tags": [
@@ -2100,7 +2100,7 @@
     },
     {
         "id": "rule_truth_gate_declaration",
-        "trigger_condition": "'言必有证' in context or '证必可验' in context or '验证为真' in context",
+        "trigger_condition": "phase == 'truth_gate' OR phase_check == True OR verification_required == True",
         "action": "enforce_hard_floor; mark_verification_required",
         "severity": "high",
         "tags": [

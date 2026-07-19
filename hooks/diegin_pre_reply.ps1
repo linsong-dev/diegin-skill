@@ -18,6 +18,24 @@ function Add-NoBOMLog {
     }
 }
 
+function Write-PhaseState {
+    param([string]$Phase,[string]$Status,[hashtable]$Data=@{})
+    $d=Split-Path $g_sf -Parent
+    if(-not(Test-Path $d)){New-Item $d -Force|Out-Null}
+    $s=$null
+    if(Test-Path $g_sf){try{$r=[System.IO.File]::ReadAllText($g_sf,$script:utf8NoBOM);$s=$r|ConvertFrom-Json}catch{}}
+    if(-not$s){$s=[PSCustomObject]@{session_id="";phases=[PSCustomObject]@{};last_update=""}}
+    if(-not$s.phases){$s|Add-Member NoteProperty "phases" ([PSCustomObject]@{}) -Force}
+    $o=[PSCustomObject]@{ts=(Get-Date -Format "o");status=$Status}
+    $Data.Keys|ForEach-Object{$o|Add-Member NoteProperty $_ $Data[$_] -Force}
+    $s.phases|Add-Member NoteProperty $Phase $o -Force
+    $s.last_update=(Get-Date -Format "o")
+    [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
+}
+
+$g_sf=Join-Path $g_pr "var\state\phase_state.json"
+
+
 
 
 $g_scriptDir = if ($PSCommandPath) { Split-Path $PSCommandPath -Parent } else { $null }
@@ -252,3 +270,5 @@ try {
 
 }
 
+# 阶段状态写入: pre_reply
+Write-PhaseState -Phase "pre_reply" -Status "completed" -Data @{ts=(Get-Date -Format "o")}
