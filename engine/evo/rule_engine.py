@@ -73,6 +73,7 @@ class SuccessPattern:
     id: str
     pattern_name: str
     trigger_scenario: str                      # 触发场景描述
+    trigger_condition: str = ""                # 结构化触发条件(同InterceptionRule), 空=回退
     decision_logic: str                        # 决策逻辑
     micro_template: str = ""                   # 微模板（50字内）
 
@@ -329,13 +330,55 @@ class RuleEngine:
         for pattern in self.get_patterns(active_only=True):
             if not self._rule_applies_to_context(pattern.tags if hasattr(pattern, 'tags') else [], task_context):
                 continue
-            if self._match_condition(pattern.trigger_scenario, task_context):
+            # trigger_condition 优先，空时回退到 trigger_scenario
+            condition = getattr(pattern, 'trigger_condition', '') or pattern.trigger_scenario
+            if self._match_condition(condition, task_context):
                 matched_patterns.append(pattern)
 
         return {
             "interceptions": matched_interceptions,
             "patterns": matched_patterns
         }
+
+    # ─── 攻七专用匹配 ───
+
+    def match_patterns(self, context: dict, top_k: int = 5) -> list:
+        """攻七：返回与上下文匹配的成功模式，复用 _match_condition AST引擎"""
+        scored = []
+        for pattern in self.get_patterns(active_only=True):
+            condition = getattr(pattern, 'trigger_condition', '') or pattern.trigger_scenario
+            if self._match_condition(condition, context):
+                conf = getattr(pattern, 'confidence', 3.0) or 3.0
+                auto_bonus = 2.0 if getattr(pattern, 'auto_promoted', False) else 1.0
+                scored.append((conf * auto_bonus, pattern))
+        scored.sort(key=lambda x: -x[0])
+        return [s[1] for s in scored[:top_k]]
+
+    def promote_pattern(self, pattern_id: str) -> bool:
+        """自动提升：当 triggered_count>=3 且 outcome_score>=4.0"""
+        pattern = self.get_pattern_by_id(pattern_id)
+        if not pattern:
+            return False
+        tc = getattr(pattern, 'triggered_count', 0) or 0
+        os_val = getattr(pattern, 'outcome_score', 0) or 0
+        if tc >= 3 and os_val >= 4.0:
+            import datetime
+            now = datetime.datetime.now().isoformat()
+            self.update_pattern(pattern_id,
+                                auto_promoted=True,
+                                promoted_from="auto",
+                                promoted_at=now)
+            return True
+        return False
+
+    def auto_promote_all(self) -> int:
+        """扫描所有成功模式，自动提升符合条件的"""
+        count = 0
+        for p in self.get_patterns(active_only=True):
+            if not getattr(p, 'auto_promoted', False):
+                if self.promote_pattern(p.id):
+                    count += 1
+        return count
 
     def _match_condition(self, condition: str, context: Dict[str, Any]) -> bool:
         """
