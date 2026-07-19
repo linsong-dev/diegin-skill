@@ -5,11 +5,16 @@ function Add-NoBOMLog {
     $ts=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
     $d=Split-Path $Path -Parent
     if($d -and -not(Test-Path $d)){New-Item $d -Force|Out-Null}
-    $old=""
-    if(Test-Path $Path){$old=[System.IO.File]::ReadAllText($Path,$script:utf8NoBOM)}
-    [System.IO.File]::WriteAllText($Path,"$ts $Message`r`n$old",$script:utf8NoBOM)
+    $mtx = New-Object System.Threading.Mutex($false, "Global\DieginLogMutex")
+    $mtx.WaitOne(5000) | Out-Null
+    try {
+        $old=""
+        if(Test-Path $Path){$old=[System.IO.File]::ReadAllText($Path,$script:utf8NoBOM)}
+        [System.IO.File]::WriteAllText($Path,"$ts $Message`r`n$old",$script:utf8NoBOM)
+    } finally {
+        $mtx.ReleaseMutex()
+    }
 }
-
 
 function Write-PhaseState {
     param([string]$Phase,[string]$Status,[hashtable]$Data=@{})
@@ -41,4 +46,33 @@ if(Test-Path $pythonExe){
 
 Write-PhaseState -Phase "session_start" -Status "passed" -Data @{engine_ok=$engineOk.ToString();time=(Get-Date -Format "yyyy-MM-dd HH:mm:ss")}
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] ACTIVE engine=$engineOk rules=$ruleCount"
+
+# 写初始状态文件，确保 PreToolUse 通过
+$initialStateFile = Join-Path $pluginRoot "var\state\dgen_last_reply.json"
+$initialState = @{ts=(Get-Date -Format "o");decision="allow";reason="session_start_init";winning_rule="";matched_count=0}
+$initialJson = $initialState | ConvertTo-Json -Compress
+[System.IO.File]::WriteAllText($initialStateFile, $initialJson, $script:utf8NoBOM)
+Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] STATE_FILE_WRITTEN"
+
+# 重置 DGEN 标志：新对话全新开始，PreToolUse 自举 pending
+$markerFile = Join-Path $pluginRoot "var\state\dgen_marker_pending.json"
+if (Test-Path $markerFile) { Remove-Item $markerFile -Force }
+Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] MARKER_RESET for_new_session"
+
+# 引擎状态上下文
+$ctxFile = Join-Path $pluginRoot "var\state\diegin_context.json"
+$ts = Get-Date -Format "o"
+if ($engineOk) { $t = $ruleCount; $h = "OK" } else { $t = 0; $h = "ERR" }
+$ctxObj = New-Object PSObject -Property @{
+    ts = $ts
+    engine = New-Object PSObject -Property @{active_rules=$ruleCount;total_rules=$t;health=$h}
+    check = New-Object PSObject -Property @{decision="allow";matched_count=0;winning_rule="";reason="session_start_init"}
+    suggestions = @()
+    status = "active"
+}
+try {
+    $ctxJson = $ctxObj | ConvertTo-Json -Depth 5 -Compress
+    [System.IO.File]::WriteAllText($ctxFile, $ctxJson, $script:utf8NoBOM)
+} catch { }
+
 exit 0

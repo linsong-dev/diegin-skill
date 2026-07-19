@@ -1,4 +1,4 @@
-﻿---
+---
 name: "diegin"
 description: |
   AI 全域常驻自我迭代进化系统。
@@ -69,7 +69,7 @@ metadata:
 
 `
 ┌───────────────────────────────────────┐
-│  系统级规则（21 条）                     │
+│  系统级规则（52 条）                     │
 │  引擎自身保护 · 全域强制 · 不可禁用      │
 │  → 标记注入、铁墙防护、空上下文兜底       │
 ├───────────────────────────────────────┤
@@ -197,7 +197,7 @@ diegin-skill/
 │       ├── reviewer.py                 三明治复盘
 │       ├── dashboard.py                健康看板
 │       └── rules/
-│           ├── interception_rules.json  系统级规则（21 条）
+│           ├── interception_rules.json  系统级规则（52 条）
 │           ├── success_patterns.json    系统级模式（5 条）
 │           └── domain_rules/            领域规则包（用户可扩展）
 ├── scripts/                            自动化
