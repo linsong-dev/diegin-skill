@@ -73,8 +73,8 @@ class SuccessPattern:
     id: str
     pattern_name: str
     trigger_scenario: str                      # 触发场景描述
+    decision_logic: str = ""                     # 决策逻辑
     trigger_condition: str = ""                # 结构化触发条件(同InterceptionRule), 空=回退
-    decision_logic: str                        # 决策逻辑
     micro_template: str = ""                   # 微模板（50字内）
 
     # 前置条件和边界

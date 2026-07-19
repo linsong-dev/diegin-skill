@@ -97,7 +97,7 @@
         "valid_until": "",
         "last_triggered": "",
         "triggered_count": 0,
-        "trigger_condition": "retry_count >= 2 AND op == 'fix' OR retry_count >= 1 AND op == 'repair'"
+        "trigger_condition": "retry_count >= 2 OR (retry_count >= 1 AND op == 'repair')"
     },
     {
         "id": "pat_tool_selection_fastest_001",
@@ -122,7 +122,7 @@
         "valid_until": "",
         "last_triggered": "",
         "triggered_count": 0,
-        "trigger_condition": "op == 'tool_select' OR task_type == 'file_read' OR task_type == 'file_process' OR complexity > low"
+        "trigger_condition": "op == 'tool_select' OR task_type == 'file_read' OR task_type == 'file_process' OR complexity == 'high' OR complexity == 'medium'"
     },
     {
         "id": "auto_success_file_write_1",

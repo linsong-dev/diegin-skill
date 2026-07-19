@@ -2214,7 +2214,7 @@
     },
     {
         "id": "attack_complex_python_001",
-        "trigger_condition": "(op == 'json_merge' OR op == 'data_transform' OR op == 'batch_process' OR op == 'cross_file') AND complexity > low",
+        "trigger_condition": "(op == 'json_merge' OR op == 'data_transform' OR op == 'batch_process' OR op == 'cross_file') AND (complexity == 'high' OR complexity == 'medium')",
         "action": "suggest_python; prefer_python_over_shell_js_for_complex_ops",
         "severity": "medium",
         "tags": [
@@ -2335,7 +2335,7 @@
     },
     {
         "id": "attack_tco_first_005",
-        "trigger_condition": "op == 'tool_select' OR complexity > low OR retry_possible == true",
+        "trigger_condition": "op == 'tool_select' OR complexity == 'high' OR complexity == 'medium' OR retry_possible == True",
         "action": "suggest_tco; prefer_total_cost_over_first_try_speed; consider_retry_rate",
         "severity": "medium",
         "tags": [

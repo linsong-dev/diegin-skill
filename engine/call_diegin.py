@@ -228,7 +228,13 @@ if __name__ == "__main__":
 
         """
 
-        raw = sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip()
+        import select
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            raw = sys.stdin.read().strip()
+        elif len(sys.argv) > 2:
+            raw = sys.argv[2]
+        else:
+            raw = ""
 
         from evo.main import _get_engine, _get_arbiter
 
@@ -305,50 +311,6 @@ if __name__ == "__main__":
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
         # 按关键词匹配排序
-
-        keywords = context_text.lower().split()
-
-        scored = []
-
-        for p in patterns:
-
-            scenario = (getattr(p, 'trigger_scenario', '') or '').lower()
-
-            decision = (getattr(p, 'decision_logic', '') or '').lower()
-
-            id_str = (getattr(p, 'id', '') or '').lower()
-
-            score = sum(1 for kw in keywords if kw in scenario or kw in decision or kw in id_str)
-
-            if score > 0:
-
-                scored.append((score, {
-
-                    "id": getattr(p, 'id', ''),
-
-                    "scenario": getattr(p, 'trigger_scenario', ''),
-
-                    "decision": getattr(p, 'decision_logic', ''),
-
-                    "confidence": getattr(p, 'confidence', 0),
-
-                }))
-
-        scored.sort(key=lambda x: -x[0])
-
-        suggestions = [s[1] for s in scored[:5]]
-
-        result = {"suggestions": suggestions, "count": len(suggestions), "total_patterns": len(patterns)}
-
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-
-
-
-
-
-
-
-
 
     elif mode == "record_success":
 
