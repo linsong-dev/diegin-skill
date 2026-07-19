@@ -228,8 +228,7 @@ if __name__ == "__main__":
 
         """
 
-        import select
-        if select.select([sys.stdin], [], [], 0.1)[0]:
+        if not sys.stdin.isatty():
             raw = sys.stdin.read().strip()
         elif len(sys.argv) > 2:
             raw = sys.argv[2]
