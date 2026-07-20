@@ -132,6 +132,7 @@ class HealthDashboard:
 
 
     def read_phase_gate(self):
+        import os
         fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "var", "state", "phase_state.json")
         if not os.path.exists(fpath):
             return {"status": "no_session", "phases": {}}

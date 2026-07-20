@@ -24,7 +24,7 @@ from evo.main import (get_rules_for_task, arbitrate, full_review, record_behavio
 
                       health_check, run_maintenance, dgen_archive, mempalace_search,
 
-                      auto_sandwich, record_user_feedback, auto_sandwich_trigger, generalize_rule)
+                      auto_sandwich, record_user_feedback, auto_sandwich_trigger, generalize_rule, generalize_from_patterns, generalize_cross_domain)
 
 
 
@@ -327,6 +327,24 @@ if __name__ == "__main__":
 
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
+
+
+    elif mode == "generalize_cross_domain":
+
+        """举一反三：跨域泛化"""
+
+        result = generalize_cross_domain()
+
+        print(json.dumps({"created": result}, ensure_ascii=False, indent=2))
+
+
+    elif mode == "generalize_patterns":
+
+        """举一反三：从成功模式泛化为拦截规则"""
+
+        result = generalize_from_patterns()
+
+        print(json.dumps({"created": result}, ensure_ascii=False, indent=2))
 
 
     elif mode == "generalize":

@@ -458,6 +458,121 @@ def get_strike_status(error_type: str = None) -> dict:
 _last_generalization_check = None
 
 
+def generalize_cross_domain() -> list:
+    """举一反三：跨域泛化
+    将一个领域的 domain_rule 自适应制其他领域
+    例: code_dev的"提交前语法检查" → data_analysis的"提交前格式检查"
+    """
+    import json
+    domain_dir = os.path.join(os.path.dirname(__file__), "rules", "domain_rules")
+    if not os.path.exists(domain_dir):
+        return []
+    domain_files = [f for f in os.listdir(domain_dir) if f.endswith(".json") and f != ".gitkeep" and not f.startswith("session")]
+    if not domain_files:
+        return []
+    all_domains = {}
+    for df in domain_files:
+        dpath = os.path.join(domain_dir, df)
+        with open(dpath, "r", encoding="utf-8") as f:
+            try:
+                rules = json.load(f)
+                if isinstance(rules, list):
+                    all_domains[df.replace(".json", "")] = rules
+            except Exception:
+                pass
+    if len(all_domains) < 2:
+        return []
+    domain_names = list(all_domains.keys())
+    engine = _get_engine()
+    created = []
+    for src_name in domain_names:
+        src_rules = all_domains[src_name]
+        for src_rule in src_rules:
+            name = src_rule.get("name", "")
+            desc = src_rule.get("description", "")
+            # 对每个目标域生成适配版
+            for tgt_name in domain_names:
+                if tgt_name == src_name:
+                    continue
+                tgt_label = tgt_name.replace("domain_", "").replace("_", " ")
+                adapted_desc = desc.replace("code", tgt_label).replace("data", tgt_label).replace("writing", tgt_label)
+                if adapted_desc == desc:
+                    adapted_desc = tgt_label + ": " + desc
+                rid = "xdomain_" + src_name.replace("domain_", "") + "_to_" + tgt_name.replace("domain_", "") + "_" + src_rule.get("id", name)[:20]
+                existing = engine.get_interception_by_id(rid)
+                if existing:
+                    continue
+                trig = "domain == " + repr(tgt_name.replace("domain_", ""))
+                import datetime as dt
+                from rule_engine import InterceptionRule
+                new_rule = InterceptionRule(
+                    id=rid,
+                    trigger_condition=trig,
+                    action="suggest_cross_domain; " + adapted_desc[:80],
+                    severity="low",
+                    tags=["attack", "举一反三", "cross_domain", tgt_name],
+                    logic_score=3.0, outcome_score=3.0, confidence=3.0,
+                    source="learned",
+                    source_review="generalize_cross_domain: " + src_name + " -> " + tgt_name,
+                    lifecycle_status="active",
+                    created_at=dt.datetime.now().isoformat(),
+                    valid_until="", last_triggered="",
+                    boundary_conditions=[adapted_desc],
+                    invalid_conditions=[], triggered_count=0, ignored_count=0, override_count=0,
+                    last_ignored="", block_count=0, blocked_rules=[]
+                )
+                engine.add_interception(new_rule)
+                created.append(rid)
+    if created:
+        engine.save_all()
+    return created
+
+
+def generalize_from_patterns() -> list:
+    """举一反三：从成功模式泛化为拦截规则
+    将 high-confidence success_patterns 转化为 seed 类型的拦截规则
+    让 AI 在正确行为被检测到时获得正向引导
+    """
+    from rule_engine import InterceptionRule, SuccessPattern
+    import datetime as dt
+    engine = _get_engine()
+    patterns = engine.get_patterns(active_only=True)
+    created = []
+    for p in patterns:
+        tc = getattr(p, "triggered_count", 0) or 0
+        conf = getattr(p, "confidence", 0) or 0
+        os_val = getattr(p, "outcome_score", 0) or 0
+        if tc < 3 and conf < 3.0 and os_val < 3.0:
+            continue
+        cond = getattr(p, "trigger_condition", "") or p.trigger_scenario
+        rid = "pat_rule_" + p.id
+        existing = engine.get_interception_by_id(rid)
+        if existing:
+            continue
+        new_rule = InterceptionRule(
+            id=rid,
+            trigger_condition=cond,
+            action="suggest_from_pattern; " + (p.decision_logic[:60] if hasattr(p, "decision_logic") else ""),
+            severity="low" if conf < 4.0 else "medium",
+            tags=["attack", "举一反三", "from_pattern"],
+            logic_score=conf, outcome_score=os_val, confidence=conf,
+            source="learned",
+            source_review="generalize_from_patterns: " + p.id,
+            lifecycle_status="active",
+            created_at=dt.datetime.now().isoformat(),
+            valid_until="", last_triggered="",
+            boundary_conditions=[p.micro_template if hasattr(p, "micro_template") else ""],
+            invalid_conditions=[], triggered_count=0, ignored_count=0, override_count=0,
+            last_ignored="", block_count=0, blocked_rules=[]
+        )
+        engine.add_interception(new_rule)
+        created.append(rid)
+        engine.update_pattern(p.id, auto_promoted=True, promoted_from="generalize", promoted_at=dt.datetime.now().isoformat())
+    if created:
+        engine.save_all()
+    return created
+
+
 def generalize_rule(new_rule_id: str = None) -> list:
 
     """举一反三：从单条规则推导跨场景通用候选规则
@@ -1592,9 +1707,38 @@ def run_maintenance():
             print(f"  [DOWN] 降权: {rule.id} (置信度 {rule.confidence:.2f})")
 
 
+    # 举一反三: 从成功模式泛化
+    from_patterns = generalize_from_patterns()
+    if from_patterns:
+        print(f"  [DGEN] 举一反三: 从成功模式创建 {len(from_patterns)} 条规则")
+
+    # 举一反三: 跨域泛化
+    cross = generalize_cross_domain()
+    if cross:
+        print(f"  [DGEN] 跨域泛化: 创建 {len(cross)} 条新规则")
+
+    # 举一反三活化：评估 cached gen_rule，去重后激活
+    activated = 0
+    cleaned = 0
+    for rule in engine.get_interceptions(active_only=False):
+        if rule.lifecycle_status == "cached" and rule.source == "auto_generalized":
+            # 去重检查：是否已有 active 规则用相同 action
+            existing_same_action = [
+                r for r in engine.get_interceptions(active_only=True)
+                if r.action == rule.action and r.id != rule.id
+            ]
+            if existing_same_action:
+                engine.delete_interception(rule.id)
+                cleaned += 1
+                print(f"  [CLEAN] 删除重复 cached: {rule.id}")
+            else:
+                engine.update_interception(rule.id, lifecycle_status="active")
+                activated += 1
+                print(f"  [ACTIVATE] cached→active: {rule.id}")
+    if activated > 0 or cleaned > 0:
+        print(f"  [DGEN] 举一反三: +{activated} active / 删{cleaned} 重复")
+
     engine.save_all()
-
-
     print("[OK] 定期维护完成")
 
 

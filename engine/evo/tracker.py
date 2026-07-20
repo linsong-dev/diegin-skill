@@ -48,9 +48,9 @@ class BehaviorTracker:
         rule.ignored_count += 1
         rule.last_ignored = datetime.now().isoformat()
 
-        total = rule.triggered_count + rule.ignored_count
+        total = rule.triggered_count + getattr(rule, 'ignored_count', 0)
         if total > 0:
-            ignore_rate = rule.ignored_count / total
+            ignore_rate = getattr(rule, 'ignored_count', 0) / total
             if ignore_rate > self.soft_elimination_threshold:
                 old_conf = rule.confidence
                 rule.confidence = rule.confidence * self.decay_factor
@@ -58,7 +58,7 @@ class BehaviorTracker:
                     rule.lifecycle_status = "deprecating"
 
                 self._save_rule(rule, rule_type,
-                                ignored_count=rule.ignored_count,
+                                ignored_count=getattr(rule, 'ignored_count', 0),
                                 last_ignored=rule.last_ignored,
                                 confidence=rule.confidence,
                                 lifecycle_status=rule.lifecycle_status
@@ -72,10 +72,10 @@ class BehaviorTracker:
                 }
 
         self._save_rule(rule, rule_type,
-                        ignored_count=rule.ignored_count,
+                        ignored_count=getattr(rule, 'ignored_count', 0),
                         last_ignored=rule.last_ignored
                         )
-        return {"action": "updated", "ignore_count": rule.ignored_count}
+        return {"action": "updated", "ignore_count": getattr(rule, 'ignored_count', 0)}
 
     def record_override(self, rule_id: str) -> Dict:
         """记录规则被手动覆盖"""
@@ -255,24 +255,24 @@ class BehaviorTracker:
         rule.ignored_count += 1
         rule.last_ignored = datetime.now().isoformat()
         
-        if rule.ignored_count == 1:
+        if getattr(rule, 'ignored_count', 0) == 1:
             # 第1次：挂起标记
             self._save_rule(rule, rule_type,
-                ignored_count=rule.ignored_count,
+                ignored_count=getattr(rule, 'ignored_count', 0),
                 last_ignored=rule.last_ignored)
             self.rule_engine.save_all()
             return {"action": "silent_pending", "rule_id": rule_id,
                     "message": "用户沉默且无行为，规则挂起待定。下次同场景触发时再问。",
-                    "silent_hits": rule.ignored_count}
+                    "silent_hits": getattr(rule, 'ignored_count', 0)}
         
-        elif rule.ignored_count == 2:
+        elif getattr(rule, 'ignored_count', 0) == 2:
             # 第2次：衰减
             old_conf = rule.confidence
             rule.confidence = rule.confidence * 0.95
             if rule.lifecycle_status == "active":
                 rule.lifecycle_status = "cold_standby"
             self._save_rule(rule, rule_type,
-                ignored_count=rule.ignored_count,
+                ignored_count=getattr(rule, 'ignored_count', 0),
                 last_ignored=rule.last_ignored,
                 confidence=rule.confidence,
                 lifecycle_status=rule.lifecycle_status)
@@ -281,17 +281,17 @@ class BehaviorTracker:
                     "new_confidence": rule.confidence,
                     "old_confidence": old_conf,
                     "message": f"沉默无行为x2，置信度衰减至{rule.confidence:.2f}，标记cold_standby",
-                    "silent_hits": rule.ignored_count}
+                    "silent_hits": getattr(rule, 'ignored_count', 0)}
         
         else:
             # 第3次及以上：通知用户
             self._save_rule(rule, rule_type,
-                ignored_count=rule.ignored_count,
+                ignored_count=getattr(rule, 'ignored_count', 0),
                 last_ignored=rule.last_ignored)
             self.rule_engine.save_all()
             return {"action": "silent_alert", "rule_id": rule_id,
-                    "message": f"一二不过三：规则{rule_id}已沉默被忽略{rule.ignored_count}次，请确认保留或删除。",
-                    "silent_hits": rule.ignored_count}
+                    "message": f"一二不过三：规则{rule_id}已沉默被忽略{getattr(rule, 'ignored_count', 0)}次，请确认保留或删除。",
+                    "silent_hits": getattr(rule, 'ignored_count', 0)}
 
     def get_ignored_rules(self, threshold: float = None) -> list:
         """获取被无视的规则列表"""
@@ -299,20 +299,19 @@ class BehaviorTracker:
             threshold = self.soft_elimination_threshold
 
         ignored_list = []
-        all_rules = (self.rule_engine.get_interceptions(active_only=False) +
-                     self.rule_engine.get_patterns(active_only=False))
+        all_rules = self.rule_engine.get_interceptions(active_only=False)
 
         for rule in all_rules:
-            total = rule.triggered_count + rule.ignored_count
+            total = getattr(rule, 'triggered_count', 0) + getattr(rule, 'ignored_count', 0)
             if total > 0:
-                ignore_rate = rule.ignored_count / total
+                ignore_rate = getattr(rule, 'ignored_count', 0) / total
                 if ignore_rate > threshold:
                     ignored_list.append({
                         "id": rule.id,
                         "name": getattr(rule, "pattern_name", rule.trigger_condition),
                         "type": "interception" if hasattr(rule, "severity") else "pattern",
                         "ignore_rate": ignore_rate,
-                        "ignored_count": rule.ignored_count,
+                        "ignored_count": getattr(rule, 'ignored_count', 0),
                         "triggered_count": rule.triggered_count
                     })
 
