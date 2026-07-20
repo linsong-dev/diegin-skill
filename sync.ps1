@@ -1,4 +1,4 @@
-﻿# DGEN sync v3 - full bidirectional sync with merge
+# DGEN sync v3 - full bidirectional sync with merge
 param($Action = "check")
 
 function OK { param([string]$m) Write-Host ("  [OK] " + $m) -ForegroundColor Green }
@@ -8,7 +8,15 @@ function INF { param([string]$m) Write-Host ("  ...  " + $m) -ForegroundColor Cy
 function ACT { param([string]$m) Write-Host ("  [>>>] " + $m) -ForegroundColor Magenta }
 
 $srcRoot = $PSScriptRoot
-$dieginRoot = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("RTpc6aG555uuXENvZGV4X+S+v+aQuueJiFwuY29kZXhcZGllZ2lu"))
+# Auto-detect diegin runtime root (portable-aware)
+if (Test-Path (Join-Path $env:CODEX_HOME "diegin")) {
+    $dieginRoot = Join-Path $env:CODEX_HOME "diegin"
+} elseif (Test-Path (Join-Path $env:USERPROFILE ".codex\diegin")) {
+    $dieginRoot = Join-Path $env:USERPROFILE ".codex\diegin"
+} else {
+    Write-Host "ERROR: Cannot detect diegin runtime root. Set CODEX_HOME or use standard install." -ForegroundColor Red
+    exit 1
+}
 
 Add-Type -AssemblyName System.Web.Extensions
 

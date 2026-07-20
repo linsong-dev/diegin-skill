@@ -24,9 +24,11 @@ Write-Host "============================================" -ForegroundColor Cyan
 # ── 1. 路径检测 ──
 Write-Step "阶段 1/7: 检测环境路径" "STEP"
 $srcRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$codexHome = "$env:USERPROFILE\.codex"
+# Portable-aware: prefer CODEX_HOME, fallback to USERPROFILE\.codex
+if ($env:CODEX_HOME) { $codexHome = $env:CODEX_HOME } else { $codexHome = "$env:USERPROFILE\.codex" }
 $runtimeRoot = "$codexHome\diegin"
-$agentsDir = "$env:USERPROFILE\.agents"
+# Portable-aware: agents dir is sibling of .codex in portable mode
+if ($env:CODEX_HOME) { $portableRoot = Split-Path $env:CODEX_HOME -Parent; $agentsDir = Join-Path $portableRoot ".agents" } else { $agentsDir = "$env:USERPROFILE\.agents" }
 $pluginMarketDir = "$agentsDir\plugins\diegin"
 Write-Step "源码目录: $srcRoot" "OK"
 Write-Step "运行时目录: $runtimeRoot" "OK"
@@ -77,7 +79,7 @@ if (-not (Test-Path $mktplFile)) {
 Write-Step "阶段 4/7: 部署系统级 Hook" "STEP"
 if (Test-Path "$srcRoot\deploy\hooks-template.json") {
     $h = Get-Content "$srcRoot\deploy\hooks-template.json" -Encoding UTF8 -Raw
-        $defaultDiegin = "$env:USERPROFILE\.codex\diegin"
+    $defaultDiegin = Join-Path $codexHome "diegin"
     if ($runtimeRoot -ne $defaultDiegin) { $h = $h -replace [regex]::Escape($defaultDiegin), $runtimeRoot; Write-Step "  路径已适配: $runtimeRoot" "OK" }
     Write-NoBOM -Path "$codexHome\hooks.json" -Content $h
     Write-Step "  hooks.json 已部署" "OK"
@@ -111,7 +113,9 @@ Write-Step "  config.toml 已更新" "OK"
 
 # ── 7. 安装插件 ──
 Write-Step "阶段 7/7: 安装插件" "STEP"
-$codexCli = Get-ChildItem "$env:LOCALAPPDATA\OpenAI\Codex\bin" -Recurse -Filter "codex.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+# Portable-aware codex CLI detection
+# Portable-aware codex CLI detection
+if ($env:CODEX_HOME) { $portableRoot = Split-Path $env:CODEX_HOME -Parent; $codexCli = Get-ChildItem $portableRoot -Recurse -Filter "codex.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName } else { $codexCli = Get-ChildItem "$env:LOCALAPPDATA\OpenAI\Codex\bin" -Recurse -Filter "codex.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }
 if ($codexCli) {
     & $codexCli plugin remove "diegin@personal" 2>&1 | Out-Null
     $out = & $codexCli plugin add "diegin@personal" 2>&1
