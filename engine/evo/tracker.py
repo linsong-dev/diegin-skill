@@ -102,71 +102,93 @@ class BehaviorTracker:
                         )
         return {"action": "updated", "triggered_count": rule.triggered_count}
 
-    def record_self_error(self, error_type: str, detail: str, task_context: Dict = None) -> Dict:
-        """
-        一二不过三（三错阀）：记录自身同类错误
-    # 初错立规->再错固规->三错请裁决
-        第1次→创建拦截规则
-        第2次→加固（置信度+1）
-        第3次→通知用户干预
-        """
+    
+    def _strikes_db_path(self):
+        import os
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), "var", "state", "strikes_db.json")
+
+    def _load_strikes_db(self):
+        import os,json
+        path = self._strikes_db_path()
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_strikes_db(self, db):
+        import os,json
+        path = self._strikes_db_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
+
+    def record_self_error(self, error_type, detail='', task_context=None):
+        import datetime as _dt
         if task_context is None:
             task_context = {}
-        
-        key = f"self_error_{error_type}"
-        
-        # 检查是否已有此类型错误的拦截规则
-        rule = self.rule_engine.get_interception_by_id(key)
-        
-        if rule is None:
-            # 第1次：创建拦截规则
-            new_rule = InterceptionRule(
-                id=key,
-                trigger_condition=error_type,
-                action="self_check_and_avoid",
-                severity="high",
-                tags=["self_error", "一二不过三"],
-                logic_score=4.0,
-                outcome_score=3.0,
-                confidence=4.0,
-                source="auto_self_error",
-                lifecycle_status="active",
-                created_at=datetime.now().isoformat(),
-                triggered_count=1,
-                ignored_count=0,
-                override_count=0
-            )
-            self.rule_engine.add_interception(new_rule)
+        key = 'self_error_' + error_type
+        now = _dt.datetime.now().isoformat()
+
+        db = self._load_strikes_db()
+        if error_type not in db:
+            db[error_type] = {'count': 0, 'first_seen': now, 'last_seen': now,
+                              'last_detail': detail,
+                              'severity': task_context.get('severity', 'high'),
+                              'details': []}
+        entry = db[error_type]
+        entry['count'] += 1
+        entry['last_seen'] = now
+        entry['last_detail'] = detail
+        if len(entry.get('details', [])) < 10:
+            entry.setdefault('details', []).append({'ts': now, 'detail': detail[:60]})
+        self._save_strikes_db(db)
+        sn = entry['count']
+
+        rule = self.rule_engine.get_interception_by_id(key) if hasattr(self, 'rule_engine') else None
+        if rule is None and sn == 1:
+            from rule_engine import InterceptionRule
+            nr = InterceptionRule(id=key, trigger_condition='error_type=='+repr(error_type),
+                action='self_check_and_avoid', severity=task_context.get('severity','high'),
+                tags=['self_error','一二不过三'], logic_score=4.0, outcome_score=3.0, confidence=4.0,
+                source='auto_self_error', lifecycle_status='active', created_at=now,
+                triggered_count=sn, ignored_count=0, override_count=0)
+            self.rule_engine.add_interception(nr)
             self.rule_engine.save_all()
-            return {"action": "first_error_rule_created", "rule_id": key, "warning": f"第1次犯{error_type}，已创建拦截规则"}
-        
-        # 第2次及以后
-        rule.triggered_count += 1
-        rule.last_triggered = datetime.now().isoformat()
-        
-        if rule.triggered_count == 2:
-            # 第2次：加固
-            rule.confidence = min(5.0, rule.confidence + 1.0)
-            self.rule_engine.update_interception(rule.id,
-                triggered_count=rule.triggered_count,
-                last_triggered=rule.last_triggered,
-                confidence=rule.confidence)
-            self.rule_engine.save_all()
-            return {"action": "second_error_reinforce", "rule_id": key,
-                    "warning": f"第2次犯{error_type}，规则已加固到conf={rule.confidence}"}
-        
-        if rule.triggered_count >= 3:
-            # 第3次：通知用户
-            rule.lifecycle_status = "alerting"
-            self.rule_engine.update_interception(rule.id,
-                triggered_count=rule.triggered_count,
-                last_triggered=rule.last_triggered,
-                lifecycle_status="alerting")
-            self.rule_engine.save_all()
-            return {"action": "third_error_alert", "rule_id": key,
-                    "alert": f"一二不过三触发：{error_type}已犯第{rule.triggered_count}次，需要你介入"}
-        
-        return {"action": "counted", "triggered": rule.triggered_count}
+            return {'action':'first_error_rule_created','rule_id':key,'strike':sn,
+                    'warning':('[一二不过三] 第{}次犯{}，已创建拦截规则'.format(sn, error_type))}
+
+        if rule:
+            rule.triggered_count = sn
+            rule.last_triggered = now
+            if sn == 2:
+                rule.confidence = min(5.0, (rule.confidence or 4.0) + 1.0)
+                self.rule_engine.update_interception(rule.id, triggered_count=sn,
+                    last_triggered=now, confidence=rule.confidence)
+                self.rule_engine.save_all()
+                return {'action':'second_error_reinforce','rule_id':key,'strike':sn,
+                        'warning':('[一二不过三] 第{}次犯{}，规则已加固'.format(sn, error_type))}
+
+            if sn >= 3:
+                rule.lifecycle_status = 'alerting'
+                op = self._strikes_db_path().replace('strikes_db.json','dgen_override.json')
+                od = {'blocked_error_type':error_type,'strike_count':sn,
+                      'blocked_at':now,'last_detail':detail,
+                      'reason':'一二不过三: '+error_type+' 已触发'+str(sn)+'次，自动阻止'}
+                try:
+                    with open(op,'w',encoding='utf-8') as f:
+                        json.dump(od,f,ensure_ascii=False,indent=2)
+                except Exception:
+                    pass
+                self.rule_engine.update_interception(rule.id, triggered_count=sn,
+                    last_triggered=now, lifecycle_status='alerting')
+                self.rule_engine.save_all()
+                return {'action':'third_error_force_stop','rule_id':key,'strike':sn,
+                        'warning':('[一二不过三] 第{}次犯{}！强制停止，需手动确认'.format(sn, error_type))}
+
+        return {'action':'error_incremented','rule_id':key,'strike':sn}
 
     def record_user_feedback(self, rule_id: str, feedback: str, user_action: Optional[str] = None) -> Dict[str, Any]:
         """

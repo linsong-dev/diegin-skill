@@ -131,6 +131,42 @@ class HealthDashboard:
 
 
 
+
+    def read_strikes(self):
+        fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'var', 'state', 'strikes_db.json')
+        if not os.path.exists(fpath):
+            return {'status': 'no_strikes', 'errors': {}}
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                import json
+                return {'status': 'ok', 'errors': json.load(f)}
+        except Exception as e:
+            return {'status': 'error', 'detail': str(e), 'errors': {}}
+
+    def strikes_display(self):
+        data = self.read_strikes()
+        errors = data.get('errors', {})
+        if not errors:
+            return '  No strike records (clean)'
+        rows = []
+        rows.append('-' * 36)
+        rows.append('  Three Strikes Status')
+        rows.append('-' * 36)
+        for etype, info in sorted(errors.items(), key=lambda x: -x[1].get('count', 0)):
+            cnt = info.get('count', 0)
+            sev = info.get('severity', '')
+            last = info.get('last_detail', '')[:40]
+            sym = 'X' if cnt >= 3 else 'o'
+            rows.append('  {} {}x{}: {}'.format(sym, etype, cnt, sev))
+            if cnt >= 3:
+                rows.append('    [!] FORCE_STOP: {}'.format(last))
+            elif cnt >= 2:
+                rows.append('    [^] REINFORCED: {}'.format(last))
+        rows.append('-' * 36)
+        rows.append('  total error types: {}'.format(len(errors)))
+        rows.append('-' * 36)
+        return '\n'.join(rows) + '\n'
+
     def read_phase_gate(self):
         import os
         fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), "var", "state", "phase_state.json")
