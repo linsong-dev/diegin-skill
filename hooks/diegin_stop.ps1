@@ -201,11 +201,20 @@ if ($phaseJson -and (Test-Path $pythonExe)) {
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_CHECK decision=$($engineDecision.decision) matched=$($engineDecision.matched_interceptions)"
         if ($engineDecision.decision -in @("BLOCK","IRON_WALL_BLOCK")) {
             Write-PhaseState -Phase "stop_verification" -Status "hard_floor_blocked" -Data @{engine_decision=$engineDecision.decision;reason=$engineDecision.reason}
-            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_BLOCK reason=$($engineDecision.reason)"
+            # 硬地板阻断是正常机制，不作为 strike 记录（已修复）
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_BLOCK (expected, no strike)"
         }
     } catch {
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_ERROR $_"
     }
 }
-exit 0
+# ---- Mindol 语义记忆写入（Stop事件） ----
+# ensure engineDecision exists, default to 'no_check'
+if (-not $engineDecision) { $engineDecision = @{decision='no_check'} }
+$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+if (Test-Path $mindolBridge) {
+    $mindolText = "phase=stop priority=stop hardFloor=" + $engineDecision.decision + " phaseJson=" + [System.Convert]::ToBoolean($phaseJson -ne "")
+    if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
+    $null = & $pythonExe $mindolBridge record stop $mindolText 2>&1
+}
 

@@ -1,21 +1,21 @@
 {
     "name": "diegin",
-    "version": "3.2.0+codex.20260713120852",
-    "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统。基于'守三攻七+一二不过三+举一反三+去伪存真'五元框架",
+    "version": "3.3.0+codex.20260722000000",
+    "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统。基于'裁决律+守三+攻七+一二不过三+举一反三+去伪存真+缓急律+止观门'八元框架，使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。系统级规则覆盖引擎自身保护，领域规则可插拔扩展。不绑定任何模型、平台或业务场景。",
     "author": {
         "name": "linsong-dev"
     },
     "skills": "./skills/",
     "interface": {
         "displayName": "迭进·DGEN",
-        "shortDescription": "AI 全域常驻自我迭代进化系统",
-        "longDescription": "迭进（DGEN = Die 迭 + Gin 进）是一个场景无关的 AI 认知进化引擎",
+        "shortDescription": "AI 全域常驻自我迭代进化系统（八元框架）",
+        "longDescription": "迭进（DGEN = Die 迭 + Gin 进）是一个场景无关的 AI 认知进化引擎。基于八元原则网络（裁决律+守三+攻七+一二不过三+举一反三+去伪存真+缓急律+止观门），集成 Mindol 记忆系统，使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。引擎+Hooks 全覆盖，Mindol 权威写入+JSON 副本双备份。",
         "developerName": "linsong-dev",
         "category": "Productivity",
         "capabilities": [
             "Read"
         ],
-        "defaultPrompt": "使用迭进进行AI自我进化",
+        "defaultPrompt": "使用迭进进行AI自我进化（八元框架+Mindol记忆）",
         "brandColor": "#1a1a2e"
     },
     "homepage": "https://github.com/linsong-dev/diegin-skill.git",

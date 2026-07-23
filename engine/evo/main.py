@@ -85,6 +85,10 @@ from war_game import WarGameEngine
 
 from dashboard import HealthDashboard, run_health_check
 
+from pacemaker import PaceMaker, get_pacemaker as _get_pacemaker_inst
+from closure import ClosureGate, get_closure as _get_closure_inst
+from evidence_vault import EvidenceVault, get_vault as _get_vault_inst
+
 
 # ============================================================
 
@@ -377,7 +381,8 @@ def ensure_three_strikes(error_type: str, detail: str = "", severity: str = "hig
 
         "force_error": error_type,
 
-        "force_detail": detail
+        "force_detail": detail,
+        "force_severity": severity
 
     }) or {}
 
@@ -514,7 +519,7 @@ def generalize_cross_domain() -> list:
                     logic_score=3.0, outcome_score=3.0, confidence=3.0,
                     source="learned",
                     source_review="generalize_cross_domain: " + src_name + " -> " + tgt_name,
-                    lifecycle_status="active",
+                    lifecycle_status="staging",
                     created_at=dt.datetime.now().isoformat(),
                     valid_until="", last_triggered="",
                     boundary_conditions=[adapted_desc],
@@ -558,7 +563,7 @@ def generalize_from_patterns() -> list:
             logic_score=conf, outcome_score=os_val, confidence=conf,
             source="learned",
             source_review="generalize_from_patterns: " + p.id,
-            lifecycle_status="active",
+            lifecycle_status="staging",
             created_at=dt.datetime.now().isoformat(),
             valid_until="", last_triggered="",
             boundary_conditions=[p.micro_template if hasattr(p, "micro_template") else ""],
@@ -1694,6 +1699,45 @@ def run_maintenance():
 
                 print(f"  [ARCHIVE] 归档过期缓存: {pattern.id}")
 
+    # 4.3 生命周期管理: cached 规则超期自动归档
+    try:
+        _cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.toml')
+        _max_age_days = 30
+        if os.path.isfile(_cfg_path):
+            import tomllib
+            with open(_cfg_path, 'rb') as _f:
+                _cfg = tomllib.load(_f)
+            _max_age_days = _cfg.get('maintenance', {}).get('cached_max_age_days', 30)
+    except Exception:
+        _max_age_days = 30
+    _now_dt = datetime.now()
+    for rule in engine.get_interceptions(active_only=False):
+        if rule.lifecycle_status != 'cached':
+            continue
+        if rule.valid_until:
+            try:
+                if _now_dt > datetime.fromisoformat(rule.valid_until):
+                    engine.update_interception(rule.id, lifecycle_status='archived')
+                    print(f"  [ARCHIVE] cached 规则过期: {rule.id} (valid_until={rule.valid_until})")
+                    continue
+            except Exception:
+                pass
+        if rule.last_triggered:
+            try:
+                _age = (_now_dt - datetime.fromisoformat(rule.last_triggered)).days
+                if _age >= _max_age_days:
+                    engine.update_interception(rule.id, lifecycle_status='archived')
+                    print(f"  [ARCHIVE] cached 规则未触发 {_age}天: {rule.id}")
+            except Exception:
+                pass
+        if not rule.last_triggered and rule.created_at:
+            try:
+                _age = (_now_dt - datetime.fromisoformat(rule.created_at)).days
+                if _age >= _max_age_days:
+                    engine.update_interception(rule.id, lifecycle_status='archived')
+                    print(f"  [ARCHIVE] cached 规则从未触发 {_age}天: {rule.id}")
+            except Exception:
+                pass
 
     for rule in engine.get_interceptions(active_only=True):
 
@@ -1707,10 +1751,67 @@ def run_maintenance():
             print(f"  [DOWN] 降权: {rule.id} (置信度 {rule.confidence:.2f})")
 
 
+    # P1 #1: 规则半衰期(简化版)
+    try:
+        _max_age = _max_age_days  # 从配置读取（30天）
+        _now_dt = datetime.now()
+        _dep_count = 0
+        _arc_count = 0
+        for rule in engine.get_interceptions(active_only=True):
+            # 规则已活跃但从未触发 → 降权
+            if not rule.last_triggered and rule.created_at:
+                try:
+                    _age = (_now_dt - datetime.fromisoformat(rule.created_at)).days
+                    if _age >= _max_age:
+                        engine.update_interception(rule.id, lifecycle_status="deprecating")
+                        print(f"  [DECAY] 降权(从未触发): {rule.id} (创建{_age}天)")
+                        _dep_count += 1
+                except Exception:
+                    pass
+            # 规则已活跃但长期未触发 → 降权
+            elif rule.last_triggered and rule.triggered_count <= 1:
+                try:
+                    _last = (_now_dt - datetime.fromisoformat(rule.last_triggered)).days
+                    if _last >= _max_age:
+                        engine.update_interception(rule.id, lifecycle_status="deprecating")
+                        print(f"  [DECAY] 降权(长期未触发): {rule.id} (最后触发{_last}天前)")
+                        _dep_count += 1
+                except Exception:
+                    pass
+        # deprecating 超期 → 归档
+        for rule in engine.get_interceptions(active_only=False):
+            if rule.lifecycle_status == "deprecating" and rule.created_at:
+                try:
+                    _age = (_now_dt - datetime.fromisoformat(rule.created_at)).days
+                    if _age >= _max_age * 2:  # 60天
+                        engine.update_interception(rule.id, lifecycle_status="archived")
+                        print(f"  [ARCHIVE] deprecating→归档: {rule.id} (创建{_age}天)")
+                        _arc_count += 1
+                except Exception:
+                    pass
+        if _dep_count > 0 or _arc_count > 0:
+            print(f"  [DECAY] {_dep_count} 降权, {_arc_count} 归档")
+    except Exception as e:
+        print(f"  [DECAY] 规则半衰期跳过: {e}")
+
     # 举一反三: 从成功模式泛化
     from_patterns = generalize_from_patterns()
     if from_patterns:
         print(f"  [DGEN] 举一反三: 从成功模式创建 {len(from_patterns)} 条规则")
+        # P1: 同步写入 meta experience → abstract 空间
+        for _rp in from_patterns[:3]:
+            try:
+                _insight = _rp.get("action", _rp.get("trigger_condition", ""))[:100]
+                if _insight:
+                    from datetime import datetime as _dt2
+                    _meta = type("MetaExperience", (), {"id": "", "insight": _insight, "created_at": _dt2.now().isoformat()})()
+                    engine.add_meta(_meta)
+                    if hasattr(engine, "_mindol") and engine._mindol:
+                        _muid = f"meta_auto_{_dt2.now().strftime('%Y%m%d_%H%M%S')}"
+                        engine._mindol.add_unit(text=_insight, source="diegin_meta", uid=_muid, space=engine._mindol.SPACE_ABSTRACT)
+                print(f"    [META] abstract: {_insight[:50]}")
+            except Exception:
+                pass
 
     # 举一反三: 跨域泛化
     cross = generalize_cross_domain()
@@ -1737,7 +1838,98 @@ def run_maintenance():
                 print(f"  [ACTIVATE] cached→active: {rule.id}")
     if activated > 0 or cleaned > 0:
         print(f"  [DGEN] 举一反三: +{activated} active / 删{cleaned} 重复")
+    # 举一反三->去伪存真验证门: staging 规则需验证通过>=2/3才晋升
+    staging_rules = [r for r in engine.get_interceptions(active_only=False) if r.lifecycle_status == "staging"]
+    promoted = 0
+    archived = 0
+    for rule in staging_rules:
+        total = rule.triggered_count + rule.ignored_count + rule.block_count
+        if total >= 3:
+            success = rule.triggered_count + rule.block_count
+            rate = success / total
+            if rate >= 0.667:
+                engine.update_interception(rule.id, lifecycle_status="active")
+                promoted += 1
+                print(f"  [PROMOTE] staging->active: {rule.id} (rate={rate:.0%})")
+            else:
+                engine.update_interception(rule.id, lifecycle_status="archived")
+                archived += 1
+                print(f"  [ARCHIVE] staging->archived: {rule.id} (low rate={rate:.0%})")
+        else:
+            print(f"  [HOLD] staging: {rule.id} (only {total} eval(s), need >=3)")
+    if promoted > 0:
+        print(f"  [DGEN] 验证门: {promoted} 条晋升active (成功率>=2/3)")
+    if archived > 0:
+        print(f"  [DGEN] 验证门: {archived} 条已归档 (成功率<2/3)")
+    # 守三循环闭环: 检查shousan规则触发效果
+    tracker.cycle_shousan_rules()
+    tracker.cycle_gongqi_patterns()
 
+    # === Phase 4.4: 去伪存真季度证伪 ===
+    try:
+        _cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.toml')
+        _qf_enabled = True
+        if os.path.isfile(_cfg_path):
+            import tomllib
+            with open(_cfg_path, 'rb') as _f:
+                _cfg = tomllib.load(_f)
+            _qf_enabled = _cfg.get('evidence_vault', {}).get('quarterly_falsification_enabled', True)
+        if _qf_enabled:
+            _last_qf = getattr(tracker, '_last_quarterly_falsification', None)
+            _now_q = f"{_dt.datetime.now().year}-Q{(_dt.datetime.now().month - 1) // 3 + 1}"
+            if _last_qf != _now_q:
+                from evidence_vault import get_vault
+                _vault = get_vault()
+                _qr = _vault.run_quarterly_falsification()
+                tracker._last_quarterly_falsification = _now_q
+                if _qr.get('needs_revision'):
+                    print(f"  [QF] 建议: {len(_qr.get('repeated_failures', []))} 个失效模式需修订")
+                print(f"  [QF] 季度证伪({_now_q}) 完成")
+    except Exception as e:
+        print(f"  [QF] 季度证伪跳过: {e}")
+
+    # === P0 #6: 归因正确率回溯 ===
+    try:
+        from evidence_vault import get_vault
+        _vault = get_vault()
+        _ar = _vault.verify_attribution(max_check=20)
+        if _ar.get('misattributed', 0) > 0:
+            print(f"  [ATTRIB] 发现 {_ar['misattributed']} 条可能误判的归因")
+            for _sug in _ar.get('suggestions', [])[:3]:
+                print(f"    [SUG] {_sug}")
+        if _ar.get('verified', 0) > 0:
+            print(f"  [ATTRIB] {_ar['verified']} 条归因已确认正确")
+    except Exception as _e:
+        print(f"  [ATTRIB] 归因回溯跳过: {_e}")
+
+    # === Phase 4.1: 守三深度复盘(每日) ===
+    try:
+        import datetime as _dt
+        _now = _dt.datetime.now()
+        _last_deep = getattr(tracker, "_last_deep_review", None)
+        if _last_deep is None:
+            tracker._last_deep_review = _now.isoformat()
+        else:
+            try:
+                _last = _dt.datetime.fromisoformat(_last_deep)
+                _elapsed = (_now - _last).total_seconds() / 3600
+                if _elapsed >= 24:
+                    _all = engine.get_interceptions(active_only=False)
+                    _alerting = [r for r in _all if getattr(r, "lifecycle_status", "") == "alerting"]
+                    _blocking = [r for r in _all if getattr(r, "lifecycle_status", "") == "blocking"]
+                    _low_conf = [r for r in engine.get_interceptions(active_only=True) if (getattr(r, "confidence", 5.0) or 5.0) < 2.5]
+                    if _alerting:
+                        print(f"  [DEEP_REVIEW] 深度复盘: {len(_alerting)} 条告警规则")
+                    if _blocking:
+                        print(f"  [DEEP_REVIEW] 深度复盘: {len(_blocking)} 条阻断规则")
+                    if _low_conf:
+                        for r in _low_conf:
+                            print(f"  [DEEP_REVIEW] 低置信度: {r.id} (conf={r.confidence:.1f})")
+                    tracker._last_deep_review = _now.isoformat()
+            except Exception:
+                tracker._last_deep_review = _now.isoformat()
+    except Exception:
+        pass
     engine.save_all()
     print("[OK] 定期维护完成")
 
@@ -1761,6 +1953,8 @@ def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: 
 
 
     from datetime import datetime
+
+
 
 
     global _last_work_context
@@ -1863,3 +2057,44 @@ if __name__ == "__main__":
 
 
     self_check()
+def get_pacemaker():
+    """获取缓急律实例"""
+    return _get_pacemaker_inst()
+
+def get_closure():
+    """获取止观门实例"""
+    return _get_closure_inst()
+
+def pace_classify(ctx):
+    """缓急律：任务类型分类"""
+    pm = _get_pacemaker_inst()
+    return pm.classify(ctx)
+
+def should_skip_deep_review(ctx):
+    """缓急律：是否跳过深度复盘"""
+    pm = _get_pacemaker_inst()
+    return pm.should_skip_deep_review(ctx)
+
+def closure_open(item_id, description, context=None):
+    """止观门：打开事项"""
+    cg = _get_closure_inst()
+    return cg.open(item_id, description, context)
+
+def closure_close(item_id, summary='', result='completed'):
+    """止观门：封存事项"""
+    cg = _get_closure_inst()
+    return cg.close(item_id, summary, result)
+
+def closure_is_closed(item_id):
+    """止观门：检查是否已封存"""
+    cg = _get_closure_inst()
+    return cg.is_closed(item_id)
+
+def get_vault():
+    """获取证据库实例"""
+    return _get_vault_inst()
+
+def evidence_record(rule_id, verdict, reason, source="auto", context=None):
+    """去伪存真：记录证据判定"""
+    v = _get_vault_inst()
+    return v.record(rule_id, verdict, reason, source, context)

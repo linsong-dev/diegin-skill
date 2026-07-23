@@ -70,6 +70,27 @@ $stateDir = Split-Path $stateFile -Parent
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:UserPromptSubmit] FIRED"
 
+# 一二不过三：读阻断文件
+$overrideFile = Join-Path $stateDir "dgen_override.json"
+$blockedType = ""
+if (Test-Path $overrideFile) {
+    try { $override = Get-Content $overrideFile -Raw -Encoding UTF8 | ConvertFrom-Json; $blockedType = $override.blocked_error_type } catch {}
+}
+
+# ========== 一二不过三：阻断检查 ==========
+# override 存在时直接阻断用户输入，不让 AI 有机会再犯
+if ($blockedType) {
+    $strikeCount = 0
+    $reason = ""
+    try { $strikeCount = $override.strike_count; $reason = $override.reason } catch {}
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:OVERRIDE] BLOCK prompt type=$blockedType strike=$strikeCount"
+    Write-Output "[一二不过三] 阻断: 错误类型 '$blockedType' 已被系统拦截（已触发 ${strikeCount}次）"
+    if ($reason) { Write-Output "  $reason" }
+    Write-Output ""
+    Write-Output "[DGEN] OVERRIDE_BLOCK"
+    exit 1
+}
+
 
 
 if (-not (Test-Path $stateDir)) { New-Item $stateDir -Force | Out-Null }
@@ -97,6 +118,7 @@ try {
             hook_event_name="UserPromptSubmit"
 
             prompt=$prompt
+            blocked_error_type=$blockedType
 
         }
 
@@ -169,6 +191,7 @@ try {
                 }
 
                 suggestions = $suggestList
+                mindol_context = if ($checkResult.mindol_context) { $checkResult.mindol_context.Substring(0, [Math]::Min(500, $checkResult.mindol_context.Length)) } else { "" }
 
                 status = "active"
 
@@ -200,7 +223,13 @@ try {
 
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] BLOCK rule=$($checkResult.winning_rule_id)"
 
-            Write-Output $checkResult.display_line
+            $enhancedLine = $checkResult.display_line
+            if ($checkResult.mindol_context) {
+                $shortCtx = $checkResult.mindol_context -replace "`n"," " -replace "`r",""
+                if ($shortCtx.Length -gt 200) { $shortCtx = $shortCtx.Substring(0, 200) + "..." }
+                $enhancedLine = $enhancedLine + " | mem:" + $shortCtx
+            }
+            Write-Output $enhancedLine
 
             exit 1
 
@@ -236,9 +265,33 @@ try {
 
             $markerStr = "`[DGEN`]"
 
-            $output = $markerStr + " PASS" + $suggestions
+            $mindolCtxStr = ""
+            if ($checkResult.mindol_context) {
+                $shortCtx = $checkResult.mindol_context -replace "`n"," " -replace "`r",""
+                if ($shortCtx.Length -gt 150) { $shortCtx = $shortCtx.Substring(0, 150) + "..." }
+                $mindolCtxStr = " mem:" + $shortCtx
+            }
+            $output = $markerStr + " PASS" + $mindolCtxStr + $suggestions
 
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] OK decision=$($checkResult.decision) matched=$($checkResult.matched_interceptions)"
+
+            # 去伪存真：冲突仲裁详情
+            try {
+                $detailRaw = $ctxJson | & $pythonExe $enginePy arbitrate_detail 2>&1
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ARBITER] detail=$($detailRaw -replace "`n",' ' -replace "`r",'')"
+            } catch {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ARBITER] error=$($_.Exception.Message)"
+            }
+
+            # 去伪存真：一致性验证（决策是否反转）
+            try {
+                $checkJson = $checkResult | ConvertTo-Json -Compress
+                $verifyRaw = $checkJson | & $pythonExe $enginePy verify 2>&1
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:VERIFY] result=$($verifyRaw -replace "`n",' ' -replace "`r",'')"
+            } catch {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:VERIFY] error=$($_.Exception.Message)"
+            }
+
 
 
 
@@ -271,4 +324,9 @@ try {
 }
 
 # 阶段状态写入: pre_reply
+# ---- Mindol 语义记忆 ----
+$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+if (Test-Path $mindolBridge) {
+    & $pyExe $mindolBridge record pre_reply "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
+}
 Write-PhaseState -Phase "pre_reply" -Status "completed" -Data @{ts=(Get-Date -Format "o")}

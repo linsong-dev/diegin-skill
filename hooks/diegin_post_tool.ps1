@@ -99,4 +99,83 @@ try {
 }
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PostToolUse] ACTIVE"
+
+# 会话图片清理
+$cleanScript = Join-Path $pluginRoot "hooks\diegin_session_image_clean.ps1"
+if (Test-Path $cleanScript) { & $cleanScript }
+
+# 举一反三：跨域泛化（每5次触发一次）
+$genCounterFile = Join-Path $stateDir "generalize_counter.txt"
+$genCount = 0
+if (Test-Path $genCounterFile) { $genCount = [int](Get-Content $genCounterFile -Raw -ErrorAction SilentlyContinue) }
+$genCount++
+Set-Content -Path $genCounterFile -Value $genCount -NoNewline
+if ($genCount -ge 5) {
+    Set-Content -Path $genCounterFile -Value "0" -NoNewline
+    if (Test-Path $pythonExe) {
+        $genResult = & $pythonExe $enginePy generalize_cross_domain 2>&1
+        Add-NoBOMLog -Path $auditLog -Message "$time 举一反三 generalize_result=$genResult"
+    }
+}
+
+# 一二不过三：错误检测（读取工具执行结果，如有错误则记录strike）
+try {
+    $toolExitCode = $LASTEXITCODE
+    $toolError = ""
+    $toolCmd = ""
+    
+    # 从 stdin 读取更多上下文
+    if ($stdin) {
+        try {
+            $hookInput = $stdin | ConvertFrom-Json
+            if ($hookInput.exit_code -or $hookInput.exit_code -eq 0) { $toolExitCode = $hookInput.exit_code }
+            if ($hookInput.error) { $toolError = $hookInput.error }
+            if ($hookInput.stderr) { $toolError = $hookInput.stderr }
+            if ($hookInput.command) { $toolCmd = $hookInput.command }
+            if ($hookInput.cmd) { $toolCmd = $hookInput.cmd }
+        } catch {}
+    }
+    
+    # 有错误时调用 analyze 模式记录 strike
+    $shouldAnalyze = $false
+    if ($toolExitCode -ne 0 -and $toolExitCode -ne $null) { $shouldAnalyze = $true }
+    if ($toolError) { $shouldAnalyze = $true }
+    
+    if ($shouldAnalyze -and (Test-Path $pythonExe)) {
+        $analyzeCtx = @{
+            tool_name = if ($toolName) { $toolName } else { "unknown" }
+            exit_code = $toolExitCode
+            error = $toolError
+            cmd = $toolCmd
+        } | ConvertTo-Json -Compress
+        $analyzeResult = $analyzeCtx | & $pythonExe $enginePy analyze 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze done exit=$toolExitCode result=$($analyzeResult -replace "`n",' ' -replace "`r",'')"
+        }
+        # 即时重检：analyze 后立即检查 strike 状态，如已达第2次则确保 override 已写入
+        $strikesFile = Join-Path $pluginRoot "var\state\strikes_db.json"
+        if (Test-Path $strikesFile) {
+            try {
+                $strikes = Get-Content $strikesFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                foreach ($etype in $strikes.PSObject.Properties) {
+                    $count = $etype.Value.count
+                    if ($count -ge 2) {
+                        Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] RE-CHECK error_type=$($etype.Name) count=$count"
+                    }
+                }
+            } catch {}
+        }
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze error=$($_.Exception.Message)"
+}
+
+# ---- Mindol 语义记忆写入 ----
+$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+if (Test-Path $mindolBridge) {
+    $mindolText = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
+    if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
+    & $pyExe $mindolBridge record post_tool $mindolText 2>&1 | Out-Null
+}
+
 exit 0

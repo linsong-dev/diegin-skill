@@ -1,0 +1,19 @@
+# ============================================
+# 迭进 (Diegin) 引擎配置
+# ============================================
+
+[pacemaker]
+# 缓急律 · 宕机时段配置
+# 格式: HH:MM (24小时制)
+downtime_start = "23:00"
+downtime_end   = "06:00"
+
+[maintenance]
+# 生命周期管理
+# cached 规则超多少天无触发自动归档
+cached_max_age_days = 30
+
+[evidence_vault]
+# 去伪存真 · 季度证伪
+# 是否启用季度自动证伪扫描
+quarterly_falsification_enabled = true

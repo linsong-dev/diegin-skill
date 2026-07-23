@@ -79,6 +79,58 @@ $gateFile = Join-Path $g_pr "var/state/dgen_last_reply.json"
 $markerFile = Join-Path $g_pr "var\state\dgen_marker_pending.json"
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PreToolUse] FIRED"
+ 
+
+# ========== 一二不过三：读阻断文件（实时拦截·支持数组格式）==========
+function Test-DieginOverride {
+    $overridesPath = Join-Path $script:stateDir "dgen_overrides.json"
+    $legacyPath = Join-Path $script:stateDir "dgen_override.json"
+    $entries = @()
+    # 尝试读取新数组格式
+    if (Test-Path $overridesPath) {
+        try {
+            $data = Get-Content $overridesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($data -is [array]) { $entries = $data }
+            elseif ($data -is [pscustomobject]) { $entries = @($data) }
+        } catch {}
+    }
+    # 尝试读取旧单文件格式（兼容）
+    if ($entries.Count -eq 0 -and (Test-Path $legacyPath)) {
+        try {
+            $data = Get-Content $legacyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($data -and $data.blocked_error_type) { $entries = @($data) }
+        } catch {}
+    }
+    return $entries
+}
+
+# 检查所有阻断条目：任何未过期的条目都触发阻断
+$overrideEntries = Test-DieginOverride
+$blockedType = ""
+$strikeCount = 0
+$reason = ""
+$escalated = $false
+
+foreach ($entry in $overrideEntries) {
+    $bt = $entry.blocked_error_type
+    if ($bt) {
+        if (-not $blockedType) { $blockedType = $bt }
+        $strikeCount = [Math]::Max($strikeCount, [int]($entry.strike_count))
+        $reason = $entry.reason
+        if ($entry.escalated) { $escalated = $true }
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:OVERRIDE] FOUND type=$bt strike=$($entry.strike_count) escalated=$($entry.escalated)"
+    }
+}
+
+if ($blockedType) {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:OVERRIDE] BLOCK type=$blockedType strike=$strikeCount escalated=$escalated"
+    Write-DGENStatusFile -Status "OVERRIDE_BLOCKED" -Rules "0" -Decision "block" -Matched "0"
+    Write-Output "[一二不过三] 阻断: 错误类型 '$blockedType' 已被系统拦截（已触发 ${strikeCount}次）"
+    Write-Output "  $reason"
+    Write-Output ""
+    Write-Output "[DGEN] OVERRIDE_BLOCK"
+    exit 1
+}
 
 # ============================================================
 # 第1步：读取 stdin，获取命令详情
@@ -181,11 +233,18 @@ if ($replyState) {
     Write-DGENContextAndExit -ExitCode 1
 }
 
-$overrideFile = Join-Path $stateDir "dgen_override.json"
-$overrideState = Check-StateFile $overrideFile
-if ($overrideState) {
-    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK-OVERRIDE] $($overrideState.reason)"
-    Write-Error ("DGEN_BLOCK|reason=" + $overrideState.reason + "|rule=ai_override")
+# 一二不过三：检查数组+旧格式（重用函数）
+$overrideEntries = Test-DieginOverride
+$blockedType = ""
+foreach ($entry in $overrideEntries) {
+    $bt = $entry.blocked_error_type
+    if ($bt) {
+        if (-not $blockedType) { $blockedType = $bt }
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK-OVERRIDE] type=$bt strike=$($entry.strike_count) escalated=$($entry.escalated)"
+    }
+}
+if ($blockedType) {
+    Write-Error ("DGEN_BLOCK|reason=" + $overrideEntries[0].reason + "|rule=ai_override")
     Write-DGENContextAndExit -ExitCode 1
 }
 
@@ -201,6 +260,7 @@ try {
         $ctx = [ordered]@{
             task_type="pre_tool"
             tool_name=$toolName
+            blocked_error_type=$blockedType
             command=$command
             text=$command
             hook_event_name="PreToolUse"
@@ -239,6 +299,11 @@ if ($st -eq "allowed") { $st = "ALLOWED" }
 elseif ($st -eq "verified") { $st = "VERIFIED" }
 elseif ($st -eq "pending") { $st = "PENDING" }
 Write-DGENStatusFile -Status $st -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
+# ---- Mindol 语义记忆 ----
+$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+if (Test-Path $mindolBridge) {
+    & $pyExe $mindolBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
+}
 Write-DGENContextAndExit -ExitCode 0
 
 # 阶段状态写入: pre_tool

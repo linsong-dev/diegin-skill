@@ -10,7 +10,7 @@ from .diegin_integration import (
     memory_archive,
     memory_format_context,
     get_memory_stats,
-    close_memory,
+    close_memory, save_chat,
 )
 from .vectorizer import SimpleVectorizer
 from .models import MemoryUnit, MemorySpace, SemanticRelation

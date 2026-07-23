@@ -17,8 +17,23 @@ class HealthDashboard:
     def __init__(self, rule_engine: RuleEngine):
         self.rule_engine = rule_engine
         self._scenario_keywords = [
+            # Chinese (original)
             "宏观", "行业", "项目", "政策", "数据", "资源", "情绪",
-            "稳定性", "波动率", "可用性", "估值", "状态", "风险"
+            "稳定性", "波动率", "可用性", "估值", "状态", "风险",
+            # English - file operations
+            "delete", "move", "rename", "file_write", "file_read", "file",
+            # English - command operations
+            "shell", "cmd", "command", "install", "exec",
+            # English - network / git
+            "network", "git", "push", "commit", "clone",
+            # English - security / env
+            "env", "secret", "password", "credential", "security",
+            # English - error / strike
+            "error", "failure", "timeout", "encoding",
+            # English - domain scenarios
+            "task_type", "debug", "production", "local",
+            # English - quality
+            "review", "test", "workflow",
         ]
 
     def generate_report(self) -> Dict:
@@ -133,7 +148,7 @@ class HealthDashboard:
 
 
     def read_strikes(self):
-        fpath = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'var', 'state', 'strikes_db.json')
+        fpath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'var', 'state', 'strikes_db.json')
         if not os.path.exists(fpath):
             return {'status': 'no_strikes', 'errors': {}}
         try:

@@ -148,19 +148,252 @@ class RuleEngine:
         self._metas: List[MetaExperience] = []
         self._precedents: List[Precedent] = []
 
-        self._load_all()
+        self._dirty: set = set()                     # 脏文件跟踪（延迟批量写）
+        self.MIN_RULES: dict = {"interception_rules.json": 10, "success_patterns.json": 1}  # 最小规则数阈值（写保护）
+        self._mindol = None                          # Mindol 语义记忆引擎（权威存储）
+
+        self._init_mindol()                          # 优先初始化 Mindol
+        self._load_all()                             # 加载数据（Mindol优先）
+
+
+    # ─── Mindol 语义记忆引擎集成（全局全域） ───
+
+    def _init_mindol(self):
+        """懒加载 Mindol 实例"""
+        if self._mindol is None:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent.parent))
+                from mindol import core as _mindol_core
+                storage = str(Path(os.environ.get("CODEX_HOME", str(Path(__file__).parent.parent.parent)), "mindol"))
+                self._mindol = _mindol_core.Mindol(storage_path=storage, persist=True)
+            except Exception as _e:
+                self._mindol = None
+
+    def _mindol_sync_all(self):
+        """将所有迭进数据同步到 Mindol 语义记忆引擎"""
+        if self._mindol is None:
+            self._init_mindol()
+        if self._mindol is None:
+            return
+        import json, datetime
+        now = datetime.datetime.now().isoformat()
+        m = self._mindol
+
+        # 1. 规则 → SPACE_RULE
+        for r in self._interceptions:
+            uid = f"rule_{r.id}"
+            text = json.dumps({
+                "id": r.id, "trigger": r.trigger_condition,
+                "action": r.action, "severity": r.severity,
+                "confidence": r.confidence, "status": r.lifecycle_status,
+                "source": r.source, "created": r.created_at,
+                "tags": getattr(r, "tags", [])
+            }, ensure_ascii=False)
+            m.add_unit(text=text, source="diegin_rule", uid=uid, space=m.SPACE_RULE)
+
+        # 2. 成功模式 → SPACE_PATTERN
+        for p in self._patterns:
+            uid = f"pat_{p.id}"
+            text = json.dumps({
+                "id": p.id, "name": p.pattern_name, "scene": p.trigger_scenario,
+                "confidence": p.confidence, "status": p.lifecycle_status,
+                "source": p.source
+            }, ensure_ascii=False)
+            m.add_unit(text=text, source="diegin_pattern", uid=uid, space=m.SPACE_PATTERN)
+
+        # 3. 元经验 → SPACE_ABSTRACT
+        for meta in self._metas:
+            uid = f"meta_{meta.id}"
+            if meta.insight:
+                m.add_unit(text=meta.insight, source="diegin_meta", uid=uid, space=m.SPACE_ABSTRACT)
+
+        # 4. 同步 strikes/override → SPACE_TRADE
+        try:
+            _sp = str(Path(__file__).parent.parent.parent / "var" / "state" / "strikes_db.json")
+            if os.path.exists(_sp):
+                    with open(_sp, "r", encoding="utf-8") as _sf:
+                        _sd = json.load(_sf)
+                    self._mindol_sync_strikes(_sd)
+        except Exception:
+            pass
+
+        # 5. 同步阶段状态 → SPACE_STATE
+        try:
+            _sd = {
+                "active_rules": len(self._interceptions),
+                "active_patterns": len(self._patterns),
+                "staging_rules": sum(1 for r in self._interceptions if r.lifecycle_status == "staging"),
+                "last_sync": now
+            }
+            self._mindol_sync_state(_sd)
+        except Exception:
+            pass
+
+        m.save()
+
+    def _mindol_sync_strikes(self, strikes_data: dict = None):
+        """同步 strike/override 记录到 SPACE_TRADE"""
+        if self._mindol is None:
+            self._init_mindol()
+        if self._mindol is None:
+            return
+        if not strikes_data:
+            return
+        import json
+        m = self._mindol
+        for error_type, info in strikes_data.items():
+            uid = f"strike_{error_type}"
+            text = json.dumps(info, ensure_ascii=False)
+            unit = m.add_unit(text=text, source="diegin_strike", uid=uid, space=m.SPACE_TRADE)
+            if unit:
+                _et_tokens = set(error_type.lower().split("_"))
+                for r in self._interceptions:
+                    _rid_lower = r.id.lower()
+                    _cond_lower = r.trigger_condition.lower()
+                    # 任一 token 匹配规则 ID 或触发条件即建立关系
+                    if any(t in _rid_lower or t in _cond_lower for t in _et_tokens if len(t) > 2):
+                        m.add_relation(uid, f"rule_{r.id}", "strike_affects")
+        m.save()
+
+    def _mindol_sync_state(self, state_data: dict):
+        """同步阶段状态到 SPACE_STATE"""
+        if self._mindol is None:
+            self._init_mindol()
+        if self._mindol is None:
+            return
+        import json
+        m = self._mindol
+        uid = "current_phase_state"
+        m.add_unit(text=json.dumps(state_data, ensure_ascii=False),
+                   source="diegin_state", uid=uid, space=m.SPACE_STATE)
+        m.save()
+
+    # ─── Mindol 权威：新增辅助方法 ───
+
+    def _sync_one_rule_to_mindol(self, rule):
+        """同步单条规则到 Mindol"""
+        import json as _j
+        if not self._mindol:
+            return
+        uid = f"rule_{rule.id}"
+        text = _j.dumps({
+            "id": rule.id, "trigger": rule.trigger_condition,
+            "action": rule.action, "severity": rule.severity,
+            "confidence": rule.confidence, "status": rule.lifecycle_status,
+            "source": rule.source, "created": rule.created_at,
+            "tags": getattr(rule, "tags", [])
+        }, ensure_ascii=False)
+        self._mindol.add_unit(text=text, source="diegin_rule", uid=uid, space=self._mindol.SPACE_RULE)
+
+    def _load_from_mindol(self) -> bool:
+        """从 Mindol 权威源加载所有规则数据"""
+        if not self._mindol:
+            return False
+        import json as _j
+        try:
+            # 1. 加载拦截规则
+            rule_space = self._mindol.get_space(self._mindol.SPACE_RULE)
+            if rule_space and rule_space.size > 0:
+                interceptions = []
+                for unit in rule_space.memory_units:
+                    try:
+                        data = _j.loads(unit.text)
+                        ir = InterceptionRule(
+                            id=data.get("id", unit.uid.replace("rule_", "")),
+                            trigger_condition=data.get("trigger", ""),
+                            action=data.get("action", "warn"),
+                            severity=data.get("severity", "medium"),
+                            tags=data.get("tags", []),
+                            confidence=data.get("confidence", 3.0),
+                            logic_score=data.get("logic_score", 5.0),
+                            outcome_score=data.get("outcome_score", 5.0),
+                            lifecycle_status=data.get("status", "active"),
+                            source=data.get("source", "mindol"),
+                            created_at=data.get("created", "")
+                        )
+                        interceptions.append(ir)
+                    except Exception:
+                        continue
+                if interceptions:
+                    self._interceptions = interceptions
+            else:
+                return False
+
+            # 2. 加载成功模式
+            pat_space = self._mindol.get_space(self._mindol.SPACE_PATTERN)
+            if pat_space and pat_space.size > 0:
+                patterns = []
+                for unit in pat_space.memory_units:
+                    try:
+                        data = _j.loads(unit.text)
+                        sp = SuccessPattern(
+                            id=data.get("id", unit.uid.replace("pat_", "")),
+                            pattern_name=data.get("name", ""),
+                            trigger_scenario=data.get("scene", ""),
+                            confidence=data.get("confidence", 3.0),
+                            lifecycle_status=data.get("status", "active"),
+                            source=data.get("source", "mindol")
+                        )
+                        patterns.append(sp)
+                    except Exception:
+                        continue
+                if patterns:
+                    self._patterns = patterns
+
+            return True
+        except Exception:
+            return False
+
+    def _rebuild_json_from_mindol(self):
+        """从 Mindol 重建所有 JSON 文件（Mindol 权威 → JSON 副本）"""
+        if not self._mindol or not self._interceptions:
+            return
+        try:
+            self._save_json("interception_rules.json", self._interceptions)
+            self._save_json("success_patterns.json", self._patterns)
+            self._save_json("meta_experiences.json", self._metas)
+            self._save_json("precedents.json", self._precedents)
+            print("[MINDOL] JSON 副本已从 Mindol 重建")
+        except Exception as e:
+            print(f"[MINDOL] JSON 重建失败: {e}")
+
+    def _verify_json_consistency(self) -> bool:
+        """验证 JSON 副本是否与 Mindol 一致（仅检查规则数量）"""
+        rule_file = self.rules_dir / "interception_rules.json"
+        if not rule_file.exists():
+            return False
+        try:
+            import json as _j
+            with open(rule_file, "r", encoding="utf-8") as f:
+                json_rules = _j.load(f)
+            return len(json_rules) == len(self._interceptions)
+        except Exception:
+            return False
 
     # ─── 存储与加载 ───
 
     def _load_all(self):
-        """加载所有规则文件"""
+        """加载所有规则数据 - 优先从 Mindol（权威源），失败时回退 JSON"""
+        if self._mindol:
+            if self._load_from_mindol():
+                # Mindol 加载成功，确认 JSON 副本一致性，不一致则重建
+                if not self._verify_json_consistency():
+                    self._rebuild_json_from_mindol()
+                return
+        
+        # Fallback: 从 JSON 加载（文件系统备份）
         self._interceptions = self._load_json("interception_rules.json", InterceptionRule)
         self._patterns = self._load_json("success_patterns.json", SuccessPattern)
         self._metas = self._load_json("meta_experiences.json", MetaExperience)
         self._precedents = self._load_json("precedents.json", Precedent)
+        # 重建 Mindol 索引
+        if self._mindol:
+            self._mindol_sync_all()
 
-    def _load_json(self, filename: str, cls):
-        """加载 JSON 文件"""
+    def _load_json(self, filename: str, cls, retry: bool = False):
+        """加载 JSON 文件（失败时自动从备份恢复）"""
+        import shutil, datetime as dt
         filepath = self.rules_dir / filename
         if not filepath.exists():
             return []
@@ -168,32 +401,100 @@ class RuleEngine:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             return [cls(**item) for item in data]
-        except (json.JSONDecodeError, TypeError, KeyError):
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            print(f"[RULE_ENGINE] 加载 {filename} 失败: {e}")
+            # 自动恢复：从最近有效备份恢复
+            if not retry:
+                bak = self._find_nearest_backup(filename)
+                if bak:
+                    print(f"[RULE_ENGINE] 从备份恢复: {bak.name}")
+                    shutil.copy2(str(bak), str(filepath))
+                    return self._load_json(filename, cls, retry=True)
+            # 最终手段：备份损坏文件
+            if filepath.exists():
+                bak_path = filepath.parent / f"{filename}.err_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                shutil.copy2(str(filepath), str(bak_path))
+                print(f"[RULE_ENGINE] 已备份损坏文件至 {bak_path.name}")
             return []
 
     def _save_json(self, filename: str, data: List):
-        """保存 JSON 文件"""
+        """保存 JSON 文件（写前备份 + 原子写入 + 写后验证 + 阈值保护）"""
+        import shutil, datetime as dt
         filepath = self.rules_dir / filename
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump([asdict(item) for item in data], f, ensure_ascii=False, indent=2)
 
-    def save_all(self):
-        """保存所有规则"""
-        self._save_json("interception_rules.json", self._interceptions)
-        self._save_json("success_patterns.json", self._patterns)
-        self._save_json("meta_experiences.json", self._metas)
-        self._save_json("precedents.json", self._precedents)
+        # Step 1: 写前备份
+        bak_path = None
+        if filepath.exists():
+            bak_name = f"{filename}.pre_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            bak_path = filepath.parent / bak_name
+            shutil.copy2(str(filepath), str(bak_path))
+
+        # Step 2: 原子写入（先写临时文件再 rename）
+        tmp_path = filepath.parent / f"{filename}.tmp"
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump([asdict(item) for item in data], f, ensure_ascii=False, indent=2)
+        os.replace(str(tmp_path), str(filepath))
+
+        # Step 3: 读回验证
+        with open(filepath, 'r', encoding='utf-8') as f:
+            saved = json.load(f)
+
+        # Step 4: 最小阈值保护
+        min_rules = self.MIN_RULES.get(filename, 0)
+        if len(saved) < min_rules:
+            if bak_path and bak_path.exists():
+                shutil.copy2(str(bak_path), str(filepath))
+                print(f"[RULE_ENGINE] X 写后验证失败({filename}仅{len(saved)}条, 阈值={min_rules}) 已回滚")
+            raise RuntimeError(f"_save_json validation failed: {filename} only {len(saved)} rules (min={min_rules})")
+
+        # Step 5: 清理旧备份
+        self._clean_old_backups(filename, keep=5)
+
+    def save_all(self, force: bool = False):
+        """保存所有规则 - Mindol（权威）先写，JSON（人类可读副本）后写"""
+        filenames = {
+            "interception_rules.json": self._interceptions,
+            "success_patterns.json": self._patterns,
+            "meta_experiences.json": self._metas,
+            "precedents.json": self._precedents,
+        }
+        if force:
+            to_save = list(filenames.keys())
+        else:
+            to_save = [f for f in self._dirty if f in filenames]
+
+        # Step 1: 同步到 Mindol（权威存储，ACID 事务保护）
+        try:
+            self._init_mindol()
+            if self._mindol:
+                self._mindol_sync_all()
+        except Exception as _e:
+            print(f"[MINDOL] primary sync failed: {_e}")
+
+        # Step 2: 写 JSON（人类可读同步副本）
+        for fname in to_save:
+            self._save_json(fname, filenames[fname])
+        self._dirty.clear()
 
     # ─── 拦截规则 CRUD ───
 
-    def add_interception(self, rule: InterceptionRule) -> str:
-        """添加拦截规则"""
+    def add_interception(self, rule: InterceptionRule, auto_save: bool = False) -> str:
+        """添加拦截规则 - 同步写入 Mindol（权威）"""
         if not rule.id:
             rule.id = f"rule_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(rule.trigger_condition) % 10000:04d}"
         if not rule.created_at:
             rule.created_at = datetime.now().isoformat()
         self._interceptions.append(rule)
-        self._save_json("interception_rules.json", self._interceptions)
+        self._dirty.add("interception_rules.json")
+        # 同步到 Mindol（权威存储）
+        try:
+            self._init_mindol()
+            if self._mindol:
+                self._sync_one_rule_to_mindol(rule)
+        except Exception:
+            pass
+        if auto_save:
+            self._save_json("interception_rules.json", self._interceptions)
         return rule.id
 
     def get_interceptions(self, active_only: bool = True) -> List[InterceptionRule]:
@@ -210,22 +511,34 @@ class RuleEngine:
         return None
 
     def update_interception(self, rule_id: str, **kwargs) -> bool:
-        """更新拦截规则"""
+        """更新拦截规则 - 同步到 Mindol（权威）"""
         rule = self.get_interception_by_id(rule_id)
         if not rule:
             return False
         for key, value in kwargs.items():
             if hasattr(rule, key):
                 setattr(rule, key, value)
-        self._save_json("interception_rules.json", self._interceptions)
+        self._dirty.add("interception_rules.json")
+        # 同步到 Mindol
+        try:
+            if self._mindol:
+                self._sync_one_rule_to_mindol(rule)
+        except Exception:
+            pass
         return True
 
     def delete_interception(self, rule_id: str) -> bool:
-        """删除拦截规则"""
+        """删除拦截规则 - 从 Mindol（权威）同步删除"""
         for i, r in enumerate(self._interceptions):
             if r.id == rule_id:
                 del self._interceptions[i]
-                self._save_json("interception_rules.json", self._interceptions)
+                self._dirty.add("interception_rules.json")
+                # 从 Mindol 删除
+                try:
+                    if self._mindol:
+                        self._mindol.remove_unit(f"rule_{rule_id}")
+                except Exception:
+                    pass
                 return True
         return False
 
@@ -334,6 +647,28 @@ class RuleEngine:
             condition = getattr(pattern, 'trigger_condition', '') or pattern.trigger_scenario
             if self._match_condition(condition, task_context):
                 matched_patterns.append(pattern)
+
+        # ========== Mindol 语义回退：表达式匹配不到时使用语义检索 ==========
+        if not matched_interceptions:
+            try:
+                _ctx_str = json.dumps(task_context, ensure_ascii=False)
+                if self._mindol is None:
+                    self._init_mindol()
+                if self._mindol:
+                    _results = self._mindol.retrieve(_ctx_str, top_k=5, spaces=["rule"])
+                    for _unit, _score in _results:
+                        if _score < 0.25:
+                            continue
+                        _uid = _unit.uid if hasattr(_unit, 'uid') else ''
+                        if _uid.startswith('rule_'):
+                            _rid = _uid[5:]
+                            for _r in self._interceptions:
+                                if _r.id == _rid and _r.lifecycle_status == 'active':
+                                    if _r not in matched_interceptions:
+                                        matched_interceptions.append(_r)
+                                        break
+            except Exception:
+                pass  # Mindol 不可用时静默降级
 
         return {
             "interceptions": matched_interceptions,
@@ -551,6 +886,34 @@ class RuleEngine:
         return keywords
 
 
+    # 鈹€鈹€鈹€ 鍔╂墜鏂规硶锛氬浠芥仮澶嶄笌娓呯悊 鈹€鈹€鈹€
+
+    def _find_nearest_backup(self, filename: str):
+        """鎵惧埌鏈€杩戠殑鏈夋晥澶囦唤鏂囦欢锛堟帓闄ゅ綋鍓嶆枃浠跺拰err澶囦唤锛?"""
+        pattern = f"{filename}.*"
+        backups = sorted(self.rules_dir.glob(pattern), key=os.path.getmtime, reverse=True)
+        valid = [b for b in backups
+                 if b.name != filename and ".err_" not in b.name
+                 and ".bak" not in b.name and ".pre_" in b.name]
+        return valid[0] if valid else None
+
+    def _clean_old_backups(self, filename: str, keep: int = 5):
+        """淇濈暀鏈€杩?keep 涓浠斤紝鍒犻櫎杩囨湡澶囦唤"""
+        pattern = f"{filename}.*"
+        backups = sorted(self.rules_dir.glob(pattern), key=os.path.getmtime, reverse=True)
+        count = 0
+        for b in backups:
+            if b.name == filename or ".err_" in b.name:
+                continue
+            if count >= keep:
+                try:
+                    b.unlink()
+                except:
+                    pass
+            else:
+                count += 1
+
+
 # ============================================================
 # 种子规则初始化
 # ============================================================
@@ -594,11 +957,47 @@ def get_seed_interceptions() -> List[InterceptionRule]:
         )
     ]
 def init_rules_if_empty(rule_engine: RuleEngine):
-    """如果规则库为空，注入种子规则"""
-    if len(rule_engine.get_interceptions(active_only=False)) == 0:
-        for rule in get_seed_interceptions():
-            rule_engine.add_interception(rule)
-        rule_engine.save_all()
-        print("[OK] 种子规则注入完成，智能体已具备基础生存能力")
+    """如果规则库为空，注入种子规则（双重验证+自动恢复）"""
+    rules = rule_engine.get_interceptions(active_only=False)
+    if len(rules) > 0:
+        return
+    rules_dir = rule_engine.rules_dir
+    import shutil, datetime as dt
+    rules_file = rules_dir / "interception_rules.json"
+    if rules_file.exists():
+        bak_name = f"interception_rules.json.auto_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        shutil.copy2(str(rules_file), str(rules_dir / bak_name))
+        print(f"[SAFETY] 已备份原规则文件至 {bak_name}")
+        # 双重验证：直接读文件确认是否真的为空
+        try:
+            with open(rules_file, 'r', encoding='utf-8') as f_check:
+                direct_data = json.load(f_check)
+            if direct_data and len(direct_data) > 0:
+                print(f"[SAFETY] 警告：JSON文件实际有 {len(direct_data)} 条规则，但引擎读到0条！")
+                # 尝试重新加载引擎
+                rule_engine._load_all()
+                still_empty = len(rule_engine.get_interceptions(active_only=False)) == 0
+                if not still_empty:
+                    print(f"[SAFETY] 重新加载成功，跳过种子注入")
+                    return
+                # 仍为空 → 从备份恢复
+                bak = rule_engine._find_nearest_backup("interception_rules.json")
+                if bak:
+                    print(f"[SAFETY] 从备份恢复: {bak.name}")
+                    shutil.copy2(str(bak), str(rules_file))
+                    rule_engine._load_all()
+                    return
+        except Exception as e:
+            print(f"[SAFETY] 文件双重检查异常: {e}, 尝试恢复...")
+            bak = rule_engine._find_nearest_backup("interception_rules.json")
+            if bak:
+                print(f"[SAFETY] 从备份恢复: {bak.name}")
+                shutil.copy2(str(bak), str(rules_file))
+                rule_engine._load_all()
+                return
+    for rule in get_seed_interceptions():
+        rule_engine.add_interception(rule)
+    rule_engine.save_all()
+    print("[OK] 种子规则注入完成，智能体已具备基础生存能力")
 
 

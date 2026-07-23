@@ -111,101 +111,202 @@ class ConflictArbiter:
 
     def resolve(self, interceptions, patterns):
         """
-        5层裁决（对齐 AGENTS.md §二）：
-        第1层：铁律检查（high/critical+irreversible）
-        第2层：critical/high 严重度→block
-        第3层：medium/low触发 + 成功模式 → 置信度冲突检测
-        第4层：medium/low触发 无模式 → 严重度决定
-        第5层：默认放行（allow）
+        八元原则网络仲裁 · 按裁决律P0-P5优先级
+
+        P0: 去伪存真无条件优先 → iron_wall_block
+        P1: 一二不过三阻断指令优先 → block
+        P2: 止观门事毕清零
+        P3: 缓急律紧急分流
+        P4: 守三改进规则 vs 攻七成功模式 → 置信度裁决
+        P5: 举一反三 staging 规则不参与实时仲裁
         """
-        # ⭐⭐⭐ 第1层：铁律阻断 ⭐⭐⭐
+        if not interceptions:
+            return ArbitrationResult(
+                decision=ResolutionType.ALLOW,
+                reason="无规则触发，默认放行"
+            )
+
+        # ── 辅助函数：检测规则归属原则 ──
+        def _principle(rule):
+            tags = getattr(rule, "tags", []) or []
+            lifecycle = getattr(rule, "lifecycle_status", "")
+            source = getattr(rule, "source", "")
+            tags_str = " ".join(tags).lower()
+            # 去伪存真: critical + irreversible
+            if "irreversible" in tags_str and getattr(rule, "severity", "") in ("critical", "high"):
+                return "去伪存真"
+            # 一二不过三: self_error 或 blocking/critical lifecycle
+            if "self_error" in tags_str or lifecycle in ("blocking", "critical"):
+                return "一二不过三"
+            if "一二不过三" in tags_str:
+                return "一二不过三"
+            # 举一反三: staging/cached
+            if lifecycle in ("staging", "cached") or "举一反三" in tags_str:
+                return "举一反三"
+            # 止观门: closed/archived + 止观门tag
+            if lifecycle in ("closed", "archived") or "止观门" in tags_str:
+                return "止观门"
+            # 缓急律: urgent tag + 缓急律tag
+            if "urgent" in tags_str or "缓急律" in tags_str or "急务" in tags_str:
+                return "缓急律"
+            # 攻七: SuccessPattern 实例
+            if "pattern" in tags_str and source in ("war_game", "learned"):
+                return "攻七"
+            # 守三: 默认拦截规则
+            return "守三"
+
+        # 按原则分组
+        groups = {
+            "去伪存真": [],
+            "一二不过三": [],
+            "止观门": [],
+            "缓急律": [],
+            "守三": [],
+            "攻七": [],
+            "举一反三": [],
+        }
         for rule in interceptions:
-            severity = getattr(rule, 'severity', 'low')
-            tags = getattr(rule, 'tags', []) or []
-            if severity in ("critical", "high") and "irreversible" in tags:
+            p = _principle(rule)
+            if p in groups:
+                groups[p].append(rule)
+            else:
+                groups["守三"].append(rule)
+
+        # ⭐ P0: 去伪存真无条件优先 ⭐
+        if groups["去伪存真"]:
+            for rule in groups["去伪存真"]:
+                if "irreversible" in " ".join(getattr(rule, "tags", []) or []):
+                    return ArbitrationResult(
+                        decision=ResolutionType.IRON_WALL_BLOCK,
+                        winning_rule=rule,
+                        reason=f"[裁决律P0] 去伪存真: {rule.id} | 触及不可逆操作铁律，强制阻断"
+                    )
+            return ArbitrationResult(
+                decision=ResolutionType.BLOCK,
+                winning_rule=groups["去伪存真"][0],
+                reason=f"[裁决律P0] 去伪存真验证拒绝: {groups["去伪存真"][0].id}"
+            )
+
+        # ⭐ P1: 一二不过三阻断指令优先 ⭐
+        if groups["一二不过三"]:
+            for rule in groups["一二不过三"]:
+                lifecycle = getattr(rule, "lifecycle_status", "")
+                if lifecycle in ("blocking", "critical"):
+                    return ArbitrationResult(
+                        decision=ResolutionType.BLOCK,
+                        winning_rule=rule,
+                        reason=f"[裁决律P1] 一二不过三阻断: {rule.id} | 同类错误已达阈值，系统强制拦截"
+                    )
+            # alerting → escalate
+            alerting = [r for r in groups["一二不过三"] if getattr(r, "lifecycle_status", "") == "alerting"]
+            if alerting:
                 return ArbitrationResult(
-                    decision=ResolutionType.IRON_WALL_BLOCK,
-                    winning_rule=rule,
-                    reason=f"触及安全铁律：{getattr(rule, 'id', '?')} | 不可逆操作或合规红线"
+                    decision=ResolutionType.ESCALATE,
+                    winning_rule=alerting[0],
+                    reason=f"[裁决律P1] 一二不过三警告: {alerting[0].id} | 同类错误已出现第1次，请注意防范"
                 )
 
-        # ⭐⭐⭐ 第2层：严重度检查（安全优先，模式不可穿透）⭐⭐⭐
-        if interceptions:
-            severities = [getattr(r, 'severity', 'low') for r in interceptions]
-            # critical/high → 直接 BLOCK，不论有无成功模式
-            if "critical" in severities:
-                crit_rules = [r for r in interceptions if getattr(r, 'severity', '') == "critical"]
+        # ⭐ P2: 止观门事毕清零 ⭐
+        if groups["止观门"]:
+            closed_items = [r for r in groups["止观门"] if getattr(r, "lifecycle_status", "") == "closed"]
+            if closed_items:
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    winning_rule=closed_items[0],
+                    reason=f"[裁决律P2] 止观门: {closed_items[0].id} 已完成封存，不追加纠错"
+                )
+            archived_items = [r for r in groups["止观门"] if getattr(r, "lifecycle_status", "") == "archived"]
+            if archived_items:
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    winning_rule=archived_items[0],
+                    reason=f"[裁决律P2] 止观门: {archived_items[0].id} 已归档，放行"
+                )
+
+        # ⭐ P3: 缓急律紧急分流 ⭐
+        if groups["缓急律"]:
+            urgent_items = [r for r in groups["缓急律"] if "urgent" in " ".join(getattr(r, "tags", []) or [])]
+            if urgent_items:
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    winning_rule=urgent_items[0],
+                    reason=f"[裁决律P3] 缓急律: {urgent_items[0].id} 紧急事务，走快速通道，跳过深度复盘"
+                )
+
+        # ⭐ P5: 举一反三 staging 不参与实时仲裁 ⭐
+        active_interceptions = [r for r in interceptions if getattr(r, "lifecycle_status", "active") == "active"]
+        if not active_interceptions:
+            return ArbitrationResult(
+                decision=ResolutionType.ALLOW,
+                reason="[裁决律P5] 仅有staging规则触发，不参与实时仲裁，放行"
+            )
+
+        # ⭐ P4: 守三 vs 攻七 置信度裁决 ⭐
+        patterns = patterns or []
+        active_patterns = [p for p in patterns if getattr(p, "lifecycle_status", "active") == "active"]
+
+        if active_patterns and groups["守三"]:
+            best_interception = max(groups["守三"], key=lambda x: getattr(x, "confidence", 0) or 0)
+            best_pattern = max(active_patterns, key=lambda x: getattr(x, "confidence", 0) or 0)
+            int_conf = getattr(best_interception, "confidence", 0) or 0
+            pat_conf = getattr(best_pattern, "confidence", 0) or 0
+            confidence_delta = abs(int_conf - pat_conf)
+            if confidence_delta < 0.5:
+                self.pending_conflicts.append({
+                    "timestamp": time.time(),
+                    "interception": best_interception,
+                    "pattern": best_pattern,
+                    "delta": confidence_delta,
+                    "resolved": False,
+                })
+                auto_decision = self._check_degradation()
+                if auto_decision:
+                    return auto_decision
+                return ArbitrationResult(
+                    decision=ResolutionType.ESCALATE,
+                    conflict_set=[best_interception, best_pattern],
+                    reason=f"[裁决律P4] 守三vs攻七置信度接近（delta={confidence_delta:.3f}），需用户确认"
+                )
+            elif pat_conf > int_conf:
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    winning_rule=best_pattern,
+                    reason=f"[裁决律P4] 攻七模式 {best_pattern.id} 置信度({pat_conf})高于守三规则，放行"
+                )
+            else:
                 return ArbitrationResult(
                     decision=ResolutionType.BLOCK,
-                    winning_rule=crit_rules[0],
-                    reason=f"触及关键规则（critical）：{crit_rules[0].id}"
+                    winning_rule=best_interception,
+                    reason=f"[裁决律P4] 守三规则 {best_interception.id} 置信度({int_conf})高于攻七模式，拦截"
                 )
 
-            if "high" in severities:
-                high_rules = [r for r in interceptions if getattr(r, 'severity', '') == "high"]
+        # ⭐ 严重度兜底 ⭐
+        if active_interceptions:
+            severities = [getattr(r, "severity", "low") for r in active_interceptions]
+            if "high" in severities or "critical" in severities:
+                high_rules = [r for r in active_interceptions if getattr(r, "severity", "") in ("high", "critical")]
                 return ArbitrationResult(
                     decision=ResolutionType.BLOCK,
                     winning_rule=high_rules[0],
-                    reason=f"匹配高严重度规则：{high_rules[0].id}"
+                    reason=f"高严重度规则触发: {high_rules[0].id}"
                 )
-
-            # ⭐⭐⭐ 第3层：攻守冲突检测（仅 medium/low + 成功模式）⭐⭐⭐
-            if patterns:
-                best_interception = max(interceptions, key=lambda x: getattr(x, 'confidence', 0) or 0)
-                best_pattern = max(patterns, key=lambda x: getattr(x, 'confidence', 0) or 0)
-                int_conf = getattr(best_interception, 'confidence', 0) or 0
-                pat_conf = getattr(best_pattern, 'confidence', 0) or 0
-                confidence_delta = abs(int_conf - pat_conf)
-
-                if confidence_delta < 0.5:
-                    self.pending_conflicts.append({
-                        "timestamp": time.time(),
-                        "interception": best_interception,
-                        "pattern": best_pattern,
-                        "delta": confidence_delta,
-                        "resolved": False,
-                    })
-                    auto_decision = self._check_degradation()
-                    if auto_decision:
-                        return auto_decision
-                    return ArbitrationResult(
-                        decision=ResolutionType.ESCALATE,
-                        conflict_set=[best_interception, best_pattern],
-                        reason=f"攻守规则置信度接近（delta={confidence_delta:.3f}），需询问用户"
-                    )
-                elif pat_conf > int_conf:
-                    return ArbitrationResult(
-                        decision=ResolutionType.ALLOW,
-                        winning_rule=best_pattern,
-                        reason=f"成功模式 {best_pattern.id} 置信度（{pat_conf}）高于拦截规则，放行"
-                    )
-
-            # ⭐⭐⭐ 第4层：严重度决定（无成功模式 / 拦截置信度更高）⭐⭐⭐
             if "medium" in severities:
-                med_rules = [r for r in interceptions if getattr(r, 'severity', '') == "medium"]
+                med_rules = [r for r in active_interceptions if getattr(r, "severity", "") == "medium"]
                 return ArbitrationResult(
                     decision=ResolutionType.ESCALATE,
                     winning_rule=med_rules[0],
-                    reason=f"匹配中严重度规则：{med_rules[0].id}，需确认后执行"
+                    reason=f"中严重度规则触发: {med_rules[0].id}，需确认后执行"
                 )
-
-            # low → 放行但通知
             return ArbitrationResult(
                 decision=ResolutionType.ALLOW,
-                winning_rule=interceptions[0],
-                reason=f"低严重度规则触发：{interceptions[0].id}，不影响执行"
+                winning_rule=active_interceptions[0],
+                reason=f"低严重度规则触发: {active_interceptions[0].id}，不影响执行"
             )
 
-        # ⭐⭐⭐ 第5层：默认放行 ⭐⭐⭐
         return ArbitrationResult(
             decision=ResolutionType.ALLOW,
-            winning_rule=None,
-            reason="无规则触发或全部放行"
+            reason="无活跃规则触发，放行"
         )
-    # ──────────────────────────────────────────────────
-    # 自动降级（熔断保护）
-    # ──────────────────────────────────────────────────
-
     def _check_degradation(self) -> Optional[ArbitrationResult]:
         """自动降级熔断检查"""
         now = time.time()

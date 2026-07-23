@@ -15,6 +15,7 @@ class Mindol:
     SPACE_ABSTRACT = "abstract"
     SPACE_TRADE = "trade"
     SPACE_CODEX = "codex"
+    SPACE_STATE = "state"
 
     def __init__(self, storage_path: str = "", vectorizer: Any = None,
                  persist: bool = True, text_clean: bool = True):
@@ -29,7 +30,7 @@ class Mindol:
         ) if text_clean else None
         self._spaces: Dict[str, MemorySpace] = {}
         for name in [self.SPACE_RAW_FILE, self.SPACE_RAW_CHAT, self.SPACE_RULE,
-                     self.SPACE_PATTERN, self.SPACE_ABSTRACT, self.SPACE_TRADE, self.SPACE_CODEX]:
+                     self.SPACE_PATTERN, self.SPACE_ABSTRACT, self.SPACE_TRADE, self.SPACE_CODEX, self.SPACE_STATE]:
             self._spaces[name] = MemorySpace(name=name)
         self._relations: List[SemanticRelation] = []
         self._relation_index: Dict[str, List[int]] = {}
@@ -82,7 +83,7 @@ class Mindol:
 
     def _classify_space(self, source: str) -> str:
         return {"rule": self.SPACE_RULE, "pattern": self.SPACE_PATTERN, "trade": self.SPACE_TRADE,
-                "chat": self.SPACE_RAW_CHAT, "abstract": self.SPACE_ABSTRACT, "codex": self.SPACE_CODEX
+                "chat": self.SPACE_RAW_CHAT, "abstract": self.SPACE_ABSTRACT, "codex": self.SPACE_CODEX, "state": self.SPACE_STATE
                 }.get(source, self.SPACE_RAW_FILE)
 
     def _rebuild_index(self, space: str):
@@ -114,7 +115,14 @@ class Mindol:
             if sp is None or sp.index is None or sp.size == 0: continue
             sims = sp.index @ qvec
             w = sw.get(sn, 1.0)
-            if qterms:
+            if self._vectorizer and hasattr(self._vectorizer, "calc_similarity"):
+                kb = np.zeros(len(sp.memory_units), dtype=np.float32)
+                for i, u in enumerate(sp.memory_units):
+                    jsim = self._vectorizer.calc_similarity(query, u.text)
+                    if jsim > 0.1:
+                        kb[i] = 0.3 * jsim
+                sims = sims + kb
+            elif qterms:
                 kb = np.zeros(len(sp.memory_units), dtype=np.float32)
                 for i, u in enumerate(sp.memory_units):
                     hits = sum(1 for t in qterms if t in u.text.lower())
