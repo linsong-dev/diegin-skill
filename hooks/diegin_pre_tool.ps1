@@ -217,10 +217,9 @@ if ($markerStatus -eq "verified" -and $markerTs) {
 }
 
 if ($markerStatus -eq "") {
-    $markerState = @{status="pending";turn_id="auto";ts=(Get-Date -Format "o")}
-    [System.IO.File]::WriteAllText($markerFile, ($markerState | ConvertTo-Json -Compress), $script:utf8NoBOM)
-    $markerStatus = "pending"
-    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] AUTO_CREATED pending"
+    # 无 dgen_marker_pending.json → 非迭进线程，跳过标记检查
+    $markerStatus = "skip"
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] SKIP no_marker_file"
 }
 
 if ($markerStatus -eq "pending") {
