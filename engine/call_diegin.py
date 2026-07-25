@@ -128,10 +128,8 @@ def load_principle_rules(context: dict) -> list:
             )
             extra.append(mr)
             seen_ids.add(marker_rule_id)
-            try:
-                ensure_three_strikes("protocol_b_marker", f"工具命令缺失[DGEN]标记: {str(context.get('command',''))[:100]}")
-            except Exception:
-                pass
+            # 不写 strike — 避免 override 死锁回路
+            # 由引擎规则自身的 triggered_count + confidence 衰减处理"一二不过三"
 
     return extra
 
