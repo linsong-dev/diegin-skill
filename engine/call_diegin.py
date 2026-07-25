@@ -11,6 +11,7 @@
 import sys, json, os, re
 
 import io
+from datetime import datetime
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
@@ -105,6 +106,32 @@ def load_principle_rules(context: dict) -> list:
     except Exception as e:
         import sys as _sys
         print("[DG] load_principle_rules error: " + str(e), file=_sys.stderr)
+
+    # 3. Protocol B: marker_missing 规则 — 接入引擎闭环
+    marker_missing = context.get("marker_missing", False)
+    if marker_missing and marker_missing is True:
+        marker_rule_id = "rule_protocol_b_marker_missing"
+        if marker_rule_id not in seen_ids:
+            from evo.rule_engine import InterceptionRule as _MR
+            mr = _MR(
+                id=marker_rule_id,
+                trigger_condition="marker_missing == true",
+                action="block_operation; audit_only",
+                severity="high",
+                tags=[],
+                logic_score=5.0,
+                outcome_score=5.0,
+                confidence=5.0,
+                source="principle",
+                lifecycle_status="active",
+                created_at=datetime.now().isoformat(),
+            )
+            extra.append(mr)
+            seen_ids.add(marker_rule_id)
+            try:
+                ensure_three_strikes("protocol_b_marker", f"工具命令缺失[DGEN]标记: {str(context.get('command',''))[:100]}")
+            except Exception:
+                pass
 
     return extra
 
@@ -227,7 +254,8 @@ def post_review(task_context: dict, task_result: dict) -> dict:
         memory_archive("post_review", f"{result.get('decision','?')} | ctx={ctx_str} | res={res_str}")
     except Exception:
         pass
-    # 自动维护：检查距上次维护是否超过24h
+
+    # 自动维护：检查距上次维护是否超过24h
     _maint_file = os.path.join(os.path.dirname(__file__), 'var', 'state', 'last_maintenance.txt')
     _run_maint = False
     if os.path.isfile(_maint_file):
@@ -1125,7 +1153,6 @@ if __name__ == "__main__":
             "total_overrides": len(overrides),
         }
         print(_j2.dumps(result, ensure_ascii=False, indent=2, default=str))
-
 
 
 

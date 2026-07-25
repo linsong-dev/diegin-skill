@@ -192,6 +192,7 @@ Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PreToolUse] tool=$toolName cm
 #     verified → 检查是否过期（5分钟）→ 过期则重置 pending
 # ============================================================
 $markerStatus = ""
+$markerMissing = $false  # 由标记检查设置，引擎据此裁决
 $markerTs = $null
 if (Test-Path $markerFile) {
     try {
