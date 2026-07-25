@@ -176,6 +176,10 @@ if (Test-Path $mindolBridge) {
     $mindolText = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
     if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
     & $pyExe $mindolBridge record post_tool $mindolText 2>&1 | Out-Null
+    # 同时写入 raw_chat 空间（对话上下文记忆）
+    $chatText = "tool=$toolName cmd=$toolCmd exit=$toolExitCode"
+    if ($chatText.Length -gt 450) { $chatText = $chatText.Substring(0, 450) }
+    & $pyExe $mindolBridge record raw_chat "$chatText (raw_chat)" 2>&1 | Out-Null
 }
 
 exit 0

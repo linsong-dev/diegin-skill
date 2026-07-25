@@ -1655,6 +1655,7 @@ def health_check(verbose: bool = True) -> Dict[str, Any]:
 def run_maintenance():
 
 
+    from datetime import datetime  # 维护函数统一导入
     """执行定期维护（降权/归档/软淘汰）"""
 
 
@@ -2098,3 +2099,29 @@ def evidence_record(rule_id, verdict, reason, source="auto", context=None):
     """去伪存真：记录证据判定"""
     v = _get_vault_inst()
     return v.record(rule_id, verdict, reason, source, context)
+
+    # 一击即中: strikes 过期清理（14 天无活动则归档）
+    try:
+        _strikes_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'state', 'strikes_db.json')
+        if os.path.isfile(_strikes_path):
+            with open(_strikes_path, 'r', encoding='utf-8') as _sf:
+                _strikes = json.load(_sf)
+            _changed = False
+            _strike_ttl_days = _cfg.get('maintenance', {}).get('strike_ttl_days', 14) if '_cfg' in dir() else 14
+            for _etype in list(_strikes.keys()):
+                _last_seen = _strikes[_etype].get('last_seen', '')
+                if _last_seen:
+                    try:
+                        _last_dt = datetime.fromisoformat(_last_seen)
+                        if (_now_dt - _last_dt).days >= _strike_ttl_days:
+                            del _strikes[_etype]
+                            _changed = True
+                            print(f"  [CLEAN] strike 过期清理: {_etype} (最后触发 {_last_seen[:10]})")
+                    except Exception:
+                        pass
+            if _changed:
+                with open(_strikes_path, 'w', encoding='utf-8') as _sf:
+                    json.dump(_strikes, _sf, ensure_ascii=False, indent=2)
+                print(f"  [CLEAN] strikes_db 清理完成")
+    except Exception as _se:
+        print(f"  [CLEAN] strikes 清理跳过: {_se}")

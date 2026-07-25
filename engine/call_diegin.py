@@ -227,6 +227,26 @@ def post_review(task_context: dict, task_result: dict) -> dict:
         memory_archive("post_review", f"{result.get('decision','?')} | ctx={ctx_str} | res={res_str}")
     except Exception:
         pass
+    # 自动维护：检查距上次维护是否超过24h
+    _maint_file = os.path.join(os.path.dirname(__file__), 'var', 'state', 'last_maintenance.txt')
+    _run_maint = False
+    if os.path.isfile(_maint_file):
+        try:
+            with open(_maint_file, 'r') as _mf:
+                _last_maint = datetime.fromisoformat(_mf.read().strip())
+            if (datetime.now() - _last_maint).total_seconds() > 86400:
+                _run_maint = True
+        except:
+            _run_maint = True
+    else:
+        _run_maint = True
+    if _run_maint:
+        try:
+            run_maintenance()
+            with open(_maint_file, 'w') as _mf:
+                _mf.write(datetime.now().isoformat())
+        except Exception as _me:
+            pass
 
     return result
 

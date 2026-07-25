@@ -72,13 +72,26 @@ Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:UserPromptSubmit] FIRED"
 
 # 一二不过三：读阻断文件
 $overrideFile = Join-Path $stateDir "dgen_override.json"
-$blockedType = ""
-if (Test-Path $overrideFile) {
-    try { $override = Get-Content $overrideFile -Raw -Encoding UTF8 | ConvertFrom-Json; $blockedType = $override.blocked_error_type } catch {}
-}
-
-# ========== 一二不过三：阻断检查 ==========
-# override 存在时直接阻断用户输入，不让 AI 有机会再犯
+    $blockedType = ""
+    $now = Get-Date
+    $overrideTTL = [TimeSpan]::FromHours(72)
+    if (Test-Path $overrideFile) {
+        try {
+            $override = Get-Content $overrideFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $blockedType = $override.blocked_error_type
+            if ($blockedType -and $override.blocked_at) {
+                try {
+                    $blockedAt = [DateTime]::ParseExact($override.blocked_at, "o", $null)
+                    $age = $now - $blockedAt
+                    if ($age -gt $overrideTTL) {
+                        $nullJson = @{blocked_error_type="";strike_count=0;blocked_at=$null;last_detail="";decision="allow"} | ConvertTo-Json
+                        [System.IO.File]::WriteAllText($overrideFile, $nullJson, $script:utf8NoBOM)
+                        $blockedType = ""
+                    }
+                } catch {}
+            }
+        } catch {}
+    }
 if ($blockedType) {
     $strikeCount = 0
     $reason = ""
@@ -301,7 +314,15 @@ try {
 
             $output += "`n=== END PROTOCOL ==="
 
-            Write-Output $output
+            # raw_chat: 保存用户输入到对话记忆
+    if ($prompt) {
+        try {
+            $chatText = "prompt=$prompt"
+            if ($chatText.Length -gt 500) { $chatText = $chatText.Substring(0, 500) }
+            & $pyExe $mindolBridge record raw_chat "$chatText (raw_chat)" 2>&1 | Out-Null
+        } catch {}
+    }
+    Write-Output $output
 
         }
 

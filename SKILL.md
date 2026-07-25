@@ -1,4 +1,4 @@
----
+﻿---
 name: "diegin-skill"
 description: |
   AI 全域常驻自我迭代进化系统。

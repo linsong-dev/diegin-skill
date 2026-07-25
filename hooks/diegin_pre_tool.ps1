@@ -86,19 +86,50 @@ function Test-DieginOverride {
     $overridesPath = Join-Path $script:stateDir "dgen_overrides.json"
     $legacyPath = Join-Path $script:stateDir "dgen_override.json"
     $entries = @()
-    # 尝试读取新数组格式
+    $now = Get-Date
+    $overrideTTL = [TimeSpan]::FromHours(72)   # TTL: 3天
+    $cleaned = $false
     if (Test-Path $overridesPath) {
         try {
             $data = Get-Content $overridesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($data -is [array]) { $entries = $data }
-            elseif ($data -is [pscustomobject]) { $entries = @($data) }
+            if ($data -is [array]) {
+                $entries = $data | Where-Object {
+                    if ($_.blocked_at) {
+                        try {
+                            $blockedAt = [DateTime]::ParseExact($_.blocked_at, 'o', $null)
+                            $age = $now - $blockedAt
+                            if ($age -gt $overrideTTL) { $cleaned = $true; return $false }
+                        } catch { return $true }
+                    }
+                    return $true
+                }
+            } elseif ($data -is [pscustomobject]) { $entries = @($data) }
         } catch {}
     }
-    # 尝试读取旧单文件格式（兼容）
+    # 自愈：全部过期则自动清空归档
+    if ($cleaned) {
+        try {
+            $emptyJson = @() | ConvertTo-Json -Compress
+            [System.IO.File]::WriteAllText($overridesPath, $emptyJson, $script:utf8NoBOM)
+        } catch {}
+    }
     if ($entries.Count -eq 0 -and (Test-Path $legacyPath)) {
         try {
             $data = Get-Content $legacyPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($data -and $data.blocked_error_type) { $entries = @($data) }
+            if ($data -and $data.blocked_error_type) {
+                if ($data.blocked_at) {
+                    try {
+                        $blockedAt = [DateTime]::ParseExact($data.blocked_at, 'o', $null)
+                        $age = $now - $blockedAt
+                        if ($age -gt $overrideTTL) {
+                            $nullJson = @{blocked_error_type="";strike_count=0;blocked_at=$null;last_detail="";decision="allow"} | ConvertTo-Json
+                            [System.IO.File]::WriteAllText($legacyPath, $nullJson, $script:utf8NoBOM)
+                            return @()
+                        }
+                    } catch {}
+                }
+                $entries = @($data)
+            }
         } catch {}
     }
     return $entries
