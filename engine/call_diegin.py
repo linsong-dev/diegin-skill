@@ -458,6 +458,23 @@ if __name__ == "__main__":
 
 
 
+    elif mode == "record_evidence":
+        """记录一条证据到 EvidenceVault"""
+        try:
+            raw_input = sys.stdin.read().strip()
+            ctx = json.loads(raw_input) if raw_input else {}
+            from evo.evidence_vault import EvidenceVault
+            ev = EvidenceVault()
+            result = ev.route_verdict(
+                rule_id=ctx.get("rule_id", "unknown"),
+                verdict=ctx.get("verdict", "pass"),
+                reason=ctx.get("reason", ""),
+                source=ctx.get("source", "auto"),
+                context={"detail": ctx.get("detail", ""), "tool": ctx.get("rule_id", "")}
+            )
+            print(json.dumps({"ok": True, "ts": result.get("ts", "")}, ensure_ascii=False))
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
     elif mode == "feedback":
 
         """用户反馈三态模型"""

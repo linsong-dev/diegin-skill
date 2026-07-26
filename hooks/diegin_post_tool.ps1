@@ -176,6 +176,18 @@ if (Test-Path $mindolBridge) {
     $mindolText = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
     if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
     & $pyExe $mindolBridge record post_tool $mindolText 2>&1 | Out-Null
+
+    # 去伪存真：写入证据裁决
+    $evidenceVault = Join-Path $pluginRoot "engine\call_diegin.py"
+    $evCtx = @{
+        rule_id = if ($toolName) { $toolName } else { "unknown" }
+        verdict = if ($toolExitCode -eq 0 -or $toolExitCode -eq $null) { "pass" } else { "fail" }
+        reason = "tool=$toolName exit=$toolExitCode"
+        source = "post_tool"
+        detail = $toolCmd
+    } | ConvertTo-Json -Compress
+    $evCtx | & $pyExe $evidenceVault record_evidence 2>&1 | Out-Null
+
     # 同时写入 raw_chat 空间（对话上下文记忆）
     $chatText = "tool=$toolName cmd=$toolCmd exit=$toolExitCode"
     if ($chatText.Length -gt 450) { $chatText = $chatText.Substring(0, 450) }
