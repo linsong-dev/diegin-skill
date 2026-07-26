@@ -107,18 +107,67 @@ def load_principle_rules(context: dict) -> list:
         import sys as _sys
         print("[DG] load_principle_rules error: " + str(e), file=_sys.stderr)
 
-    # 3. Protocol B: marker_missing 规则 — 接入引擎闭环
+    # 3. Protocol B: marker_missing 规则 — 一二不过三闭环
     marker_missing = context.get("marker_missing", False)
     if marker_missing and marker_missing is True:
         marker_rule_id = "rule_protocol_b_marker_missing"
-        if marker_rule_id not in seen_ids:
-            from evo.rule_engine import InterceptionRule as _MR
-            mr = _MR(
+
+        # ① 错立改+改毕验：记录 strike，走引擎裁决
+        try:
+            ensure_three_strikes("protocol_b_marker",
+                f"工具命令缺失[DGEN]标记: {str(context.get('command',''))[:80]}")
+        except Exception:
+            pass
+
+        # 查当前 strike 计数
+        strike_count = 0
+        try:
+            _ss = get_strike_status("protocol_b_marker")
+            strike_count = _ss.get("protocol_b_marker", {}).get("count", 0) if isinstance(_ss, dict) else 0
+        except Exception:
+            pass
+
+        # 根据 strike 次数执行一二不过三策略
+        if strike_count >= 3:
+            # ③ 三错升级处理：推翻原阻断方案，切换为 audit_only
+            from evo.rule_engine import InterceptionRule as _MR3
+            mr = _MR3(
                 id=marker_rule_id,
                 trigger_condition="marker_missing == true",
-                action="block_operation; audit_only",
+                action="audit_only; protocol_b_escalated",
+                severity="medium",
+                tags=["escalated", "protocol_b"],
+                logic_score=0.0,
+                outcome_score=0.0,
+                confidence=0.0,
+                source="principle",
+                lifecycle_status="active",
+                created_at=datetime.now().isoformat(),
+            )
+        elif strike_count >= 2:
+            # ② 再错加固阻断：去伪存真归因过滤
+            _detail = str(context.get("command", ""))
+            try:
+                from evo.evidence_vault import EvidenceVault
+                _ev = EvidenceVault()
+                _verdict = _ev.classify_failure("protocol_b_marker", _detail)
+            except Exception:
+                _verdict = "uncertain"
+
+            if _verdict == "internal":
+                # 内生惯性：系统自身问题 → 写入硬阻断，切换策略
+                _action = "block_operation; internal_inertia_override"
+            else:
+                # 外生变量/不确定 → 调整策略
+                _action = "block_operation; external_variable_adjust"
+
+            from evo.rule_engine import InterceptionRule as _MR2
+            mr = _MR2(
+                id=marker_rule_id,
+                trigger_condition="marker_missing == true",
+                action=_action,
                 severity="high",
-                tags=[],
+                tags=["strike_2", "protocol_b"],
                 logic_score=5.0,
                 outcome_score=5.0,
                 confidence=5.0,
@@ -126,10 +175,25 @@ def load_principle_rules(context: dict) -> list:
                 lifecycle_status="active",
                 created_at=datetime.now().isoformat(),
             )
-            extra.append(mr)
-            seen_ids.add(marker_rule_id)
-            # 不写 strike — 避免 override 死锁回路
-            # 由引擎规则自身的 triggered_count + confidence 衰减处理"一二不过三"
+        else:
+            # ① 初错：标准阻断
+            if marker_rule_id not in seen_ids:
+                from evo.rule_engine import InterceptionRule as _MR1
+                mr = _MR1(
+                    id=marker_rule_id,
+                    trigger_condition="marker_missing == true",
+                    action="block_operation; audit_only",
+                    severity="high",
+                    tags=["strike_1", "protocol_b"],
+                    logic_score=5.0,
+                    outcome_score=5.0,
+                    confidence=5.0,
+                    source="principle",
+                    lifecycle_status="active",
+                    created_at=datetime.now().isoformat(),
+                )
+                extra.append(mr)
+                seen_ids.add(marker_rule_id)
 
     return extra
 
