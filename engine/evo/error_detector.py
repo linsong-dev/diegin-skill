@@ -144,9 +144,20 @@ class ErrorDetector:
             elif "first" in a: tag = " (第1次)"
             print("[DETECT] " + detection["error"] + tag)
             
-            # 一二不过三·立改: 首次错误自动修复
+            # 一二不过三·立改: 首次错误自动修复 + 输出到攻七
             if "first" in a or "warning" in a:
-                self.disarm(detection)
+                _fix = self.disarm(detection)
+                if _fix.get("disarmed"):
+                    try:
+                        from evo.main import auto_sandwich_trigger
+                        auto_sandwich_trigger(
+                            "auto_fix_" + detection.get("error", "unknown"),
+                            positive=["disarm:" + _fix.get("fix_action", "?")],
+                            negative=[]
+                        )
+                        print("[DETECT] -> 攻七: " + str(_fix.get("detail", ""))[:60])
+                    except Exception as _fe:
+                        print("[DETECT] -> 攻七 error: " + str(_fe))
         except Exception as e:
             print("[DETECT] err: " + str(e))
     
@@ -245,4 +256,5 @@ def get(tracker=None):
     if _inst is None:
         _inst = ErrorDetector(tracker)
     return _inst
+
 

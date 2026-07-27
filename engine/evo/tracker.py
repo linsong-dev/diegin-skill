@@ -165,28 +165,40 @@ class BehaviorTracker:
                 json.dump(legacy, f, ensure_ascii=False, indent=2)
 
     def _analyze_cause(self, error_type, detail):
-        """归因过滤：判断错误是内生惯性还是外生变量"""
-        ex_keywords = [
-            "network","timeout","connection refused","permission denied",
-            "rate limit","not found","no such file","disk full",
-            "too many open files","authentication","unauthorized",
-            "git clone","git fetch","pip install","npm install",
-            "429","502","503","econnrefused","etimedout",
-        ]
-        in_keywords = [
-            "encoding","write error","syntax","compile",
-            "indentation","typeerror","valueerror","keyerror",
-            "self_error","image_url","test_","import",
-        ]
-        dl = (detail or "").lower()
-        el = (error_type or "").lower()
-        for kw in ex_keywords:
-            if kw in el or kw in dl:
-                return {"verdict":"external","kw":kw,"reason":"环境/外因问题"}
-        for kw in in_keywords:
-            if kw in el or kw in dl:
-                return {"verdict":"internal","kw":kw,"reason":"AI自身行为惯性"}
-        return {"verdict":"internal","kw":None,"reason":"默认保守视为内生惯性"}
+        """归因过滤：委托去伪存真 EvidenceVault 分类"""
+        try:
+            from evidence_vault import EvidenceVault
+            _v = EvidenceVault()
+            _verdict = _v.classify_failure(error_type or "", detail or "")
+            if _verdict == "external":
+                return {"verdict": "external", "kw": "classified", "reason": "环境/外因问题（去伪存真）"}
+            elif _verdict == "internal":
+                return {"verdict": "internal", "kw": "classified", "reason": "AI自身行为惯性（去伪存真）"}
+            else:
+                return {"verdict": "internal", "kw": None, "reason": "不确定，默认保守视为内生惯性（去伪存真）"}
+        except Exception:
+            # 降级：内置关键词匹配
+            ex_keywords = [
+                "network","timeout","connection refused","permission denied",
+                "rate limit","not found","no such file","disk full",
+                "too many open files","authentication","unauthorized",
+                "git clone","git fetch","pip install","npm install",
+                "429","502","503","econnrefused","etimedout",
+            ]
+            in_keywords = [
+                "encoding","write error","syntax","compile",
+                "indentation","typeerror","valueerror","keyerror",
+                "self_error","image_url","test_","import",
+            ]
+            dl = (detail or "").lower()
+            el = (error_type or "").lower()
+            for kw in ex_keywords:
+                if kw in el or kw in dl:
+                    return {"verdict":"external","kw":kw,"reason":"环境/外因问题（内置降级）"}
+            for kw in in_keywords:
+                if kw in el or kw in dl:
+                    return {"verdict":"internal","kw":kw,"reason":"AI自身行为惯性（内置降级）"}
+            return {"verdict":"internal","kw":None,"reason":"默认保守视为内生惯性（内置降级）"}
 
 
     def notify_shousan(self, error_type: str, detail: str, cause: dict) -> dict:
@@ -366,6 +378,14 @@ class BehaviorTracker:
                               'severity': task_context.get('severity', 'high'),
                               'details': []}
         entry = db[error_type]
+        # 一二不过三·封顶：超过3次不再继续累加（1改→2验→3升级，之后停止）
+        if entry['count'] >= 3:
+            # 已达到封顶，不再累加，但更新上次时间
+            entry['last_seen'] = now
+            entry['last_detail'] = detail
+            self._save_strikes_db(db)
+            return {"action":"capped_at_3","rule_id":key,"strike":entry['count'],
+                    "warning":"一二不过三封顶: "+error_type+" 已达3次上限，不再计数"}
         entry['count'] += 1
         entry['last_seen'] = now
         entry['last_detail'] = detail
@@ -498,9 +518,61 @@ class BehaviorTracker:
                          "detail": detail})
         with open(breach_log, "w", encoding="utf-8") as f:
             json.dump(breaches, f, ensure_ascii=False, indent=2)
+
+        # 三错升级：推翻原阻断方案 + 切换执行模式 + 通知用户
+        try:
+            # 1. 删除阻断文件（推翻原方案）
+            _ov_path = self._strikes_db_path().replace("strikes_db.json", "dgen_override.json")
+            if os.path.exists(_ov_path):
+                _null_ov = {"blocked_error_type":"","strike_count":0,"blocked_at":None,"last_detail":"","decision":"allow"}
+                with open(_ov_path, "w", encoding="utf-8") as _f:
+                    json.dump(_null_ov, _f, ensure_ascii=False, indent=2)
+            # 2. 降级规则生命周期（阻断失败 → 降为 alerting，走其他策略）
+            if rule:
+                self.rule_engine.update_interception(rule.id, lifecycle_status="alerting")
+            # 3. 写入模式切换文件（钩子据此切换执行策略）
+            _base_dir = os.path.dirname(self._strikes_db_path())
+            _mode_file = os.path.join(_base_dir, "dgen_enforcement_mode.json")
+            _mode = {
+                "mode": "audit",
+                "previous_mode": "enforce",
+                "trigger": error_type,
+                "reason": f"一二不过三: {error_type} 第{sn}次触发，已升三错级，从enforce切换为audit",
+                "switched_at": now,
+                "available_modes": ["enforce", "audit", "bypass"]
+            }
+            try:
+                os.makedirs(os.path.dirname(_mode_file), exist_ok=True)
+                with open(_mode_file, "w", encoding="utf-8") as _f:
+                    json.dump(_mode, _f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            # 4. 写状态文件通知用户
+            _st = os.path.join(_base_dir, "dgen_status.txt")
+            _msg = ("=== DGEN STATUS ===\nSTATUS: ESCALATED\nRULES: ?\n"
+                    "DECISION: escalate\nMATCHED: 0\n"
+                    "TS: " + now + "\n"
+                    "MODE: enforce → audit\n"
+                    "NOTE: 一二不过三失效: " + error_type + " 已在阻断后仍出现第" + str(sn) + "次，已推翻原阻断方案\n"
+                    "  执行模式已从 enforce 切换为 audit（记录但不阻断）\n")
+            try:
+                with open(_st, "w", encoding="utf-8") as _f:
+                    _f.write(_msg)
+            except Exception:
+                pass
+            print("\n[DGEN] ⚠️ 一二不过三升级: " + error_type + " 第" + str(sn) + "次触发")
+            print("  原阻断方案已推翻，规则已降级为 alerting")
+            print("  执行模式切换: enforce → audit")
+            print("  系统升级建议: 检查 " + error_type + " 的根因并调整拦截策略\n")
+        except Exception as _ee:
+            pass
+
+        # 封顶：升级后下次不再处理
+        if rule:
+            self.rule_engine.update_interception(rule.id, lifecycle_status="alerting", confidence=0.0)
         return {"action": "third_breach", "rule_id": key, "strike": sn,
                 "escalated": True,
-                "warning": "一二不过三阻断失效: " + error_type + " 在阻断后仍出现第" + str(sn) + "次。已升级阻断优先级，阻断失效原因已记录至 dgen_breach_log.json"}
+                "warning": "一二不过三阻断失效: " + error_type + " 在阻断后仍出现第" + str(sn) + "次。已推翻原阻断方案并降低规则优先级"}
 
     def record_user_feedback(self, rule_id: str, feedback: str, user_action: Optional[str] = None) -> Dict[str, Any]:
         """

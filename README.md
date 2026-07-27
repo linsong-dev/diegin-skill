@@ -87,3 +87,95 @@ python engine/test_all.py
 | 5:去伪存真 | 硬地板 | 言必有证→证必可验→验证为真 + 季度证伪 |
 | 6:缓急律 | 节奏 | 急务求效→缓务求真→张弛有度 + config.toml 宕机时段 |
 | 7:止观门 | 封存 | 事毕封存→投入清零→不恋战 |
+
+
+## 安装指南
+
+### 前置依赖
+- **Python 3.12+**（引擎运行必需）
+- **PowerShell 5.1+**（钩子脚本必需）
+- **Codex** （桌面版，v2.0+）
+
+### 快速安装
+
+1. 确保 `%CODEX_HOME%` 环境变量已设置（通常为 `.codex` 目录）
+2. 将 `diegin/` 文件夹放入 `%CODEX_HOME%/` 下
+3. 执行同步脚本：
+   ```powershell
+   cd %CODEX_HOME%/diegin
+   .\sync.ps1 check    # 检查差异
+   .\sync.ps1 sync-all # 同步全部
+   ```
+4. 将 `config/hooks.json` 注册到 Codex 的 hooks 系统：
+   - 把文件中 `%CODEX_HOME%` 替换为实际路径
+   - 内容合并到 `%CODEX_HOME%/hooks.json`
+5. 重启 Codex，迭进引擎将随会话自动启动
+
+### 环境变量
+
+| 变量 | 说明 | 示例 |
+|:---|:---|:---|
+| `CODEX_HOME` | Codex 安装根目录 | `%CODEX_HOME%\.codex` |
+
+### 验证安装
+
+```powershell
+cd %CODEX_HOME%/diegin/engine
+python call_diegin.py health
+python test_all.py --verbose
+```
+
+---
+
+## 快速使用
+
+| 命令 | 效果 |
+|:---|:---|
+| `接入迭进` 或 `dgen on` | 激活迭进引擎 |
+| `迭进状态` | 查看规则库/置信度/健康度 |
+| `守三攻七复盘` | 执行负向纠错 + 正向强化 |
+| `@迭进` | 触发预检，输出原始 JSON |
+| `dgen feedback <ID> <agree/veto/silent>` | 对规则反馈，调整置信度 |
+
+---
+
+## 项目结构
+
+```
+diegin/
+├── engine/               # Python 引擎
+│   ├── call_diegin.py    # CLI 入口（审查/审计/健康检查）
+│   ├── test_all.py       # 端到端测试
+│   ├── evo/              # 八元原则引擎
+│   │   ├── main.py       # 统一入口
+│   │   ├── rule_engine.py# 规则引擎
+│   │   ├── arbiter.py    # 仲裁器
+│   │   ├── tracker.py    # 行为追踪
+│   │   ├── pacemaker.py  # 缓急律
+│   │   └── closure.py    # 止观门
+│   └── mindol/           # 语义记忆引擎
+├── hooks/                # PowerShell 钩子脚本
+├── config/               # 路由配置
+├── var/                  # 运行时状态
+│   ├── state/            # strikes_db, override 等
+│   └── logs/             # 审计日志
+├── bin/.venv/            # Python 虚拟环境
+├── sync.ps1              # 同步脚本
+├── README.md             # 本文档
+└── LICENSE               # MIT 协议
+```
+
+## 交付物清单
+
+| 文件/目录 | 说明 | 必须 |
+|:---|:---|:---:|
+| `engine/` | Python 引擎代码 | ✅ |
+| `hooks/` | PowerShell 钩子脚本 | ✅ |
+| `config/hooks.json` | 路由模板（部署时替换 %CODEX_HOME%） | ✅ |
+| `var/state/` | 运行时状态（首次运行自动生成） | ✅ |
+| `bin/.venv/` | Python 虚拟环境（含依赖） | ✅ |
+| `sync.ps1` | 同步脚本 | ✅ |
+| `SKILL.md` | Codex 技能描述 | ✅ |
+| `README.md` | 文档 | ✅ |
+| `LICENSE` | MIT 协议 | ✅ |
+| `.codex-plugin/plugin.json` | 插件清单 | ✅ |

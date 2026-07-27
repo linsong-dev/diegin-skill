@@ -224,18 +224,11 @@ if ($markerStatus -eq "") {
 }
 
 if ($markerStatus -eq "pending") {
-    # 检查 [DGEN STATUS: xxx] 格式（比单纯的 [DGEN] 更具体）
-    $hasMarker = ($command -and $command -match '\[DGEN')
-    if (-not $hasMarker) {
-        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] BLOCK no_DGEN_STATUS tool=$toolName"
-        Write-Error ("DGEN_BLOCK|reason=缺标志:命令不含[DGEN]|rule=dgen_marker_gate")
-        Write-DGENStatusFile -Status "BLOCKED" -Rules "?" -Decision "block" -Matched "?" 
-        Write-DGENContextAndExit -ExitCode 1
-    } else {
-        $newMarker = @{status="allowed";turn_id="auto";ts=(Get-Date -Format "o")}
-        [System.IO.File]::WriteAllText($markerFile, ($newMarker | ConvertTo-Json -Compress), $script:utf8NoBOM)
-        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] ALLOW marker_detected tool=$toolName"
-    }
+    # [A方案] 不再检查 [DGEN] 标记，改为审计记录
+    # 引擎裁决由后面的 Python pre_check 处理
+    $newMarker = @{status="allowed";turn_id="auto";ts=(Get-Date -Format "o")}
+    [System.IO.File]::WriteAllText($markerFile, ($newMarker | ConvertTo-Json -Compress), $script:utf8NoBOM)
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] AUDIT_MODE skip_marker_check tool=$toolName"
 }
 
 # ============================================================
@@ -310,6 +303,9 @@ try {
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK] rule=$finalRule"
             $blockRule = $finalRule
             if ([string]::IsNullOrEmpty($blockRule)) { $blockRule = "unknown" }
+    Write-Output ("")
+    Write-Output ("⚠️ [迭进] 规则阻断 | 规则: " + $blockRule + " | 原因: " + $checkResult.reason)
+    Write-Output ("")
             Write-Error ("DGEN_BLOCK|reason=" + $checkResult.reason + "|rule=" + $blockRule)
             Write-DGENStatusFile -Status "BLOCKED" -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
             Write-DGENContextAndExit -ExitCode 1
@@ -319,6 +315,9 @@ try {
         try { $h = & $pythonExe $enginePy health 2>&1 | ConvertFrom-Json; $activeRules = $h.active_rules } catch {}
         
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ALLOW] decision=$finalDecision matched=$finalMatched"
+        if ($finalMatched -gt 0) {
+            Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行")
+        }
     }
 } catch {
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ERROR] $($_.Exception.Message)"

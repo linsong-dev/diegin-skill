@@ -604,22 +604,253 @@ if __name__ == "__main__":
 
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
-        # 按关键词匹配排序
+    elif mode == "pre_reply":
+        """UserPromptSubmit 聚合模式：一次引擎加载完成所有预检工作
+        用法: echo '<prompt_json>' | python call_diegin.py pre_reply
+        合并 check + health + suggest + arbitrate_detail + verify + mindol record
+        输出: JSON (含完整结果)
+        退出码: 1=block, 0=allow
+        """
+        import sys as _sys
+        try:
+            raw = _sys.stdin.read().strip() if not _sys.stdin.isatty() else _sys.argv[2]
+        except (IndexError, IOError):
+            raw = "{}"
+        input_data = json.loads(raw) if raw else {}
+        prompt = input_data.get("prompt", input_data.get("text", ""))
+        turn_id = input_data.get("turn_id", "")
+        blocked_error_type = input_data.get("blocked_error_type", "")
+
+        # 引擎级导入（一次加载）
+        from evo.main import (
+            _get_engine, _get_arbiter, get_rules_for_task, arbitrate,
+            health_check as _health_check, get_vault, run_maintenance
+        )
+        from mindol.diegin_integration import memory_format_context, memory_archive as dgen_archive
+        from evo.evidence_vault import EvidenceVault
+
+        # 构建上下文
+        ctx = {
+            "task_type": "user_prompt",
+            "text": prompt,
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": prompt,
+        }
+        if blocked_error_type:
+            ctx["blocked_error_type"] = blocked_error_type
+
+        # 0. raw_chat 写入 Mindol（异步）
+        try:
+            if prompt and len(prompt) > 5:
+                from mindol.diegin_integration import save_chat
+                import threading
+                _ = threading.Thread(target=save_chat, args=(prompt[:2000],), daemon=True).start()
+        except Exception:
+            pass
+
+        # 1. 预检
+        check_result = pre_check(ctx)
+        decision = check_result.get("decision", "allow")
+        matched_count = check_result.get("matched_interceptions", 0)
+        winning_rule_id = check_result.get("winning_rule_id")
+        reason = check_result.get("reason", "")
+        display_line = check_result.get("display_line", "")
+        mindol_ctx = check_result.get("mindol_context", "")
+
+        if decision in ("block", "iron_wall_block"):
+            # block 路径：输出阻断信息，退出 1
+            enhanced = display_line
+            if mindol_ctx:
+                short_ctx = mindol_ctx.replace("\n", " ").replace("\r", "")
+                if len(short_ctx) > 200:
+                    short_ctx = short_ctx[:200] + "..."
+                enhanced += " | mem:" + short_ctx
+            print(enhanced)
+            _sys.exit(1)
+
+        # 2. allow 路径：继续执行全部操作
+        engine = _get_engine()
+        vault = get_vault()
+
+        # 3. 健康度（捕获 stdout，避免健康报告污染 JSON 输出）
+        import io as _io
+        _old_stdout = sys.stdout
+        sys.stdout = _io.StringIO()
+        health_result = _health_check()
+        sys.stdout = _old_stdout
+
+        # 4. 攻七建议
+        arbiter_obj = _get_arbiter()
+        interceptions = engine.get_interceptions(active_only=True)
+        matched_inters = []
+        for rule in interceptions:
+            if engine._match_condition(rule.trigger_condition, ctx):
+                matched_inters.append(rule)
+        arb_result = arbiter_obj.resolve(matched_inters, [])
+        is_blocked = getattr(arb_result, 'decision', None)
+        is_blocked_val = is_blocked.value if is_blocked else "ALLOW"
+        guard_blocked = is_blocked_val in ("BLOCK", "IRON_WALL_BLOCK", "ESCALATE")
+
+        matched = engine.match_patterns(ctx, top_k=5)
+        suggestions_list = []
+        for p in matched:
+            suggestions_list.append({
+                "id": getattr(p, "id", ""),
+                "scenario": getattr(p, "trigger_scenario", ""),
+                "decision": getattr(p, "decision_logic", ""),
+                "confidence": getattr(p, "confidence", 0),
+            })
+
+        # 格式化攻七输出文本
+        sug_lines = []
+        for s in suggestions_list:
+            sug_lines.append("  - " + s["id"] + ": " + s["decision"])
+        suggestions_text = ""
+        if sug_lines:
+            suggestions_text = "\n攻七·推荐路径\n" + "\n".join(sug_lines)
+
+        # 5. 仲裁详情
+        arb_detail_rules = get_rules_for_task(ctx)
+        arb_detail_result = arbitrate(arb_detail_rules["interceptions"], arb_detail_rules["patterns"])
+        conflict_rules_list = []
+        for r in arb_detail_rules["interceptions"]:
+            conflict_rules_list.append({
+                "id": getattr(r, "id", "?"),
+                "severity": getattr(r, "severity", "?"),
+            })
+        detail = {
+            "matched_interceptions": len(arb_detail_rules["interceptions"]),
+            "matched_patterns": len(arb_detail_rules["patterns"]),
+            "decision": arb_detail_result["decision"],
+            "reason": arb_detail_result["reason"],
+            "winning_rule_id": arb_detail_result.get("winning_rule_id"),
+            "conflict_rules": conflict_rules_list,
+            "degradation": arb_detail_result.get("degradation_type", ""),
+        }
+
+        # 6. 一致性验证（读上次决策，写本次）
+        import os as _os
+        _last_check_file = _os.path.join(_os.path.dirname(__file__), "..", "var", "state", "last_check_result.json")
+        verify_result = {"current_decision": decision, "consistency": "first_check", "flip_detected": False}
+        if _os.path.exists(_last_check_file):
+            try:
+                with open(_last_check_file, "r", encoding="utf-8") as _f:
+                    _last = json.load(_f)
+                _prev = _last.get("decision", "unknown")
+                if _prev != decision:
+                    verify_result["consistency"] = "flipped"
+                    verify_result["flip_detected"] = True
+                    verify_result["previous_decision"] = _prev
+                else:
+                    verify_result["consistency"] = "consistent"
+            except Exception:
+                pass
+        # 保存当前决策
+        try:
+            _os.makedirs(_os.path.dirname(_last_check_file), exist_ok=True)
+            with open(_last_check_file, "w", encoding="utf-8") as _f:
+                json.dump({"decision": decision, "ts": datetime.now().isoformat()}, _f, ensure_ascii=False)
+        except Exception:
+            pass
+
+        # 7. 写入 Mindol 记忆（pre_reply 空间）
+        try:
+            dgen_archive("pre_reply", f"decision={decision} matched={matched_count} status=allow", {})
+        except Exception:
+            pass
+
+        # 8. 构建输出文本
+        marker_str = "[DGEN]"
+        mindol_str = ""
+        if mindol_ctx:
+            short_ctx = mindol_ctx.replace("\n", " ").replace("\r", "")
+            if len(short_ctx) > 150:
+                short_ctx = short_ctx[:150] + "..."
+            mindol_str = " mem:" + short_ctx
+        output_text = marker_str + " PASS" + mindol_str + suggestions_text
+        output_text += "\n\n=== PROTOCOL ==="
+        output_text += "\nFirst tool command MUST contain: " + marker_str
+        output_text += "\n=== END PROTOCOL ==="
+
+        # 9. 审计日志
+        try:
+            _audit_log = _os.path.join(_os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
+            _ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            _msg = f"{_ts} {_ts} [HOOK:DGEN-CHECK] OK decision={decision} matched={matched_count}"
+            _d = _os.path.dirname(_audit_log)
+            if _d and not _os.path.exists(_d):
+                _os.makedirs(_d, exist_ok=True)
+            with open(_audit_log, "a", encoding="utf-8") as _f:
+                _f.write(f"{_msg}\n")
+        except Exception:
+            pass
+
+        # 10. 输出完整结果
+        output = {
+            "decision": decision,
+            "matched_count": matched_count,
+            "winning_rule_id": winning_rule_id,
+            "reason": reason,
+            "health": health_result,
+            "suggestions": suggestions_list,
+            "arbitrate_detail": detail,
+            "verify": verify_result,
+            "display_text": output_text,
+            "mindol_context": mindol_ctx,
+        }
+        print(json.dumps(output, ensure_ascii=False))
 
     elif mode == "record_success":
 
-        """攻七：记录一次成功的工具调用（简化版，自动提取成功模式）
-
+        """攻七：记录一次成功的工具调用（带阈值过滤）
         用法: python call_diegin.py record_success <tool_name>
-
+        阈值: 过滤简单查询、重复保存，只保留有学习价值的操作
         """
 
         tool_name = sys.argv[2] if len(sys.argv) > 2 else "unknown"
+        _tn = tool_name.lower()
 
+        # 阈值 1: 跳过简单只读操作
+        _readonly = {"ls","dir","get-childitem","echo","write-output","cd","pwd",
+                     "get-location","write-host","cat","type","find","select-string",
+                     "get-content","get-process","get-service","get-date",
+                     "get-item","get-help","get-command","get-alias","get-psdrive",
+                     "measure","sort","where-object","format-table","format-list",
+                     "out-string","write-progress","prompt"}
+        import re as _re
+        if _tn in _readonly or _re.match(r"^(ls|dir|echo|cd|pwd|get-|write-host)", _tn):
+            _r = {"action": "skipped_readonly", "tool": tool_name, "reason": "查询类操作不保存成功模式"}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            sys.exit(0)
+
+        # 阈值 2: 高频去重（同一工具 N 秒内不重复保存）
+        import os as _os, json as _json, time as _time
+        _counter_file = _os.path.join(_os.path.dirname(__file__), "..", "var", "state", ".record_success_counter.json")
+        _cooldown = 300
+        _now = _time.time()
+        _counter = {}
+        if _os.path.exists(_counter_file):
+            try:
+                with open(_counter_file, "r", encoding="utf-8") as _f:
+                    _counter = _json.load(_f)
+            except Exception:
+                _counter = {}
+        _last = _counter.get(tool_name, 0)
+        if _now - _last < _cooldown:
+            _r = {"action": "skipped_dedup", "tool": tool_name, "reason": "5分钟内已保存过 " + tool_name + " 的模式"}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            sys.exit(0)
+        _counter[tool_name] = _now
+        try:
+            _os.makedirs(_os.path.dirname(_counter_file), exist_ok=True)
+            with open(_counter_file, "w", encoding="utf-8") as _f:
+                _json.dump(_counter, _f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        # 通过阈值：保存成功模式
         from evo.main import auto_sandwich_trigger
-
-        result = auto_sandwich_trigger(f"tool_{tool_name.replace('.','_')}", positive=[tool_name], negative=[])
-
+        result = auto_sandwich_trigger("tool_" + tool_name.replace(".", "_"), positive=[tool_name], negative=[])
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     elif mode == "record_error":
         """一二不过三：记录并追踪一次错误
@@ -1233,9 +1464,194 @@ if __name__ == "__main__":
         }
         print(_j2.dumps(result, ensure_ascii=False, indent=2, default=str))
 
+    elif mode == "audit":
 
+        """迭进标准审核：一键执行全部检查
+        用法: python call_diegin.py audit
+        输出: 守三/攻七/一二不过三/举一反三/去伪存真 全维度状态
+        """
+        import os as _oa, json as _ja, datetime as _da
+        _base = _oa.path.dirname(_oa.path.dirname(__file__))
 
+        _s = lambda x: chr(0x2705) if x else chr(0x274C)
+        _w = lambda x: chr(0x26A0) + " " + x if x else ""
 
+        print("=" * 56)
+        print("  迭进 (Diegin) 标准审核报告")
+        print("  " + _da.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        print("=" * 56)
+
+        # ── 1. 守三：规则库 ──
+        _rf = _oa.path.join(_base, "engine", "evo", "rules", "interception_rules.json")
+        _rules = []
+        if _oa.path.exists(_rf):
+            with open(_rf, "r", encoding="utf-8") as _f:
+                _rules = _ja.load(_f)
+        _total = len(_rules)
+        _active = sum(1 for r in _rules if r.get("lifecycle_status") == "active")
+        _critical = sum(1 for r in _rules if r.get("severity") == "critical" and r.get("lifecycle_status") == "active")
+        _staging = sum(1 for r in _rules if r.get("lifecycle_status") == "staging")
+        _deprecating = sum(1 for r in _rules if r.get("lifecycle_status") == "deprecating")
+        _alerting = sum(1 for r in _rules if r.get("lifecycle_status") == "alerting")
+        _blocking = sum(1 for r in _rules if r.get("lifecycle_status") == "blocking")
+        print(f"\n{_s(_active > 0)} 守三（拦截规则）")
+        print(f"    活跃: {_active} | critical: {_critical} | staging: {_staging}")
+        print(f"    降权: {_deprecating} | 告警: {_alerting} | 阻断: {_blocking} | 总计: {_total}")
+
+        # ── 2. 攻七：成功模式 ──
+        _sf = _oa.path.join(_base, "var", "state", "success_patterns.json")
+        if not _oa.path.exists(_sf):
+            _sf = _oa.path.join(_base, "engine", "evo", "rules", "success_patterns.json")
+        _patterns = []
+        if _oa.path.exists(_sf):
+            with open(_sf, "r", encoding="utf-8") as _f:
+                _patterns = _ja.load(_f)
+        _pat_auto = sum(1 for p in _patterns if isinstance(p, dict) and p.get('source') == 'auto_detect')
+        _pat_active = sum(1 for p in _patterns if isinstance(p, dict) and p.get('lifecycle_status') == 'active')
+        print(f"\n{_s(len(_patterns) > 0)} 攻七（成功模式）")
+        print(f"    总数: {len(_patterns)} | 活跃: {_pat_active} | 自动: {_pat_auto}")
+
+        # ── 3. 一二不过三：错误追踪 ──
+        _stf = _oa.path.join(_base, "var", "state", "strikes_db.json")
+        _strikes = {}
+        if _oa.path.exists(_stf):
+            with open(_stf, "r", encoding="utf-8") as _f:
+                _strikes = _ja.load(_f)
+        print(f"\n{_s(len(_strikes) == 0)} 一二不过三（错误追踪）")
+        if _strikes:
+            _high_risk = {k: v for k, v in _strikes.items() if v.get("count", 0) >= 3}
+            _warn = {k: v for k, v in _strikes.items() if v.get("count", 0) == 2}
+            _ok = {k: v for k, v in _strikes.items() if v.get("count", 0) == 1}
+            if _high_risk:
+                for k, v in _high_risk.items():
+                    print(f"    {chr(0x274C)} {k}: {v['count']}次 {_w('已达阈值')}")
+            if _warn:
+                for k, v in _warn.items():
+                    print(f"    {chr(0x26A0)} {k}: {v['count']}次（下一次将触发阻断）")
+            if _ok:
+                for k, v in _ok.items():
+                    print(f"    {chr(0x1F514)} {k}: {v['count']}次")
+        else:
+            print(f"    {chr(0x2705)} 无错误记录")
+
+        # breach 日志
+        _blf = _oa.path.join(_base, "var", "state", "dgen_breach_log.json")
+        if _oa.path.exists(_blf):
+            with open(_blf, "r", encoding="utf-8") as _f:
+                _breach = _ja.load(_f)
+            if _breach:
+                print(f"    {chr(0x26A0)} Breach 记录: {len(_breach)} 条")
+                for _b in _breach[-3:]:
+                    print(f"      {_b.get('error_type','?')} (strike={_b.get('strike','?')})")
+
+        # 阻断文件
+        _ovf = _oa.path.join(_base, "var", "state", "dgen_override.json")
+        if _oa.path.exists(_ovf):
+            with open(_ovf, "r", encoding="utf-8") as _f:
+                _ov = _ja.load(_f)
+            if _ov.get("blocked_error_type"):
+                print(f"    {chr(0x26A0)} 当前阻断: {_ov['blocked_error_type']} ({_ov.get('strike_count',0)}次)")
+
+        # ── 4. 举一反三 ──
+        _xdomain = sum(1 for r in _rules if "xdomain_" in r.get("id", "") and r.get("lifecycle_status") == "active")
+        _pat_rules = sum(1 for r in _rules if "pat_rule_" in r.get("id", "") and r.get("lifecycle_status") == "active")
+        print(f"\n{_s(_xdomain > 0 or _staging > 0)} 举一反三（泛化）")
+        print(f"    跨域规则: {_xdomain} | 模式派生规则: {_pat_rules} | staging: {_staging}")
+
+        # ── 5. 引擎健康度 ──
+        print(f"\n--- 引擎健康度 ---")
+        try:
+            from evo.main import _get_engine
+            _eng = _get_engine()
+            _all_r = _eng.get_interceptions(active_only=False)
+            _all_p = _eng.get_patterns(active_only=False)
+            print(f"    规则: {len(_all_r)} | 模式: {len(_all_p)}")
+        except Exception as _ee:
+            print(f"    引擎加载失败: {_ee}")
+
+        # ── 6. 去伪存真 ──
+        _etf = _oa.path.join(_base, "var", "state", "evidence_trail.json")
+        _trail = []
+        if _oa.path.exists(_etf):
+            with open(_etf, "r", encoding="utf-8") as _f:
+                _trail = _ja.load(_f)
+        print(f"\n{_s(len(_trail) > 0)} 去伪存真（证据链）")
+        print(f"    裁决记录: {len(_trail)} 条")
+        if _trail:
+            _recent = _trail[-5:]
+            for _e in _recent:
+                print(f"    {_e.get('ts','?')[:16]} | {_e.get('verdict','?'):8s} | {_e.get('reason','')[:50]}")
+
+        # ── 7. 缓急律 ──
+        print(f"\n--- 缓急律（节奏门）---")
+        try:
+            from evo.main import get_pacemaker
+            _pm = get_pacemaker()
+            _ps = _pm.get_status()
+            print(f"    宕机时段: {_ps.get('downtime',{}).get('start','?')}-{_ps.get('downtime',{}).get('end','?')}")
+            print(f"    当前{'在' if _ps.get('downtime',{}).get('active_now') else '不在'}宕机时段")
+        except Exception:
+            print(f"    未加载")
+
+        # ── 8. 止观门 ──
+        print(f"\n--- 止观门（完形律）---")
+        try:
+            from evo.main import get_closure
+            _cg = get_closure()
+            _cs = _cg.get_status()
+            print(f"    已封存: {_cs.get('closed_items',0)} 项 | 进行中: {_cs.get('open_items',0)} 项")
+        except Exception:
+            print(f"    未加载")
+
+        # ── 9. 会话阶段 ──
+        _psf = _oa.path.join(_base, "var", "state", "phase_state.json")
+        if _oa.path.exists(_psf):
+            with open(_psf, "r", encoding="utf-8") as _f:
+                _phase = _ja.load(_f)
+            _phases = _phase.get("phases", {})
+            print(f"\n--- 会话阶段 ---")
+            for _pn, _ps2 in _phases.items():
+                _st = _ps2.get("status", "?")
+                _ts = _ps2.get("ts", "")[:19] if _ps2.get("ts") else ""
+                _icon = chr(0x2705) if _st == "passed" or _st == "completed" else chr(0x26A0) if "block" in str(_st) else chr(0x1F7E1)
+                print(f"    {_icon} {_pn}: {_st} ({_ts})")
+
+        # ── 10. Mindol 记忆 ──
+        _mdb = _oa.path.join(_oa.environ.get("CODEX_HOME", _oa.path.expanduser("~/.codex")), "mindol", "memory.db")
+        print(f"\n--- Mindol 语义记忆 ---")
+        if _oa.path.exists(_mdb):
+            _mb = _oa.path.getsize(_mdb)
+            print(f"    记忆库: {_mb / 1024:.0f} KB")
+        else:
+            print(f"    未找到记忆库")
+        try:
+            _mp = _oa.path.join(_base, "engine", "mindol_bridge.py")
+            if _oa.path.exists(_mp):
+                import subprocess as _sb
+                _mr = _sb.run([sys.executable, _mp, "stats"], capture_output=True, text=True, timeout=5)
+                if _mr.stdout.strip():
+                    print(f"    空间: {_mr.stdout.strip()}")
+        except Exception:
+            pass
+
+        # ── 总结 ──
+        _issues = []
+        if _high_risk:
+            _issues.append(f"{len(_high_risk)} 个错误类型已达阈值")
+        if _alerting > 0:
+            _issues.append(f"{_alerting} 条告警规则")
+        if _blocking > 0:
+            _issues.append(f"{_blocking} 条阻断规则")
+        if _breach:
+            _issues.append(f"{len(_breach)} 条 breach 记录")
+        print(f"\n{'=' * 56}")
+        if _issues:
+            print(f"  {chr(0x26A0)} 发现 {len(_issues)} 个问题:")
+            for _iss in _issues:
+                print(f"    - {_iss}")
+        else:
+            print(f"  {chr(0x2705)} 系统健康，无异常")
+        print(f"{'=' * 56}")
 
 
 

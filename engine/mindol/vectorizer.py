@@ -66,4 +66,5 @@ class SimpleVectorizer:
         # 加权混合
         return char_j * 0.35 + bigram_j * 0.35 + cos * 0.30
 
-        def embedding_dim(self) -> int: return self.dim
+    def embedding_dim(self) -> int:
+        return self.dim
