@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="center" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#533483"/>
+    </linearGradient>
+  </defs>
+  <circle cx="200" cy="200" r="195" fill="url(#bg)" stroke="#e94560" stroke-width="2"/>
+  <circle cx="200" cy="200" r="150" fill="none" stroke="#0f3460" stroke-width="1.5" stroke-dasharray="8,6"/>
+  <circle cx="200" cy="200" r="110" fill="none" stroke="#0f3460" stroke-width="1" stroke-dasharray="4,8"/>
+  <g fill="#533483" opacity="0.9">
+    <circle cx="200" cy="50" r="12"/><circle cx="318" cy="92" r="12"/>
+    <circle cx="350" cy="200" r="12"/><circle cx="318" cy="308" r="12"/>
+    <circle cx="200" cy="350" r="12"/><circle cx="82" cy="308" r="12"/>
+    <circle cx="50" cy="200" r="12"/><circle cx="82" cy="92" r="12"/>
+  </g>
+  <text x="200" y="175" text-anchor="middle" font-family="Arial" font-size="72" font-weight="bold" fill="url(#center)">DG</text>
+  <text x="200" y="235" text-anchor="middle" font-family="Arial" font-size="36" fill="#e94560" letter-spacing="6">EN</text>
+  <text x="200" y="370" text-anchor="middle" font-family="Arial" font-size="12" fill="#8899aa" letter-spacing="3">SELF-EVOLVING AI</text>
+</svg>

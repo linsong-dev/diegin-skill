@@ -1,4 +1,4 @@
-# DGEN sync v3 - full bidirectional sync with merge
+﻿# DGEN sync v3 - full bidirectional sync with merge
 param($Action = "check")
 
 function OK { param([string]$m) Write-Host ("  [OK] " + $m) -ForegroundColor Green }
@@ -181,6 +181,100 @@ function SH-Sync {
     if ($copied -gt 0) { Write-Host ("  synced " + $copied + " files to src") -ForegroundColor Green }
 }
 
+
+# ===== Docs: src→runtime (one-way, source authoritative) =====
+$DOCS_FILES = @("SKILL.md", "README.md", "AGENTS.md", "LICENSE")
+
+function DOCS-Check {
+    INF "Docs: src→runtime (diff)"
+    $sd = $srcRoot; $rd = $dieginRoot
+    $diffCount = 0
+    foreach ($f in $DOCS_FILES) {
+        $sf = Join-Path $sd $f; $rf = Join-Path $rd $f
+        if (-not (Test-Path $sf)) { DIF ("missing in src: " + $f); $diffCount++; continue }
+        if (-not (Test-Path $rf)) { DIF ("missing in rt: " + $f); $diffCount++; continue }
+        $sc = [System.IO.File]::ReadAllBytes($sf)
+        $rc = [System.IO.File]::ReadAllBytes($rf)
+        if ($sc.Length -ne $rc.Length) { DIF ("$f size differs"); $diffCount++ }
+        else {
+            $same = $true
+            for ($i = 0; $i -lt $sc.Length; $i++) { if ($sc[$i] -ne $rc[$i]) { $same = $false; break } }
+            if (-not $same) { DIF ("$f content differs"); $diffCount++ }
+            else { OK ("$f consistent") }
+        }
+    }
+    # Check plugin.json if personal plugin dir exists
+    $personalPlugin = Join-Path $env:CODEX_HOME "plugins\personal\diegin\.codex-plugin\plugin.json"
+    if (Test-Path $personalPlugin) {
+        $sf = Join-Path $srcRoot ".codex-plugin\plugin.json"
+        $rf = $personalPlugin
+        if (Test-Path $sf) {
+            $sc = [System.IO.File]::ReadAllBytes($sf)
+            $rc = [System.IO.File]::ReadAllBytes($rf)
+            if ($sc.Length -ne $rc.Length) { DIF ("plugin.json size differs"); $diffCount++ }
+            else {
+                $same = $true
+                for ($i = 0; $i -lt $sc.Length; $i++) { if ($sc[$i] -ne $rc[$i]) { $same = $false; break } }
+                if (-not $same) { DIF ("plugin.json content differs"); $diffCount++ }
+                else { OK ("plugin.json consistent") }
+            }
+        }
+    }
+    if ($diffCount -eq 0) { OK "all docs consistent" }
+}
+
+function DOCS-Sync {
+    INF "Docs: src→runtime (sync)"
+    $sd = $srcRoot; $rd = $dieginRoot
+    $copied = 0
+    foreach ($f in $DOCS_FILES) {
+        $sf = Join-Path $sd $f; $rf = Join-Path $rd $f
+        if (-not (Test-Path $sf)) { DIF ("missing in src: " + $f); continue }
+        $needsCopy = $false
+        if (-not (Test-Path $rf)) { $needsCopy = $true }
+        else {
+            $sc = [System.IO.File]::ReadAllBytes($sf)
+            $rc = [System.IO.File]::ReadAllBytes($rf)
+            if ($sc.Length -ne $rc.Length) { $needsCopy = $true }
+            else {
+                for ($i = 0; $i -lt $sc.Length; $i++) { if ($sc[$i] -ne $rc[$i]) { $needsCopy = $true; break } }
+            }
+        }
+        if ($needsCopy) {
+            Copy-Item $sf $rf -Force
+            ACT ("$f → runtime")
+            $copied++
+        } else {
+            OK ("$f consistent")
+        }
+    }
+    # Sync plugin.json to personal plugin dir if it exists
+    $personalPluginDir = Join-Path $env:CODEX_HOME "plugins\personal\diegin\.codex-plugin"
+    if (Test-Path $personalPluginDir) {
+        $sf = Join-Path $srcRoot ".codex-plugin\plugin.json"
+        $rf = Join-Path $personalPluginDir "plugin.json"
+        if (Test-Path $sf) {
+            $needsCopy = $false
+            if (-not (Test-Path $rf)) { $needsCopy = $true }
+            else {
+                $sc = [System.IO.File]::ReadAllBytes($sf)
+                $rc = [System.IO.File]::ReadAllBytes($rf)
+                if ($sc.Length -ne $rc.Length) { $needsCopy = $true }
+                else {
+                    for ($i = 0; $i -lt $sc.Length; $i++) { if ($sc[$i] -ne $rc[$i]) { $needsCopy = $true; break } }
+                }
+            }
+            if ($needsCopy) {
+                Copy-Item $sf $rf -Force
+                ACT ("plugin.json → personal plugin")
+                $copied++
+            } else {
+                OK ("plugin.json consistent")
+            }
+        }
+    }
+    if ($copied -gt 0) { Write-Host ("  synced " + $copied + " files to runtime") -ForegroundColor Green }
+}
 # ===== Main =====
 Write-Host "=== DGEN Sync v3 ===" -ForegroundColor Cyan
 Write-Host ("  Action: " + $Action)
@@ -189,15 +283,20 @@ Write-Host ("  RT:     " + $dieginRoot)
 Write-Host ""
 
 switch ($Action) {
-    "check"       { SR-Check; Write-Host ""; SH-Check }
+    "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; DOCS-Check }
     "sync-rules"  { SR-Sync }
     "sync-hooks"  { SH-Sync }
-    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; SR-Sync; SH-Sync }
+    "sync-docs"   { DOCS-Check; Write-Host ""; DOCS-Sync }
+    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; DOCS-Check; Write-Host ""; SR-Sync; SH-Sync; DOCS-Sync }
     default {
         Write-Host "Usage: .\sync.ps1 <action>" -ForegroundColor Yellow
         Write-Host "  check       — 仅检查差异（默认）" -ForegroundColor Cyan
         Write-Host "  sync-rules  — 合并运行时独有规则 → 源码库" -ForegroundColor Cyan
         Write-Host "  sync-hooks  — 同步运行时钩子 → 源码库" -ForegroundColor Cyan
-        Write-Host "  sync-all    — 先检查，再同步全部" -ForegroundColor Cyan
+        Write-Host "  sync-docs   — 同步文档（SKILL.md/README.md/AGENTS.md/LICENSE）→ 运行时" -ForegroundColor Cyan
+        Write-Host "  sync-all    — 先检查，再同步全部（规则 + 钩子 + 文档）" -ForegroundColor Cyan
     }
 }
+
+
+

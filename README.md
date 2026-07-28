@@ -1,141 +1,130 @@
-# 迭进 (Diegin) — AI 全域常驻自我迭代进化系统
+<p align="center">
+  <img src="assets/logo.svg" width="200" alt="DGEN">
+</p>
 
-> 版本: v3.4.0 | 最后更新: 2026-07-22
+<h1 align="center">迭进 · DGEN</h1>
 
-## 概述
+<p align="center">
+  <b>AI 全域常驻自我迭代进化系统</b><br>
+  让 AI 像人一样从错误中学习，越用越聪明
+</p>
 
-迭进是一个基于八元原则网络的 AI 自我进化系统。它使用八条元原则（守三、攻七、一二不过三、举一反三、去伪存真、裁决律、缓急律、止观门）构成互联网络，使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。
+<p align="center">
+  <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/version-3.4.0-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
+  <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
+</p>
 
-## 架构
+---
+
+## 30 秒看懂迭进
+
+迭进是一个 **AI 操作系统级进化层**。它不调任何外部 API，不依赖 GPU，纯 Python 运行。
+
+> 普通 AI：你犯错了 → AI 下次可能还犯同样的错
+>
+> 带迭进的 AI：你犯错了 → 迭进检测到 → 自动纠错 → 举一反三 → 下次不再犯
+
+### 核心机制
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    迭进引擎 (Diegin)                       │
-├─────────────────────────────────────────────────────────┤
-│  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌──────────┐  │
-│  │ 守三     │  │ 攻七     │  │一二不过三│  │举一反三   │  │
-│  │(负向纠错)│  │(正向强化)│  │(三错锁)  │  │(跨域泛化) │  │
-│  └────┬────┘  └────┬────┘  └────┬─────┘  └────┬─────┘  │
-│       │            │            │             │         │
-│  ┌────▼────────────▼────────────▼─────────────▼─────┐  │
-│  │              仲裁器 (Arbiter)                      │  │
-│  │  裁决律(P0) > 一二不过三(P1) > 止观门(P2) > ...    │  │
-│  └────────────────────┬──────────────────────────────┘  │
-│                       │                                 │
-│  ┌────────────────────▼──────────────────────────────┐  │
-│  │         去伪存真 (EvidenceVault)                    │  │
-│  │         验证门 · 季度证伪                           │  │
-│  └────────────────────┬──────────────────────────────┘  │
-│                       │                                 │
-│  ┌────────────────────▼──────────────────────────────┐  │
-│  │         缓急律 (PaceMaker) · 止观门 (Closure)      │  │
-│  │         宕机时段 · 生命周期管理                     │  │
-│  └───────────────────────────────────────────────────┘  │
-├─────────────────────────────────────────────────────────┤
-│  记忆层: Mindol (内存+SQLite 权威) ←→ JSON (人类可读副本)  │
-├─────────────────────────────────────────────────────────┤
-│  配置: engine/config/config.toml                          │
-└─────────────────────────────────────────────────────────┘
-```
-
-## 核心文件
-
-| 文件 | 作用 |
-|:-----|:------|
-| `engine/evo/main.py` | 统一入口 + run_maintenance 定期维护 |
-| `engine/evo/rule_engine.py` | 规则引擎（CRUD + 匹配） |
-| `engine/evo/tracker.py` | 行为追踪器（守三/攻七循环、一二不过三连锁） |
-| `engine/evo/arbiter.py` | 仲裁器（P0-P5 优先级裁决） |
-| `engine/evo/pacemaker.py` | 缓急律调度器（宕机时段） |
-| `engine/evo/closure.py` | 止观门（认知封存） |
-| `engine/evo/evidence_vault.py` | 去伪存真证据库 + 季度证伪 |
-| `engine/evo/error_detector.py` | 错误检测 + 一二不过三阻断 |
-| `engine/evo/dashboard.py` | 健康度仪表盘 |
-| `engine/mindol/` | Mindol 语义记忆引擎 |
-
-## 配置
-
-参见 `engine/config/config.toml`:
-
-```toml
-[pacemaker]
-downtime_start = "23:00"
-downtime_end   = "06:00"
-
-[maintenance]
-cached_max_age_days = 30
-
-[evidence_vault]
-quarterly_falsification_enabled = true
-```
-
-## 测试
-
-```bash
-python engine/test_all.py
-```
-
-## 八元原则
-
-| 原则 | 方向 | 机制 |
-|:---|:---:|:---|
-| 0:裁决律 | 仲裁 | 真伪至上→生存优先→完形封存 |
-| 1:守三 | 防守 | 观不足→省其因→正其行 |
-| 2:攻七 | 进攻 | 识长处→炼精华→固其用 |
-| 3:一二不过三 | 安全阀 | 错立改·改毕验·不过三 |
-| 4:举一反三 | 扩展 | 举一→反三→通百→回归校验 |
-| 5:去伪存真 | 硬地板 | 言必有证→证必可验→验证为真 + 季度证伪 |
-| 6:缓急律 | 节奏 | 急务求效→缓务求真→张弛有度 + config.toml 宕机时段 |
-| 7:止观门 | 封存 | 事毕封存→投入清零→不恋战 |
-
-
-## 安装指南
-
-### 前置依赖
-- **Python 3.12+**（引擎运行必需）
-- **PowerShell 5.1+**（钩子脚本必需）
-- **Codex** （桌面版，v2.0+）
-
-### 快速安装
-
-1. 确保 `%CODEX_HOME%` 环境变量已设置（通常为 `.codex` 目录）
-2. 将 `diegin/` 文件夹放入 `%CODEX_HOME%/` 下
-3. 执行同步脚本：
-   ```powershell
-   cd %CODEX_HOME%/diegin
-   .\sync.ps1 check    # 检查差异
-   .\sync.ps1 sync-all # 同步全部
-   ```
-4. 将 `config/hooks.json` 注册到 Codex 的 hooks 系统：
-   - 把文件中 `%CODEX_HOME%` 替换为实际路径
-   - 内容合并到 `%CODEX_HOME%/hooks.json`
-5. 重启 Codex，迭进引擎将随会话自动启动
-
-### 环境变量
-
-| 变量 | 说明 | 示例 |
-|:---|:---|:---|
-| `CODEX_HOME` | Codex 安装根目录 | `%CODEX_HOME%\.codex` |
-
-### 验证安装
-
-```powershell
-cd %CODEX_HOME%/diegin/engine
-python call_diegin.py health
-python test_all.py --verbose
+用户操作 → [缓急律] 判断优先级
+         → [去伪存真] 验证信息真实性
+         → [守三·轻量] 扫描最近失败模式
+         → 执行操作
+            ├─ 成功 → [攻七] 提炼成功模式
+            └─ 失败 → [一二不过三] 立改→加固→升级
+         → [仲裁器·裁决律] 按优先级裁决
+         → [止观门] 封存本轮
+         → [守三·深度] 每日复盘
 ```
 
 ---
 
-## 快速使用
+## 特点
 
-| 命令 | 效果 |
+| | |
 |:---|:---|
-| `接入迭进` 或 `dgen on` | 激活迭进引擎 |
-| `迭进状态` | 查看规则库/置信度/健康度 |
-| `守三攻七复盘` | 执行负向纠错 + 正向强化 |
-| `@迭进` | 触发预检，输出原始 JSON |
-| `dgen feedback <ID> <agree/veto/silent>` | 对规则反馈，调整置信度 |
+| **八元原则网络** | 守三 · 攻七 · 一二不过三 · 举一反三 · 去伪存真 · 裁决律 · 缓急律 · 止观门 |
+| **自主纠错** | 错误自动检测，立改→加固→升级，三错封顶 |
+| **自主强化** | 成功模式自动提炼，越用越准 |
+| **记忆系统** | 内置 [Mindol](https://github.com/linsong-dev/mindol) 语义记忆引擎，零外部依赖 |
+| **全域常驻** | PowerShell 钩子全覆盖，每次操作自动预检 |
+| **可插拔规则** | 内置 240+ 规则，支持自定义领域规则包 |
+| **零外部依赖** | 纯 Python + numpy，不需要 API Key，不需要 GPU，不需要网络 |
+| **不绑定模型** | 可接入任何 AI 模型、任何平台 |
+
+---
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.12+
+- Codex 桌面版
+
+### 安装
+
+```powershell
+# 1. 克隆仓库
+git clone https://github.com/linsong-dev/diegin-skill.git
+cd diegin-skill
+
+# 2. 安装依赖
+pip install numpy
+
+# 3. 运行测试
+python engine/test_all.py
+
+# 4. 注册钩子（将 config/hooks.json 合并到 Codex 的 hooks.json）
+```
+
+### 激活
+
+在 Codex 对话中输入：
+
+```
+接入迭进
+```
+
+或：
+
+```
+dgen on
+```
+
+---
+
+## 八元原则
+
+| # | 原则 | 方向 | 一句话 |
+|:-:|:----|:---:|:-------|
+| 0 | **裁决律** | 宪法 | 真伪至上 → 生存优先 → 完形封存 |
+| 1 | **守三** | 防守 | 观不足 → 省其因 → 正其行 |
+| 2 | **攻七** | 进攻 | 识长处 → 炼精华 → 固其用 |
+| 3 | **一二不过三** | 安全阀 | 立改 → 加固 → 升级（三错封顶）|
+| 4 | **举一反三** | 扩展 | 举一 → 反三 → 通百 → 回归校验 |
+| 5 | **去伪存真** | 硬地板 | 言必有证 → 证必可验 → 验证为真 |
+| 6 | **缓急律** | 节奏 | 急务求效 → 缓务求真 → 张弛有度 |
+| 7 | **止观门** | 封存 | 事毕封存 → 投入清零 → 不恋战 |
+
+---
+
+## 验证安装
+
+```powershell
+cd engine
+python test_all.py --verbose
+```
+
+预期输出：
+
+```
+结果: 16/16 通过 (0 失败)
+```
 
 ---
 
@@ -143,39 +132,30 @@ python test_all.py --verbose
 
 ```
 diegin/
-├── engine/               # Python 引擎
-│   ├── call_diegin.py    # CLI 入口（审查/审计/健康检查）
-│   ├── test_all.py       # 端到端测试
-│   ├── evo/              # 八元原则引擎
-│   │   ├── main.py       # 统一入口
-│   │   ├── rule_engine.py# 规则引擎
-│   │   ├── arbiter.py    # 仲裁器
-│   │   ├── tracker.py    # 行为追踪
-│   │   ├── pacemaker.py  # 缓急律
-│   │   └── closure.py    # 止观门
-│   └── mindol/           # 语义记忆引擎
-├── hooks/                # PowerShell 钩子脚本
-├── config/               # 路由配置
-├── var/                  # 运行时状态
-│   ├── state/            # strikes_db, override 等
-│   └── logs/             # 审计日志
-├── bin/.venv/            # Python 虚拟环境
-├── sync.ps1              # 同步脚本
-├── README.md             # 本文档
-└── LICENSE               # MIT 协议
+├── engine/           Python 引擎（八元原则 + Mindol 记忆）
+│   ├── call_diegin.py    CLI 入口
+│   ├── evo/              八元原则引擎
+│   │   ├── rule_engine.py    规则引擎
+│   │   ├── arbiter.py        仲裁器（裁决律）
+│   │   ├── tracker.py        行为追踪（一二不过三）
+│   │   └── pacemaker.py      缓急律调度
+│   └── mindol/          Mindol 语义记忆引擎
+├── hooks/             PowerShell 钩子（全域常驻）
+├── config/            路由配置
+├── tests/             测试套件
+├── assets/            Logo 等资源
+├── sync.ps1           同步脚本
+└── deploy/            部署脚本
 ```
 
-## 交付物清单
+---
 
-| 文件/目录 | 说明 | 必须 |
-|:---|:---|:---:|
-| `engine/` | Python 引擎代码 | ✅ |
-| `hooks/` | PowerShell 钩子脚本 | ✅ |
-| `config/hooks.json` | 路由模板（部署时替换 %CODEX_HOME%） | ✅ |
-| `var/state/` | 运行时状态（首次运行自动生成） | ✅ |
-| `bin/.venv/` | Python 虚拟环境（含依赖） | ✅ |
-| `sync.ps1` | 同步脚本 | ✅ |
-| `SKILL.md` | Codex 技能描述 | ✅ |
-| `README.md` | 文档 | ✅ |
-| `LICENSE` | MIT 协议 | ✅ |
-| `.codex-plugin/plugin.json` | 插件清单 | ✅ |
+## 相关项目
+
+- [Mindol 曼兜](https://github.com/linsong-dev/mindol) — 基于内存的语义记忆引擎（迭进的记忆后端）
+
+---
+
+<p align="center">
+  <sub>Built with ❤️ by <a href="https://github.com/linsong-dev">linsong-dev</a></sub>
+</p>
