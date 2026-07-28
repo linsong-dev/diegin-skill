@@ -4945,7 +4945,7 @@
     "confidence": 5.0,
     "source": "seed",
     "source_review": "",
-    "lifecycle_status": "cached",
+    "lifecycle_status": "deprecating",
     "created_at": "2026-07-27T08:14:14.829432",
     "valid_until": "",
     "last_triggered": "",
@@ -5205,7 +5205,7 @@
     "confidence": 5.0,
     "source": "seed",
     "source_review": "",
-    "lifecycle_status": "cached",
+    "lifecycle_status": "deprecating",
     "created_at": "2026-07-27T08:14:05.961789",
     "valid_until": "",
     "last_triggered": "",
@@ -5888,5 +5888,23 @@
     "last_ignored": "",
     "block_count": 0,
     "blocked_rules": []
+  },
+  {
+    "id": "rule_json_schema_validate",
+    "trigger_condition": "op == file_write AND (target_contains('interception_rules') OR target_contains('success_patterns'))",
+    "action": "validate_before_write",
+    "severity": "critical",
+    "tags": [
+      "json",
+      "schema",
+      "validation",
+      "self_protect"
+    ],
+    "logic_score": 5.0,
+    "outcome_score": 5.0,
+    "confidence": 5.0,
+    "source": "system",
+    "lifecycle_status": "active",
+    "created_at": "2026-07-28T00:00:00"
   }
 ]
