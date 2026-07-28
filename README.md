@@ -22,140 +22,115 @@
 
 ## 30 秒看懂迭进
 
-迭进是一个 **AI 操作系统级进化层**。它不调任何外部 API，不依赖 GPU，纯 Python 运行。
+迭进是一个 **AI 操作系统级进化层**。不调任何外部 API，不依赖 GPU，纯 Python 运行。
 
-> 普通 AI：你犯错了 → AI 下次可能还犯同样的错
+> 普通 AI：犯过的错下次还可能再犯
 >
-> 带迭进的 AI：你犯错了 → 迭进检测到 → 自动纠错 → 举一反三 → 下次不再犯
+> 带迭进的 AI：错误自动检测 → 立改加固 → 举一反三 → 不再重犯
 
-### 核心机制
+## 架构
 
-```
-用户操作 → [缓急律] 判断优先级
+`
+用户操作 → [缓急律] 判断任务类型
          → [去伪存真] 验证信息真实性
-         → [守三·轻量] 扫描最近失败模式
+         → [守三·轻量] 扫描失败模式
          → 执行操作
             ├─ 成功 → [攻七] 提炼成功模式
             └─ 失败 → [一二不过三] 立改→加固→升级
          → [仲裁器·裁决律] 按优先级裁决
          → [止观门] 封存本轮
-         → [守三·深度] 每日复盘
-```
+         → [守三·深度] 离线复盘
+`
 
----
+## 核心文件
 
-## 特点
+| 文件 | 作用 |
+|:-----|:------|
+| engine/evo/main.py | 统一入口 + 定期维护 |
+| engine/evo/rule_engine.py | 规则引擎（240 条规则，CRUD + 匹配） |
+| engine/evo/tracker.py | 行为追踪（一二不过三连锁、守三攻七循环） |
+| engine/evo/arbiter.py | 仲裁器（P0-P5 优先级裁决） |
+| engine/evo/pacemaker.py | 缓急律调度（宕机时段） |
+| engine/evo/closure.py | 止观门（认知封存） |
+| engine/evo/evidence_vault.py | 去伪存真证据库 + 季度证伪 |
+| engine/evo/error_detector.py | 错误检测 + 一二不过三阻断 |
+| engine/evo/dashboard.py | 健康度仪表盘 |
+| engine/mindol/ | Mindol 语义记忆引擎 |
 
-| | |
-|:---|:---|
-| **八元原则网络** | 守三 · 攻七 · 一二不过三 · 举一反三 · 去伪存真 · 裁决律 · 缓急律 · 止观门 |
-| **自主纠错** | 错误自动检测，立改→加固→升级，三错封顶 |
-| **自主强化** | 成功模式自动提炼，越用越准 |
-| **记忆系统** | 内置 [Mindol](https://github.com/linsong-dev/mindol) 语义记忆引擎，零外部依赖 |
-| **全域常驻** | PowerShell 钩子全覆盖，每次操作自动预检 |
-| **可插拔规则** | 内置 240+ 规则，支持自定义领域规则包 |
-| **零外部依赖** | 纯 Python + numpy，不需要 API Key，不需要 GPU，不需要网络 |
-| **不绑定模型** | 可接入任何 AI 模型、任何平台 |
+## 八元原则
 
----
+| # | 原则 | 方向 | 机制 |
+|:-:|:----|:---:|:-----|
+| 0 | 裁决律 | 宪法 | 真伪至上 → 生存优先 → 完形封存 |
+| 1 | 守三 | 防守 | 观不足 → 省其因 → 正其行 |
+| 2 | 攻七 | 进攻 | 识长处 → 炼精华 → 固其用 |
+| 3 | 一二不过三 | 安全阀 | 立改 → 加固 → 升级（三错封顶）|
+| 4 | 举一反三 | 扩展 | 举一 → 反三 → 通百 → 回归校验 |
+| 5 | 去伪存真 | 硬地板 | 言必有证 → 证必可验 → 验证为真 + 季度证伪 |
+| 6 | 缓急律 | 节奏 | 急务求效 → 缓务求真 → 张弛有度 |
+| 7 | 止观门 | 封存 | 事毕封存 → 投入清零 → 不恋战 |
 
 ## 快速开始
 
 ### 环境要求
-
 - Python 3.12+
-- Codex 桌面版
+- Codex 桌面版（v2.0+）
+- PowerShell 5.1+
 
 ### 安装
-
-```powershell
-# 1. 克隆仓库
+`powershell
 git clone https://github.com/linsong-dev/diegin-skill.git
 cd diegin-skill
-
-# 2. 安装依赖
 pip install numpy
+`
 
-# 3. 运行测试
-python engine/test_all.py
-
-# 4. 注册钩子（将 config/hooks.json 合并到 Codex 的 hooks.json）
-```
+### 注册钩子
+将 config/hooks.json 中 %CODEX_HOME% 替换为你的 Codex 安装路径，合并到 %CODEX_HOME%/hooks.json，重启 Codex。
 
 ### 激活
+在 Codex 对话中输入 接入迭进 或 dgen on。
 
-在 Codex 对话中输入：
-
-```
-接入迭进
-```
-
-或：
-
-```
-dgen on
-```
-
----
-
-## 八元原则
-
-| # | 原则 | 方向 | 一句话 |
-|:-:|:----|:---:|:-------|
-| 0 | **裁决律** | 宪法 | 真伪至上 → 生存优先 → 完形封存 |
-| 1 | **守三** | 防守 | 观不足 → 省其因 → 正其行 |
-| 2 | **攻七** | 进攻 | 识长处 → 炼精华 → 固其用 |
-| 3 | **一二不过三** | 安全阀 | 立改 → 加固 → 升级（三错封顶）|
-| 4 | **举一反三** | 扩展 | 举一 → 反三 → 通百 → 回归校验 |
-| 5 | **去伪存真** | 硬地板 | 言必有证 → 证必可验 → 验证为真 |
-| 6 | **缓急律** | 节奏 | 急务求效 → 缓务求真 → 张弛有度 |
-| 7 | **止观门** | 封存 | 事毕封存 → 投入清零 → 不恋战 |
-
----
-
-## 验证安装
-
-```powershell
+### 验证
+`powershell
 cd engine
 python test_all.py --verbose
-```
+`
+预期输出：结果: 16/16 通过 (0 失败)
 
-预期输出：
+## 快速使用
 
-```
-结果: 16/16 通过 (0 失败)
-```
+| 命令 | 效果 |
+|:-----|:------|
+| 接入迭进 或 dgen on | 激活迭进引擎 |
+| 迭进状态 | 查看规则库 / 置信度 / 健康度 |
+| 守三攻七复盘 | 负向纠错 + 正向强化 |
+| @迭进 | 触发预检，输出原始 JSON |
+| dgen feedback <ID> <agree/veto/silent> | 对规则反馈，调整置信度 |
 
----
+## 配置
+
+`	oml
+[pacemaker]
+downtime_start = "23:00"
+downtime_end   = "06:00"
+
+[evidence_vault]
+quarterly_falsification_enabled = true
+`
 
 ## 项目结构
 
-```
+`
 diegin/
-├── engine/           Python 引擎（八元原则 + Mindol 记忆）
+├── engine/           Python 引擎
 │   ├── call_diegin.py    CLI 入口
+│   ├── test_all.py       16 个端到端测试
 │   ├── evo/              八元原则引擎
-│   │   ├── rule_engine.py    规则引擎
-│   │   ├── arbiter.py        仲裁器（裁决律）
-│   │   ├── tracker.py        行为追踪（一二不过三）
-│   │   └── pacemaker.py      缓急律调度
-│   └── mindol/          Mindol 语义记忆引擎
+│   └── mindol/           Mindol 语义记忆引擎
 ├── hooks/             PowerShell 钩子（全域常驻）
 ├── config/            路由配置
-├── tests/             测试套件
 ├── assets/            Logo 等资源
+├── tests/             测试套件
 ├── sync.ps1           同步脚本
-└── deploy/            部署脚本
-```
-
----
-
-## 相关项目
-
-- [Mindol 曼兜](https://github.com/linsong-dev/mindol) — 基于内存的语义记忆引擎（迭进的记忆后端）
-
----
-
-<p align="center">
-  <sub>Built with ❤️ by <a href="https://github.com/linsong-dev">linsong-dev</a></sub>
-</p>
+├── deploy/            部署脚本
+└── LICENSE            Apache 2.0
