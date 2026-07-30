@@ -3,7 +3,9 @@
   "version": "3.4.0+codex.202607231628",
   "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统",
   "author": {
-    "name": "linsong-dev"
+    "name": "linsong-dev",
+    "url": "https://github.com/linsong-dev",
+    "email": "linsong.dev@gmail.com"
   },
   "homepage":  "https://github.com/linsong-dev/diegin-skill",
   "skills": "./skills/",
