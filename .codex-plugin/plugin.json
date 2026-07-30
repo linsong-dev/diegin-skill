@@ -4,11 +4,13 @@
   "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统",
   "author": {
     "name": "linsong-dev",
-    "url": "https://github.com/linsong-dev",
-    "email": "linsong.dev@gmail.com"
+    "email": "linsong.dev@gmail.com",
+    "url": "https://github.com/linsong-dev"
   },
-  "homepage": "https://github.com/linsong-dev",
+  "homepage": "https://github.com/linsong-dev/diegin-skill",
   "repository": "https://github.com/linsong-dev/diegin-skill",
+  "license": "MIT",
+  "keywords": ["diegin", "dgen", "ai-evolution", "cognitive-framework", "自我进化", "迭进"],
   "skills": "./skills/",
   "interface": {
     "displayName": "迭进·DGEN",
@@ -17,8 +19,10 @@
     "developerName": "linsong-dev",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
-    "brandColor": "#1a1a2e",
-    "websiteURL": "https://github.com/linsong-dev",
-    "defaultPrompt": ["使用迭进进行AI自我进化"]
+    "websiteURL": "https://github.com/linsong-dev/diegin-skill",
+    "privacyPolicyURL": "https://github.com/linsong-dev/diegin-skill",
+    "termsOfServiceURL": "https://github.com/linsong-dev/diegin-skill",
+    "defaultPrompt": ["使用迭进进行AI自我进化"],
+    "brandColor": "#1a1a2e"
   }
 }
