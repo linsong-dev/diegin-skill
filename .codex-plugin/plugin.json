@@ -7,7 +7,8 @@
     "url": "https://github.com/linsong-dev",
     "email": "linsong.dev@gmail.com"
   },
-  "homepage":  "https://github.com/linsong-dev/diegin-skill",
+  "homepage": "https://github.com/linsong-dev",
+  "repository": "https://github.com/linsong-dev/diegin-skill",
   "skills": "./skills/",
   "interface": {
     "displayName": "迭进·DGEN",
@@ -17,7 +18,7 @@
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
     "brandColor": "#1a1a2e",
-    "websiteURL": "https://github.com/linsong-dev/diegin-skill",
+    "websiteURL": "https://github.com/linsong-dev",
     "defaultPrompt": ["使用迭进进行AI自我进化"]
   }
 }
