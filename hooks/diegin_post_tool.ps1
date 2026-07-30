@@ -46,14 +46,14 @@ function Write-DGENStatusFile {
     } catch {}
 }
 
-$pluginRoot=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
-$g_sf=Join-Path $pluginRoot "var\state\phase_state.json"
-$auditLog=Join-Path $pluginRoot "var\logs\diegin_audit.log"
+$g_pr=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$g_sf=Join-Path $g_pr "var\state\phase_state.json"
+$auditLog=Join-Path $g_pr "var\logs\diegin_audit.log"
 $time=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
-$pythonExe=Join-Path $pluginRoot "bin\.venv\Scripts\python.exe"
-$enginePy=Join-Path $pluginRoot "engine\call_diegin.py"
-$stateDir=Join-Path $pluginRoot "var\state"
+$pythonExe="$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$enginePy=Join-Path $g_pr "engine\call_diegin.py"
+$stateDir=Join-Path $g_pr "var\state"
 
 Write-PhaseState -Phase "post_tool" -Status "completed"
 
@@ -101,7 +101,7 @@ try {
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PostToolUse] ACTIVE"
 
 # 会话图片清理
-$cleanScript = Join-Path $pluginRoot "hooks\diegin_session_image_clean.ps1"
+$cleanScript = Join-Path $g_pr "hooks\diegin_session_image_clean.ps1"
 if (Test-Path $cleanScript) { & $cleanScript }
 
 # 举一反三：跨域泛化（每5次触发一次）
@@ -153,7 +153,7 @@ try {
             Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze done exit=$toolExitCode result=$($analyzeResult -replace "`n",' ' -replace "`r",'')"
         }
         # 即时重检：analyze 后立即检查 strike 状态，如已达第2次则确保 override 已写入
-        $strikesFile = Join-Path $pluginRoot "var\state\strikes_db.json"
+        $strikesFile = Join-Path $g_pr "var\state\strikes_db.json"
         if (Test-Path $strikesFile) {
             try {
                 $strikes = Get-Content $strikesFile -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -171,14 +171,14 @@ try {
 }
 
 # ---- Mindol 语义记忆写入 ----
-$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+$mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
 if (Test-Path $mindolBridge) {
     $mindolText = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
     if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
-    & $pyExe $mindolBridge record post_tool $mindolText 2>&1 | Out-Null
+    & $pythonExe $mindolBridge record post_tool $mindolText 2>&1 | Out-Null
 
     # 去伪存真：写入证据裁决
-    $evidenceVault = Join-Path $pluginRoot "engine\call_diegin.py"
+    $evidenceVault = Join-Path $g_pr "engine\call_diegin.py"
     $evCtx = @{
         rule_id = if ($toolName) { $toolName } else { "unknown" }
         verdict = if ($toolExitCode -eq 0 -or $toolExitCode -eq $null) { "pass" } else { "fail" }
@@ -186,12 +186,12 @@ if (Test-Path $mindolBridge) {
         source = "post_tool"
         detail = $toolCmd
     } | ConvertTo-Json -Compress
-    $evCtx | & $pyExe $evidenceVault record_evidence 2>&1 | Out-Null
+    $evCtx | & $pythonExe $evidenceVault record_evidence 2>&1 | Out-Null
 
     # 同时写入 raw_chat 空间（对话上下文记忆）
     $chatText = "tool=$toolName cmd=$toolCmd exit=$toolExitCode"
     if ($chatText.Length -gt 450) { $chatText = $chatText.Substring(0, 450) }
-    & $pyExe $mindolBridge record raw_chat "$chatText (raw_chat)" 2>&1 | Out-Null
+    & $pythonExe $mindolBridge record raw_chat "$chatText (raw_chat)" 2>&1 | Out-Null
 }
 
 exit 0

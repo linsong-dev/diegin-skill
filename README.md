@@ -80,7 +80,7 @@
 ### 安装
 `powershell
 git clone https://github.com/linsong-dev/diegin-skill.git
-cd diegin-skill
+cd Diegin
 pip install numpy
 `
 

@@ -31,7 +31,6 @@ function Write-PhaseState {
     [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
 }
 
-$g_sf=Join-Path $g_pr "var\state\phase_state.json"
 
 
 function Write-DGENContextAndExit {
@@ -69,10 +68,11 @@ $g_psPath = $PSCommandPath
 if ([string]::IsNullOrEmpty($g_psPath)) { $g_psPath = Join-Path $g_fallback_root "hooks\diegin_pre_tool.ps1" }
 $g_pr = Split-Path -Parent (Split-Path -Parent $g_psPath)
 if ([string]::IsNullOrEmpty($g_pr)) { $g_pr = $g_fallback_root }
+$g_sf=Join-Path $g_pr "var\state\phase_state.json"
 
 $auditLog = Join-Path $g_pr "var\logs\diegin_audit.log"
 $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-$pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"
+$pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 $enginePy = Join-Path $g_pr "engine\call_diegin.py"
 $stateDir = Join-Path $g_pr "var\state"
 $gateFile = Join-Path $g_pr "var/state/dgen_last_reply.json"
@@ -330,9 +330,9 @@ elseif ($st -eq "verified") { $st = "VERIFIED" }
 elseif ($st -eq "pending") { $st = "PENDING" }
 Write-DGENStatusFile -Status $st -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
 # ---- Mindol 语义记忆 ----
-$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+$mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
 if (Test-Path $mindolBridge) {
-    & $pyExe $mindolBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
+    & $pythonExe $mindolBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
 }
 Write-DGENContextAndExit -ExitCode 0
 

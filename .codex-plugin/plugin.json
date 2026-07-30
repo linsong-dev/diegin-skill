@@ -1,29 +1,21 @@
-﻿{
-    "name":  "diegin",
-    "version":  "3.4.0+codex.202607271800",
-    "description":  "Diegin（迭进）— 系统级认知框架。基于八元原则网络，通过运行时钩子全域常驻 AI 执行循环，使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。引擎层提供规则仲裁与强制阻断，记忆层提供跨会话持久语义存储。以插件形式寄生运行，不可降级为纯文档技能。",
-    "author":  {
-                   "name":  "linsong-dev"
-               },
-    "interface":  {
-                      "displayName":  "Diegin（迭进）— 系统级认知框架",
-                      "shortDescription":  "系统级认知框架 — 通过 hooks 全域常驻，不可降级为纯技能",
-                      "longDescription":  "Diegin（迭进）是一个具有独立架构的系统级认知框架。基于八元原则网络，通过 Codex 插件机制分发和寄生运行，不可降级为纯文档技能。引擎层提供规则仲裁与强制阻断，记忆层提供跨会话持久语义存储，钩子层实现全域常驻。集成 Mindol 语义记忆引擎，引擎 Hooks 全覆盖。",
-                      "developerName":  "linsong-dev",
-                      "category":  "Productivity",
-                      "capabilities":  [
-                                           "Read"
-                                       ],
-                      "defaultPrompt":  "使用迭进进行AI自我进化（八元框架+Mindol记忆）",
-                      "brandColor":  "#1a1a2e"
-                  },
-    "homepage":  "https://github.com/linsong-dev/diegin-skill.git",
-    "repository":  {
-                       "type":  "git",
-                       "url":  "https://github.com/linsong-dev/diegin-skill.git"
-                   }
+{
+  "name": "diegin",
+  "version": "3.4.0+codex.202607231628",
+  "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统",
+  "author": {
+    "name": "linsong-dev"
+  },
+  "homepage":  "https://github.com/linsong-dev/diegin-skill",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "迭进·DGEN",
+    "shortDescription": "AI 全域常驻自我迭代进化系统",
+    "longDescription": "基于八元原则网络（守三+攻七+一二不过三+举一反三+去伪存真+裁决律+缓急律+止观门），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
+    "developerName": "linsong-dev",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "brandColor": "#1a1a2e",
+    "websiteURL": "https://github.com/linsong-dev/diegin-skill",
+    "defaultPrompt": ["使用迭进进行AI自我进化"]
+  }
 }
-
-
-
-

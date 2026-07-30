@@ -62,15 +62,15 @@ function Write-PhaseState {
 
 
 
-$pluginRoot=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$g_pr=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 
-$g_sf=Join-Path $pluginRoot "var\state\phase_state.json"
+$g_sf=Join-Path $g_pr "var\state\phase_state.json"
 
 # 引擎调用路径
-$pythonExe = Join-Path $pluginRoot "bin\.venv\Scripts\python.exe"
-$enginePy = Join-Path $pluginRoot "engine\call_diegin.py"
+$pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$enginePy = Join-Path $g_pr "engine\call_diegin.py"
 
-$auditLog=Join-Path $pluginRoot "var\logs\diegin_audit.log"
+$auditLog=Join-Path $g_pr "var\logs\diegin_audit.log"
 
 $time=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
@@ -166,11 +166,11 @@ except Exception as e:
 
         [System.IO.File]::WriteAllText($tmpFile, $cleanScript, $script:utf8NoBOM)
 
-        $pyExe = Join-Path $pluginRoot "bin\.venv\Scripts\python.exe"
+        $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 
-        if (Test-Path $pyExe) {
+        if (Test-Path $pythonExe) {
 
-            $cleanResult = & $pyExe $tmpFile 2>&1
+            $cleanResult = & $pythonExe $tmpFile 2>&1
 
             Add-NoBOMLog -Path $auditLog -Message "$time 🧹 log_cleanup db=$(($dbSize/1MB -as [int]))MB result=$cleanResult"
 
@@ -211,7 +211,7 @@ if ($phaseJson -and (Test-Path $pythonExe)) {
 # ---- Mindol 语义记忆写入（Stop事件） ----
 # ensure engineDecision exists, default to 'no_check'
 if (-not $engineDecision) { $engineDecision = @{decision='no_check'} }
-$mindolBridge = Join-Path $pluginRoot "engine\mindol_bridge.py"
+$mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
 if (Test-Path $mindolBridge) {
     $mindolText = "phase=stop priority=stop hardFloor=" + $engineDecision.decision + " phaseJson=" + [System.Convert]::ToBoolean($phaseJson -ne "")
     if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }

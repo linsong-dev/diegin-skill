@@ -31,13 +31,13 @@ function Write-PhaseState {
     [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
 }
 
-$pluginRoot=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
-$g_sf=Join-Path $pluginRoot "var\state\phase_state.json"
-$auditLog=Join-Path $pluginRoot "var\logs\diegin_audit.log"
+$g_pr=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$g_sf=Join-Path $g_pr "var\state\phase_state.json"
+$auditLog=Join-Path $g_pr "var\logs\diegin_audit.log"
 $time=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
-$pythonExe=Join-Path $pluginRoot "bin\.venv\Scripts\python.exe"
-$enginePy=Join-Path $pluginRoot "engine\call_diegin.py"
+$pythonExe="$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$enginePy=Join-Path $g_pr "engine\call_diegin.py"
 $engineOk=$false;$ruleCount=0
 if(Test-Path $pythonExe){
     $result=& $pythonExe $enginePy health 2>&1
@@ -48,19 +48,19 @@ Write-PhaseState -Phase "session_start" -Status "passed" -Data @{engine_ok=$engi
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] ACTIVE engine=$engineOk rules=$ruleCount"
 
 # 写初始状态文件，确保 PreToolUse 通过
-$initialStateFile = Join-Path $pluginRoot "var\state\dgen_last_reply.json"
+$initialStateFile = Join-Path $g_pr "var\state\dgen_last_reply.json"
 $initialState = @{ts=(Get-Date -Format "o");decision="allow";reason="session_start_init";winning_rule="";matched_count=0}
 $initialJson = $initialState | ConvertTo-Json -Compress
 [System.IO.File]::WriteAllText($initialStateFile, $initialJson, $script:utf8NoBOM)
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] STATE_FILE_WRITTEN"
 
 # 重置 DGEN 标志：新对话全新开始，PreToolUse 自举 pending
-$markerFile = Join-Path $pluginRoot "var\state\dgen_marker_pending.json"
+$markerFile = Join-Path $g_pr "var\state\dgen_marker_pending.json"
 if (Test-Path $markerFile) { Remove-Item $markerFile -Force }
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] MARKER_RESET for_new_session"
 
 # 引擎状态上下文
-$ctxFile = Join-Path $pluginRoot "var\state\diegin_context.json"
+$ctxFile = Join-Path $g_pr "var\state\diegin_context.json"
 $ts = Get-Date -Format "o"
 if ($engineOk) { $t = $ruleCount; $h = "OK" } else { $t = 0; $h = "ERR" }
 $ctxObj = New-Object PSObject -Property @{
