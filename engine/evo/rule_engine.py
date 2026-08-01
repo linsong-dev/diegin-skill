@@ -887,8 +887,12 @@ class RuleEngine:
         """基于 AST 的安全布尔表达式求值（完全替代 eval()）"""
         import ast
 
-        # 标准化逻辑运算符
-        expr = expr.replace(' AND ', ' and ').replace(' OR ', ' or ')
+        # 标准化逻辑运算符（大小写不敏感：AND/And/OR/Or 均可）
+        import re as _re
+        expr = _re.sub(r'\bAND\b', 'and', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bOR\b', 'or', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bNOT\s+IN\b', 'not in', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bIN\b', 'in', expr, flags=_re.IGNORECASE)
 
         # 构建变量作用域
         scope = {}
@@ -922,10 +926,34 @@ class RuleEngine:
         PYTHON_KEYWORDS = frozenset({'True', 'False', 'None'})
         scope_keys = set(scope.keys())
 
+        # 小写布尔归一：true/false -> True/False（在 AST 转换前，用词边界替换避免误伤字符串）
+        expr = _re.sub(r'\btrue\b', 'True', expr)
+        expr = _re.sub(r'\bfalse\b', 'False', expr)
+        try:
+            tree = ast.parse(expr, mode='eval')
+        except SyntaxError:
+            return False
+
         class BareWordToConstant(ast.NodeTransformer):
             def visit_Name(self, node):
                 if node.id not in PYTHON_KEYWORDS and node.id not in scope_keys:
                     return ast.Constant(value=node.id)
+                return node
+
+            def visit_Attribute(self, node):
+                # 处理 .py / .json 等属性节点（如 file_extension IN [.py, .json]）
+                return ast.Constant(value=node.attr)
+
+            def visit_BinOp(self, node):
+                # 先处理子节点（保证 Name/Attribute 已转为 Constant）
+                self.generic_visit(node)
+                # 处理连字符裸词: Set-Content -> 'Set-Content'（AST 解析为 Set - Content 减法）
+                if isinstance(node.op, ast.Sub):
+                    left = node.left
+                    right = node.right
+                    if isinstance(left, ast.Constant) and isinstance(right, ast.Constant) \
+                            and isinstance(left.value, str) and isinstance(right.value, str):
+                        return ast.Constant(value=f"{left.value}-{right.value}")
                 return node
 
         tree = BareWordToConstant().visit(tree)

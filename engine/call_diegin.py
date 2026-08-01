@@ -73,6 +73,9 @@ def load_principle_rules(context: dict) -> list:
         if os.path.exists(db_path):
             with open(db_path, "r", encoding="utf-8") as f:
                 strikes_db = json.load(f)
+            # 防御：strikes_db 可能被外部清空为 [] 或 null，需兼容 dict 格式
+            if not isinstance(strikes_db, dict):
+                strikes_db = {}
             for error_type, entry in strikes_db.items():
                 count = entry.get("count", 0)
                 if count < 2:
