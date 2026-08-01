@@ -935,6 +935,17 @@ if __name__ == "__main__":
 
         tool_name = sys.argv[2] if len(sys.argv) > 2 else "unknown"
         method = sys.argv[3] if len(sys.argv) > 3 else ""
+        # v3.6.6 修复：PowerShell 传参会拆分含引号/分号的命令 → 支持 stdin JSON 传 method（无损）
+        if not method and not sys.stdin.isatty():
+            try:
+                _in = sys.stdin.read().strip()
+                if _in:
+                    _j = json.loads(_in)
+                    if isinstance(_j, dict):
+                        tool_name = _j.get("tool_name", tool_name) or tool_name
+                        method = _j.get("method", "") or ""
+            except Exception:
+                pass
         _tn = tool_name.lower()
 
         # 阈值 1: 跳过简单只读操作
