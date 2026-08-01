@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""迭进工作台 - 一键查看五元框架运行状态"""
+"""迭进工作台 - 一键查看八元框架运行状态"""
 import sys, os, json
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "evo"))
@@ -58,7 +58,7 @@ def main():
     last_verify = check_last_verify()
     
     print("=" * 55)
-    print("  [DG] 迭进工作台 · 五元框架运行状态")
+    print("  [DG] 迭进工作台 · 八元框架运行状态")
     print("=" * 55)
     
     # 1. 守三

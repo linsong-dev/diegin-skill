@@ -13,7 +13,7 @@
   <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.4.0-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.6.6-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>
@@ -47,7 +47,7 @@
 | 文件 | 作用 |
 |:-----|:------|
 | engine/evo/main.py | 统一入口 + 定期维护 |
-| engine/evo/rule_engine.py | 规则引擎（240 条规则，CRUD + 匹配） |
+| engine/evo/rule_engine.py | 规则引擎（261 条规则，CRUD + 匹配） |
 | engine/evo/tracker.py | 行为追踪（一二不过三连锁、守三攻七循环） |
 | engine/evo/arbiter.py | 仲裁器（P0-P5 优先级裁决） |
 | engine/evo/pacemaker.py | 缓急律调度（宕机时段） |
@@ -74,7 +74,7 @@
 
 ### 环境要求
 - Python 3.12+
-- Codex 桌面版（v2.0+）
+- Codex 桌面版（v3.0+，26.x 已内置迭进钩子支持）
 - PowerShell 5.1+
 
 ### 安装

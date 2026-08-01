@@ -34,8 +34,8 @@ metadata:
 
         label: "安装迭进引擎"
 
-  version: "v3.4.0"
-  date: "2026-07-22"
+  version: "v3.6.6"
+  date: "2026-08-01"
 ---
 
 
@@ -68,8 +68,9 @@ metadata:
 
 - 每次触发 PreToolUse 时，自动执行 python call_diegin.py check 引擎预检
 - 无需在工具命令中嵌入 [DGEN STATUS:] 标记
-- 引擎裁决通过 exit code 传递：0=放行，靐0=阻断（含原因说明）
+- 引擎裁决通过 exit code 传递：0=放行，≠0=阻断（含原因说明）
 - 一二不过三第3次升级后自动切换执行模式（enforce→audit）
+- 标记状态机（B方案）：pending → allowed（回复含标记）→ verified（工具链执行完毕），闭环写入 var/state/dgen_marker_pending.json + dgen_verify_result.json（审计记录，不阻断）
 
 
 
@@ -79,7 +80,6 @@ metadata:
 - 如长时间无交互（>5分钟），引擎自动重置检查状态
 - 阻断/升级时用户会收到通知
 
-- 如长时间无交互（>5分钟），标记自动过期 → 需重新 [DGEN STATUS:]
 
 
 ## ⚡迭进强制规则（机械执行 · 不可绕过）
@@ -547,7 +547,7 @@ metadata:
 
 
 
-**[DGEN] 标记必须出现在每次回复开头。没有标记 = 迭进未激活 = 故障。**
+**[DGEN] 标记建议出现在每次回复开头。没有标记 = 审计告警（记录但不阻断），钩子自动处理。**
 
 
 
@@ -587,7 +587,7 @@ metadata:
 
 |:---|:---:|:---|
 
-| rule_marker_001 | high | 外发消息不含 [DGEN] → 阻断，重新激活迭进 |
+| rule_marker_001 | low | 外发消息不含 [DGEN] → 审计记录告警，不阻断执行（v3.6.6 起） |
 
 | rule_decorative_marker_001 | high | 有匹配但回复未受影响 → 强化仲裁执行 |
 

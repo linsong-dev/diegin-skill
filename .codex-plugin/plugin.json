@@ -1,6 +1,6 @@
 {
   "name": "diegin",
-  "version": "3.4.0+codex.202607231628",
+  "version": "3.6.6+codex.202608011300",
   "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统",
   "author": {
     "name": "linsong-dev",
@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/linsong-dev/diegin-skill",
   "repository": "https://github.com/linsong-dev/diegin-skill",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["diegin", "dgen", "ai-evolution", "cognitive-framework", "自我进化", "迭进"],
   "skills": "./skills/",
   "interface": {
