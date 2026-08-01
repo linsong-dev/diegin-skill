@@ -714,9 +714,14 @@ class RuleEngine:
                             _rid = _uid[5:]
                             for _r in self._interceptions:
                                 if _r.id == _rid and _r.lifecycle_status == 'active':
-                                    if _r not in matched_interceptions:
-                                        matched_interceptions.append(_r)
-                                        break
+                                    # v3.6.5: 语义回退必须二次表达式确认，防止语义误匹配拉入不相关规则
+                                    try:
+                                        if self._match_condition(_r.trigger_condition, task_context):
+                                            if _r not in matched_interceptions:
+                                                matched_interceptions.append(_r)
+                                    except Exception:
+                                        pass
+                                    break
             except Exception:
                 pass  # Mindol 不可用时静默降级
 

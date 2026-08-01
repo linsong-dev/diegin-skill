@@ -337,15 +337,38 @@ class ConflictArbiter:
                     reason=f"[裁决律P4] 守三规则 {best_interception.id} 置信度({int_conf})高于攻七模式，拦截"
                 )
 
-        # ⭐ 严重度兜底 ⭐
+        # ⭐ 严重度兜底 ⭐（先做 action 语义豁免：验证/报告/传递/记录性质的动作不阻断）
         if active_interceptions:
-            severities = [getattr(r, "severity", "low") for r in active_interceptions]
+            # 非阻断语义动作关键词：这类规则本意是验证/报告/传递/记录，不应因 severity 高而误伤
+            _non_block_actions = ("relay", "verify", "report", "record", "check", "log",
+                                  "notify", "write_state", "read_in_tool", "mark_", "audit",
+                                  "传递", "验证", "报告", "记录", "检查", "通知", "审计", "回写")
+            _block_actions = ("block", "intercept", "deny", "forbid", "stop", "禁止", "拦截", "阻断", "拒绝")
+            _non_block_only = []
+            _real_block = []
+            for r in active_interceptions:
+                act = (getattr(r, "action", "") or "").lower()
+                # 显式阻断动作优先视为真阻断；否则含非阻断语义视为豁免
+                if any(k in act for k in _block_actions):
+                    _real_block.append(r)
+                elif any(k in act for k in _non_block_actions):
+                    _non_block_only.append(r)
+                else:
+                    _real_block.append(r)
+
+            severities = [getattr(r, "severity", "low") for r in _real_block]
             if "high" in severities or "critical" in severities:
-                high_rules = [r for r in active_interceptions if getattr(r, "severity", "") in ("high", "critical")]
+                high_rules = [r for r in _real_block if getattr(r, "severity", "") in ("high", "critical")]
                 return ArbitrationResult(
                     decision=ResolutionType.BLOCK,
                     winning_rule=high_rules[0],
                     reason=f"高严重度规则触发: {high_rules[0].id}" + (f" | P6记忆: {memory_note}" if memory_note else "")
+                )
+            if _non_block_only:
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    winning_rule=_non_block_only[0],
+                    reason=f"验证/报告类规则触发(不阻断): {_non_block_only[0].id}"
                 )
             if "medium" in severities:
                 med_rules = [r for r in active_interceptions if getattr(r, "severity", "") == "medium"]

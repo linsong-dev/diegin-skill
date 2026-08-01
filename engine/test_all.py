@@ -72,7 +72,8 @@ def test_strike_mechanism():
     from call_diegin import load_principle_rules, evidence_filter
     # 测试含 marker_missing 的上下文
     ctx = {"task": "test", "marker_missing": True}
-    rules = load_principle_rules(ctx)
+    # dry-run: 不写入 strikes_db（避免测试污染生产状态）
+    rules = load_principle_rules(ctx, record_strike=False)
     # 至少返回一条规则（阻断）
     c1 = check("一二不过三·strike触发", len(rules) >= 1, f"{len(rules)}条")
     return c1

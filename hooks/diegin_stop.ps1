@@ -195,7 +195,7 @@ if (Test-Path $g_sf) {
 if ($phaseJson -and (Test-Path $pythonExe)) {
     try {
         # 构建上下文，匹配 hard_floor 规则
-        $ctxForEngine = "{`"phase`":`"stop_verification`",`"phase_check`":true,`"phase_state`":" + $phaseJson + "}"
+        $ctxForEngine = "{`"phase`":`"stop_verification`",`"phase_check`":false,`"phase_state`":" + $phaseJson + "}"
         $engineResult = $ctxForEngine | & $pythonExe $enginePy check 2>&1
         $engineDecision = $engineResult | ConvertFrom-Json
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_CHECK decision=$($engineDecision.decision) matched=$($engineDecision.matched_interceptions)"

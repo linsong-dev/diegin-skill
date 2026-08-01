@@ -41,7 +41,7 @@ from evo.error_detector import ErrorDetector
 
 
 
-def load_principle_rules(context: dict) -> list:
+def load_principle_rules(context: dict, record_strike: bool = True) -> list:
     """Load strike (一二不过三) + staging (举一反三) rules into arbitration pipeline"""
     engine = _get_engine()
     extra = []
@@ -117,8 +117,9 @@ def load_principle_rules(context: dict) -> list:
 
         # ① 错立改+改毕验：记录 strike，走引擎裁决
         try:
-            ensure_three_strikes("protocol_b_marker",
-                f"工具命令缺失[DGEN]标记: {str(context.get('command',''))[:80]}")
+            if record_strike:
+                ensure_three_strikes("protocol_b_marker",
+                    f"工具命令缺失[DGEN]标记: {str(context.get('command',''))[:80]}")
         except Exception:
             pass
 
