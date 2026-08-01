@@ -1,4 +1,4 @@
-$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)

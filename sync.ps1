@@ -1,4 +1,4 @@
-# DGEN sync v3 - full bidirectional sync with merge
+﻿# DGEN sync v3 - full bidirectional sync with merge
 param($Action = "check")
 
 function OK { param([string]$m) Write-Host ("  [OK] " + $m) -ForegroundColor Green }

@@ -1,4 +1,4 @@
-$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)
@@ -194,12 +194,23 @@ Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PreToolUse] tool=$toolName cm
 $markerStatus = ""
 $markerMissing = $false  # 由标记检查设置，引擎据此裁决
 $markerTs = $null
+$markerHas = $false      # [B方案] 本次命令是否含 [DGEN] 标记（验证闭环输入）
 if (Test-Path $markerFile) {
     try {
         $m = Get-Content $markerFile -Raw -Encoding UTF8 | ConvertFrom-Json
         $markerStatus = $m.status
         if ($m.ts) { $markerTs = $m.ts }
     } catch {}
+} else {
+    # [B方案] 自举：无 marker 文件 → 创建 pending，启动标记状态机
+    try {
+        $newMarker = @{status="pending";turn_id="auto";ts=(Get-Date -Format "o")}
+        [System.IO.File]::WriteAllText($markerFile, ($newMarker | ConvertTo-Json -Compress), $script:utf8NoBOM)
+        $markerStatus = "pending"
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] BOOTSTRAP created_pending"
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] BOOTSTRAP_ERROR $($_.Exception.Message)"
+    }
 }
 
 # verified 过期检查：超过5分钟重置为 pending
@@ -224,8 +235,21 @@ if ($markerStatus -eq "") {
 }
 
 if ($markerStatus -eq "pending") {
-    # [A方案] 不再检查 [DGEN] 标记，改为审计记录
-    # 引擎裁决由后面的 Python pre_check 处理
+    # [A方案] 审计模式：不因缺标记阻断，引擎裁决由后面的 Python pre_check 处理
+    # [B方案] verify 闭环：检查命令是否含 [DGEN] 标记 → 记录验证结果（绝不阻断）
+    try {
+        $markerHas = ($command -match "\[DGEN\]")
+        $verifyFile = Join-Path $stateDir "dgen_verify_result.json"
+        $vRec = @{ts=(Get-Date -Format "o");tool=$toolName;has_marker=$markerHas;status="record_only";decision="allow"}
+        [System.IO.File]::WriteAllText($verifyFile, ($vRec | ConvertTo-Json -Compress), $script:utf8NoBOM)
+        if ($markerHas) {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] marker_found tool=$toolName record_only"
+        } else {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] marker_missing tool=$toolName record_only_no_block"
+        }
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] RECORD_ERROR $($_.Exception.Message)"
+    }
     $newMarker = @{status="allowed";turn_id="auto";ts=(Get-Date -Format "o")}
     [System.IO.File]::WriteAllText($markerFile, ($newMarker | ConvertTo-Json -Compress), $script:utf8NoBOM)
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] AUDIT_MODE skip_marker_check tool=$toolName"
@@ -239,6 +263,9 @@ function Check-StateFile($fp) {
     try { $raw=[System.IO.File]::ReadAllText($fp,$script:utf8NoBOM); $s=$raw|ConvertFrom-Json
         $age=[DateTime]::Now-[DateTime]::Parse($s.ts)
         if($age.TotalSeconds -gt 120) { return $null }
+        # [v3.6.6] 自阻断修复：source=pre_tool 的记录是本次钩子自己写的引擎裁决，
+        # 已通过 exit 1 生效；relay 仅对 pre_reply 的决策生效，避免 120 秒幽灵阻断
+        if($s.source -eq "pre_tool") { return $null }
         if($s.decision -in @("block","iron_wall_block")) { return $s }
     } catch{}; return $null
 }
@@ -285,6 +312,7 @@ try {
             task_type="pre_tool"
             tool_name=$toolName
             blocked_error_type=$blockedType
+            marker_missing=$false
             command=$command
             text=$command
             hook_event_name="PreToolUse"
@@ -296,7 +324,7 @@ try {
         $finalMatched = $checkResult.matched_interceptions
         $finalRule = $checkResult.winning_rule_id
 
-        $s2=@{ts=(Get-Date -Format "o");decision=$finalDecision;reason=$checkResult.reason;winning_rule=$finalRule;matched_count=$finalMatched}
+        $s2=@{ts=(Get-Date -Format "o");decision=$finalDecision;reason=$checkResult.reason;winning_rule=$finalRule;matched_count=$finalMatched;source="pre_tool"}
         [System.IO.File]::WriteAllText($replyFile,($s2|ConvertTo-Json -Compress),$script:utf8NoBOM)
 
         if($finalDecision -in @("block","iron_wall_block")){

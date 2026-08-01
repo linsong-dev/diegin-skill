@@ -1,4 +1,4 @@
-$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)
@@ -74,6 +74,14 @@ if (Test-Path $markerFile) {
             [System.IO.File]::WriteAllText($markerFile, ($verified | ConvertTo-Json -Compress), $script:utf8NoBOM)
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] UPGRADED allowed_to_verified"
             Write-DGENStatusFile -Status "VERIFIED" -Rules $activeRules -Decision "allow" -Matched "0"
+            # [B方案] 验证闭环完成：标记生命周期 verified（回复含标记 → 工具链执行完毕）
+            try {
+                $vRec = @{ts=(Get-Date -Format "o");tool="post_tool";has_marker=$true;status="verified";decision="allow"}
+                [System.IO.File]::WriteAllText((Join-Path $stateDir "dgen_verify_result.json"), ($vRec | ConvertTo-Json -Compress), $script:utf8NoBOM)
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] verified_marker_cycle_complete"
+            } catch {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] UPGRADE_RECORD_ERROR $($_.Exception.Message)"
+            }
         }
     } catch {
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] UPGRADE_ERROR $($_.Exception.Message)"

@@ -79,7 +79,6 @@ class Mindol:
                 _rel_sql = "INSERT OR REPLACE INTO relations VALUES (?,?,?,?)"
                 self._db.execute(_rel_sql,
                                  (source_uid, target_uid, rel_type, weight))
-                self._db.commit()
 
     def _classify_space(self, source: str) -> str:
         return {"rule": self.SPACE_RULE, "pattern": self.SPACE_PATTERN, "trade": self.SPACE_TRADE,
@@ -93,12 +92,12 @@ class Mindol:
         sp.index = np.stack(embs) if embs else None
 
     def _persist_unit(self, unit: MemoryUnit, space: str):
+        # 性能优化 v3.6.6: 去掉逐条 commit（每条 ~30ms），由 save()/close() 统一 commit
         emb = unit.embedding.tobytes() if unit.embedding is not None else b""
         _mem_sql = "INSERT OR REPLACE INTO memory_units VALUES (?,?,?,?,?,?,?,?)"
         self._db.execute(_mem_sql,
                          (unit.uid, space, unit.text, unit.source, unit.path,
                           json.dumps(unit.metadata, ensure_ascii=False), unit.timestamp, emb))
-        self._db.commit()
 
     def retrieve(self, query: str, top_k: int = 10, spaces: List[str] = None) -> List[Tuple[MemoryUnit, float]]:
         qvec = self._vectorizer.embed(query)

@@ -1,4 +1,4 @@
-# 迭进·DGEN — AI 全域常驻自我迭代进化系统 一键部署脚本
+﻿# 迭进·DGEN — AI 全域常驻自我迭代进化系统 一键部署脚本
 # 用法: powershell -ExecutionPolicy Bypass -File deploy.ps1
 # 注意：本脚本使用 Write-NoBOM 安全写入，不产生 BOM
 
