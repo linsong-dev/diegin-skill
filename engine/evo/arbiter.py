@@ -69,6 +69,48 @@ class ConflictArbiter:
     # 映射：将内部类型转换为 AGENTS.md 外部类型 + 人类可读理由
     # ──────────────────────────────────────────────────
 
+    def _conf(self, rule) -> float:
+        """带语义记忆权重的置信度（仅本次仲裁使用，不持久化）"""
+        base = getattr(rule, "confidence", 0) or 0
+        return base + (getattr(rule, "_mem_conf_adj", 0) or 0)
+
+    def _apply_memory_weight(self, interceptions, patterns, mindol_hits) -> str:
+        """P6: 语义记忆权重 — 历史经验影响规则置信度（仅本次仲裁）。
+        高分(>=0.8)历史阻断/失败案例 → 相关规则置信度 +0.5（支持拦截）
+        高分(>=0.8)历史放行/成功案例 → 相关规则置信度 -0.3（削弱拦截）
+        """
+        if not mindol_hits:
+            return ""
+        notes = []
+        for hit in mindol_hits:
+            try:
+                score = float(hit.get("score", 0) or 0)
+            except Exception:
+                score = 0
+            if score < 0.8:
+                continue
+            text = str(hit.get("text", ""))[:300]
+            tl = text.lower()
+            hit_space = str(hit.get("space", ""))
+            # 只采信 rule/pattern/codex/trade 空间的记忆（raw 对话噪声大）
+            if hit_space not in ("rule", "pattern", "codex", "trade"):
+                continue
+            if any(k in tl for k in ("block", "fail", "intercept", "阻断", "拦截", "拒绝", "critical")):
+                for r in interceptions:
+                    rid = getattr(r, "id", "") or ""
+                    cond = getattr(r, "trigger_condition", "") or ""
+                    # 规则ID或触发条件关键词与记忆文本重叠 → 视为相关
+                    if (rid and rid.lower() in tl) or (cond and any(w in tl for w in cond.lower().split()[:3])):
+                        setattr(r, "_mem_conf_adj", (getattr(r, "_mem_conf_adj", 0) or 0) + 0.5)
+                notes.append(f"[{hit_space}:{score:.0%}]记忆支持拦截")
+            elif any(k in tl for k in ("allow", "pass", "放行", "通过", "success", "verified")):
+                for r in interceptions:
+                    rid = getattr(r, "id", "") or ""
+                    if rid and rid.lower() in tl:
+                        setattr(r, "_mem_conf_adj", (getattr(r, "_mem_conf_adj", 0) or 0) - 0.3)
+                notes.append(f"[{hit_space}:{score:.0%}]记忆支持放行")
+        return " ".join(notes)
+
     def to_display(self, result: ArbitrationResult) -> Dict[str, Any]:
         """将仲裁结果转换为 AI 可直接输出的格式（对齐 AGENTS.md §二）"""
         mapping = {
@@ -109,7 +151,7 @@ class ConflictArbiter:
     # 核心仲裁逻辑（对齐 AGENTS.md）
     # ──────────────────────────────────────────────────
 
-    def resolve(self, interceptions, patterns):
+    def resolve(self, interceptions, patterns, mindol_hits=None):
         """
         八元原则网络仲裁 · 按裁决律P0-P5优先级
 
@@ -119,12 +161,24 @@ class ConflictArbiter:
         P3: 缓急律紧急分流
         P4: 守三改进规则 vs 攻七成功模式 → 置信度裁决
         P5: 举一反三 staging 规则不参与实时仲裁
+        P6: Mindol 语义记忆权重（历史经验调节置信度，仅影响 P4 与兜底，不凌驾 P0-P3）
         """
         if not interceptions:
             return ArbitrationResult(
                 decision=ResolutionType.ALLOW,
                 reason="无规则触发，默认放行"
             )
+
+        # v3.6: 审计型规则（action 含 audit_only/record_*）仅记录不阻断
+        # 修复：P4 置信度裁决曾把审计规则当拦截指令，导致 pre_tool 场景误 block
+        audit_rules = [r for r in interceptions if ("audit_only" in (getattr(r, "action", "") or ""))]
+        if audit_rules:
+            interceptions = [r for r in interceptions if r not in audit_rules]
+            if not interceptions:
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    reason=f"[裁决律] 审计型规则触发({[r.id for r in audit_rules]})，仅记录不阻断"
+                )
 
         # ── 辅助函数：检测规则归属原则 ──
         def _principle(rule):
@@ -241,15 +295,18 @@ class ConflictArbiter:
                 reason="[裁决律P5] 仅有staging规则触发，不参与实时仲裁，放行"
             )
 
+        # ⭐ P6: 语义记忆权重（历史经验 → 规则置信度微调，仅本次仲裁）⭐
+        memory_note = self._apply_memory_weight(active_interceptions, patterns, mindol_hits)
+
         # ⭐ P4: 守三 vs 攻七 置信度裁决 ⭐
         patterns = patterns or []
         active_patterns = [p for p in patterns if getattr(p, "lifecycle_status", "active") == "active"]
 
         if active_patterns and groups["守三"]:
-            best_interception = max(groups["守三"], key=lambda x: getattr(x, "confidence", 0) or 0)
-            best_pattern = max(active_patterns, key=lambda x: getattr(x, "confidence", 0) or 0)
-            int_conf = getattr(best_interception, "confidence", 0) or 0
-            pat_conf = getattr(best_pattern, "confidence", 0) or 0
+            best_interception = max(groups["守三"], key=lambda x: self._conf(x))
+            best_pattern = max(active_patterns, key=lambda x: self._conf(x))
+            int_conf = self._conf(best_interception)
+            pat_conf = self._conf(best_pattern)
             confidence_delta = abs(int_conf - pat_conf)
             if confidence_delta < 0.5:
                 self.pending_conflicts.append({
@@ -288,7 +345,7 @@ class ConflictArbiter:
                 return ArbitrationResult(
                     decision=ResolutionType.BLOCK,
                     winning_rule=high_rules[0],
-                    reason=f"高严重度规则触发: {high_rules[0].id}"
+                    reason=f"高严重度规则触发: {high_rules[0].id}" + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             if "medium" in severities:
                 med_rules = [r for r in active_interceptions if getattr(r, "severity", "") == "medium"]

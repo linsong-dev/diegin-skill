@@ -315,8 +315,30 @@ try {
         try { $h = & $pythonExe $enginePy health 2>&1 | ConvertFrom-Json; $activeRules = $h.active_rules } catch {}
         
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ALLOW] decision=$finalDecision matched=$finalMatched"
+        # v3.6: 攻七建议注入（成功模式匹配时输出推荐，供 AI 工具调用前参考）
+        $sugText = ""
+        try {
+            if ($checkResult.suggestions -and $checkResult.suggestions.Count -gt 0) {
+                $sugLines = @()
+                foreach ($s in $checkResult.suggestions) {
+                    $sugName = if ($s.scenario) { $s.scenario } else { $s.id }
+                    $sugLine = "  - " + $sugName + " (置信度 " + $s.confidence + ")"
+                    if ($s.decision) {
+                        $dText = [string]$s.decision
+                        if ($dText.Length -gt 80) { $dText = $dText.Substring(0, 80) + "…" }
+                        $sugLine += " 做法: " + $dText
+                    }
+                    $sugLines += $sugLine
+                }
+                if ($sugLines.Count -gt 0) {
+                    $sugText = "`n攻七·推荐:" + ($sugLines -join "`n")
+                }
+            }
+        } catch {}
         if ($finalMatched -gt 0) {
-            Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行")
+            Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行" + $sugText)
+        } elseif ($sugText) {
+            Write-Output ("ℹ️ [迭进] 预检放行" + $sugText)
         }
     }
 } catch {

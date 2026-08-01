@@ -34,6 +34,11 @@ class BehaviorTracker:
         """根据规则类型调用对应的 update 方法"""
         if rule_type == "interception":
             self.rule_engine.update_interception(rule.id, **kwargs)
+            # v3.6: 计数立即落盘（原实现只标 dirty，进程退出计数丢失 → 统计恒为0）
+            try:
+                self.rule_engine._save_json("interception_rules.json", self.rule_engine._interceptions)
+            except Exception:
+                pass
         else:
             self.rule_engine.update_pattern(rule.id, **kwargs)
 
@@ -282,10 +287,10 @@ class BehaviorTracker:
         print(f'[SHOUSAN] 守三复盘: 已生成规则 {rule_id} 防止 {error_type}')
         return {'rule_id': rule_id, 'trigger': trigger, 'action': action}
 
-    def notify_gongqi(self, error_type: str, detail: str, fix_rule_id: str = '') -> dict:
-        """一二不过三(修复成功) -> 攻七(写入模式)
-        在strike阻断并生成预防规则后，自动创建成功模式记录修复经验。
-        使修复成果被固化到攻七成功模式库。"""
+    def notify_gongqi(self, error_type: str, detail: str, fix_rule_id: str = '', mode: str = 'prevention') -> dict:
+        """一二不过三 -> 攻七(写入模式)
+        mode='prevention'  ：第2次阻断后生成预防模式（原行为）
+        mode='verified_fix'：①立改"改毕验"通过后，固化修复成功经验（文档①语义落地）"""
         from rule_engine import SuccessPattern
         import datetime as _dt
         now = _dt.datetime.now()
@@ -329,6 +334,8 @@ class BehaviorTracker:
         for key in pattern_map:
             if key in error_type:
                 pname, logic = pattern_map[key]
+                if mode == "verified_fix":
+                    pname = pname + "（修复成功经验）"
                 matched = True
                 break
         
@@ -336,10 +343,14 @@ class BehaviorTracker:
             clean_type = error_type.replace('self_error_', '').replace('silent_', '')
             if len(clean_type) > 30:
                 clean_type = clean_type[:30]
-            pname = f'预防{clean_type}'
-            logic = f'{clean_type}操作前预检，避免同类错误'
+            if mode == "verified_fix":
+                pname = f'修复{clean_type}经验'
+                logic = f'{clean_type}操作已修复并验证通过，固化该路径'
+            else:
+                pname = f'预防{clean_type}'
+                logic = f'{clean_type}操作前预检，避免同类错误'
         
-        pattern_id = f'gongqi_fix_{error_type}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        pattern_id = f'gongqi_{"verified" if mode == "verified_fix" else "fix"}_{error_type}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}'
         
         new_pattern = SuccessPattern(
             id=pattern_id,
@@ -360,10 +371,12 @@ class BehaviorTracker:
         return {'pattern_id': pattern_id, 'pattern_name': pname, 'logic': logic}
     def record_self_error(self, error_type, detail='', task_context=None):
         """
-        一二不过三·三错阀
-        第1次：警告+警觉 → 写 dgen_warning.json，规则标记 alerting
-        第2次：阻断 → 写 dgen_override.json，AI 不再执行这类操作
-        第3次：不应发生 → 如果发生说明阻断机制出 bug，记录到 strikes_db
+        一二不过三·三错阀（v3.4.1 增强）
+        第1次：警告+警觉+立改 → 写 dgen_warning.json + dgen_fix_plan.json（修复方案），规则标记 alerting
+               → 修复后由 verify_fix() / _auto_verify_pending_fixes() 完成"改毕验"，成功则输出攻七修复经验
+        第2次：去伪存真归因过滤 → 内生惯性 → dgen_overrides.json 硬阻断 + 守三预防规则 + 攻七预防模式
+               外生变量 → 记录 dgen_external_adjust.json 策略调整，不阻断
+        第3次：推翻原阻断方案 → enforce→audit 模式切换 → 根因分析 + 修复 + 复检提醒
         """
         import datetime as _dt
         if task_context is None:
@@ -418,8 +431,13 @@ class BehaviorTracker:
             except Exception:
                 pass
             self.rule_engine.save_all()
+            # ①立改：生成修复方案，进入"改毕验"待验证状态
+            try:
+                self._generate_fix_plan(error_type, detail)
+            except Exception:
+                pass
             return {'action':'first_warning','rule_id':key,'strike':sn,
-                    'warning':'⚠️ 一二不过三: '+error_type+' 已出现第1次，系统已警觉，注意防止再犯'}
+                    'warning':'⚠️ 一二不过三: '+error_type+' 已出现第1次，系统已警觉，已生成修复方案（立改），等待改毕验'}
 
         # ========== 第2次：阻断 ==========
         # ========== 第2次：阻断（先去伪存真·归因过滤）==========
@@ -428,9 +446,15 @@ class BehaviorTracker:
             is_internal = cause["verdict"] == "internal"
             if not is_internal:
                 print("[TRACKER] external cause, skip block: " + error_type)
+                # ②外生变量：记录策略调整（不阻断，但调整应对策略供后续参考）
+                try:
+                    self._record_external_adjustment(error_type, detail, cause)
+                except Exception:
+                    pass
                 return {"action":"external_skip","rule_id":key,"strike":sn,
                         "cause":cause,
-                        "message":"一二不过三: "+error_type+" 第2次触发但判定为外生变量，不做阻断"}
+                        "adjustment":"已记录外生变量策略调整（dgen_external_adjust.json）",
+                        "message":"一二不过三: "+error_type+" 第2次触发但判定为外生变量，不做阻断，已调整应对策略"}
             if rule:
                 rule.triggered_count = sn
                 rule.last_triggered = now
@@ -570,8 +594,17 @@ class BehaviorTracker:
         # 封顶：升级后下次不再处理
         if rule:
             self.rule_engine.update_interception(rule.id, lifecycle_status="alerting", confidence=0.0)
+
+        # ③三错根因分析 + 修复 + 复检提醒（v3.4.1 增强；位于封顶之后，修复结果不被封顶覆盖）
+        root_causes = []
+        try:
+            root_causes = self._root_cause_analysis(error_type, rule)
+            self._apply_strike_treatment(error_type, rule, root_causes)
+        except Exception:
+            pass
         return {"action": "third_breach", "rule_id": key, "strike": sn,
                 "escalated": True,
+                "root_causes": root_causes,
                 "warning": "一二不过三阻断失效: " + error_type + " 在阻断后仍出现第" + str(sn) + "次。已推翻原阻断方案并降低规则优先级"}
 
     def record_user_feedback(self, rule_id: str, feedback: str, user_action: Optional[str] = None) -> Dict[str, Any]:
@@ -872,3 +905,294 @@ class BehaviorTracker:
                     })
 
         return sorted(ignored_list, key=lambda x: x["ignore_rate"], reverse=True)
+
+
+    # ============================================================
+    # v3.4.1 增强：①立改+改毕验 ②外生调整 ③三错根因分析
+    # ============================================================
+
+    def _state_dir(self):
+        """var/state 目录（与 strikes_db 同目录）"""
+        return os.path.dirname(self._strikes_db_path())
+
+    def _fix_plan_path(self):
+        return os.path.join(self._state_dir(), "dgen_fix_plan.json")
+
+    def _external_adjust_path(self):
+        return os.path.join(self._state_dir(), "dgen_external_adjust.json")
+
+    def _generate_fix_plan(self, error_type, detail="", cause=None):
+        """①立改：第1次错误后自动生成修复方案，进入"改毕验"待验证状态。
+        修复方案写入 dgen_fix_plan.json；strikes_db 条目标记 fix_status=pending_verify。
+        """
+        import datetime as _dt
+        now = _dt.datetime.now().isoformat()
+        if cause is None:
+            try:
+                cause = self._analyze_cause(error_type, detail)
+            except Exception:
+                cause = {"verdict": "internal", "reason": "unknown"}
+        fix_map = {
+            'encoding_write_corruption': ["用 UTF-8 NoBOM 重新写入文件", "写入前校验编码", "避免 BOM/替换符"],
+            'encoding_error': ["用 UTF-8 NoBOM 重新写入文件", "写入前校验编码", "避免 BOM/替换符"],
+            'git_push_failure': ["检查网络连接", "git status 确认工作区状态", "git pull 同步后重试", "确认认证有效"],
+            'command_failure': ["先 dry-run 或 --help 验证参数", "检查命令路径与权限", "确认退出码与错误信息"],
+            'command_timeout': ["设置显式超时", "拆分为更小步骤", "超时后优雅降级"],
+        }
+        steps = None
+        for key, s in fix_map.items():
+            if key in error_type:
+                steps = s
+                break
+        if steps is None:
+            clean = error_type.replace("self_error_", "").replace("silent_", "")[:40]
+            steps = [f"执行前预检 {clean}", "验证结果", "确认无误后继续"]
+        plan = {
+            "error_type": error_type,
+            "cause": cause,
+            "fix_steps": steps,
+            "fix_status": "pending_verify",
+            "created_at": now,
+            "verify_rule": "24小时内同类错误未再出现 或 显式调用 verify_fix 确认成功",
+        }
+        try:
+            os.makedirs(self._state_dir(), exist_ok=True)
+            with open(self._fix_plan_path(), "w", encoding="utf-8") as f:
+                json.dump(plan, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        try:
+            db = self._load_strikes_db()
+            if error_type in db:
+                db[error_type]["fix_status"] = "pending_verify"
+                db[error_type]["fix_plan_at"] = now
+                self._save_strikes_db(db)
+        except Exception:
+            pass
+        return plan
+
+    def verify_fix(self, error_type, success=True, detail=""):
+        """①改毕验：确认修复结果。
+        success=True  → 修复成功：标记 verified，输出攻七成功模式（修复经验固化）+ 守三预防规则
+        success=False → 修复失败：标记 failed，同类错误再出现将触发第2次流程
+        """
+        import datetime as _dt
+        now = _dt.datetime.now().isoformat()
+        db = self._load_strikes_db()
+        entry = db.get(error_type, {})
+        entry["fix_status"] = "verified" if success else "failed"
+        entry["fix_verified_at"] = now
+        entry["fix_verify_detail"] = str(detail)[:120]
+        db[error_type] = entry
+        self._save_strikes_db(db)
+        if success:
+            try:
+                self.notify_gongqi(error_type, detail, fix_rule_id="", mode="verified_fix")
+            except Exception:
+                pass
+            try:
+                cause = self._analyze_cause(error_type, detail)
+                self.notify_shousan(error_type, detail, cause)
+            except Exception:
+                pass
+            return {"action": "fix_verified", "error_type": error_type,
+                    "message": "改毕验通过：修复成功，经验已固化到攻七模式库"}
+        return {"action": "fix_failed", "error_type": error_type,
+                "message": "改毕验未通过：修复无效，同类错误再出现将触发第2次阻断"}
+
+    def _auto_verify_pending_fixes(self, max_age_hours=24):
+        """①改毕验·自动版：检查所有 pending_verify 修复。
+        超过阈值时间且仍为第1次（未再犯）→ 自动判定修复成功并固化攻七经验。
+        """
+        import datetime as _dt
+        now = _dt.datetime.now()
+        db = self._load_strikes_db()
+        results = []
+        for error_type, entry in db.items():
+            if entry.get("fix_status") != "pending_verify":
+                continue
+            plan_at = entry.get("fix_plan_at", "")
+            if not plan_at:
+                continue
+            try:
+                plan_dt = _dt.datetime.fromisoformat(plan_at)
+            except Exception:
+                continue
+            age_hours = (now - plan_dt).total_seconds() / 3600
+            count = entry.get("count", 0)
+            if age_hours >= max_age_hours and count <= 1:
+                entry["fix_status"] = "verified"
+                entry["fix_verified_at"] = now.isoformat()
+                entry["fix_auto"] = True
+                self._save_strikes_db(db)
+                try:
+                    self.notify_gongqi(error_type, entry.get("last_detail", ""), mode="verified_fix")
+                except Exception:
+                    pass
+                results.append({"error_type": error_type, "action": "auto_verified",
+                                "age_hours": round(age_hours, 1)})
+        return results
+
+    def _record_external_adjustment(self, error_type, detail="", cause=None):
+        """②外生变量调整策略：不阻断，但记录外部归因与应对策略，供后续同类事件参考。"""
+        import datetime as _dt
+        now = _dt.datetime.now().isoformat()
+        adj = {
+            "error_type": error_type,
+            "cause": cause or {"verdict": "external", "reason": "外部变量"},
+            "strategy": "重试/等待/更换来源/降级处理（外生变量不做硬阻断）",
+            "recorded_at": now,
+            "last_detail": str(detail)[:120],
+        }
+        path = self._external_adjust_path()
+        arr = []
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    arr = json.load(f) if isinstance(json.load(f), list) else []
+        except Exception:
+            arr = []
+        arr = [a for a in arr if a.get("error_type") != error_type]
+        arr.append(adj)
+        arr = arr[-50:]
+        try:
+            os.makedirs(self._state_dir(), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(arr, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        try:
+            db = self._load_strikes_db()
+            if error_type in db:
+                db[error_type]["external_adjusted"] = True
+                db[error_type]["external_adjusted_at"] = now
+                self._save_strikes_db(db)
+        except Exception:
+            pass
+        return adj
+
+    def _root_cause_analysis(self, error_type, rule):
+        """③三错根因分析：阻断失效后，为什么失效？"""
+        causes = []
+        source = getattr(rule, "source", "") if rule else ""
+        trigger = (getattr(rule, "trigger_condition", "") or "") if rule else ""
+        if source == "auto_generalized":
+            causes.append({"type": "generalization_gap", "confidence": 0.8,
+                           "treatment": "该规则为举一反三泛化产物，未经充分验证，标记 deprecating 淘汰",
+                           "evidence": f"source={source}"})
+        if trigger:
+            broad = (" OR " in trigger) or (" IN (" in trigger) or len(trigger) > 120
+            if broad:
+                causes.append({"type": "condition_too_broad", "confidence": 0.6,
+                               "treatment": "收窄触发条件或拆分规则",
+                               "evidence": f"trigger_len={len(trigger)} contains_OR={' OR ' in trigger}"})
+        try:
+            db = self._load_strikes_db()
+            if db.get(error_type, {}).get("external_adjusted"):
+                causes.append({"type": "external_persistent", "confidence": 0.7,
+                               "treatment": "不降级规则；通知用户外部环境持续异常，升级人工处理",
+                               "evidence": "第2次已判定外生变量，第3次仍出现"})
+        except Exception:
+            pass
+        try:
+            trail_path = os.path.join(self._state_dir(), "evidence_trail.json")
+            if os.path.exists(trail_path):
+                with open(trail_path, "r", encoding="utf-8") as f:
+                    trail = json.load(f)
+                rid = getattr(rule, "id", error_type)
+                rule_ev = [e for e in trail if e.get("rule_id") == rid]
+                fails = [e for e in rule_ev if e.get("verdict") in ("fail", "block")]
+                if len(rule_ev) >= 3 and len(fails) / len(rule_ev) > 0.5:
+                    causes.append({"type": "confidence_mismatch", "confidence": 0.6,
+                                   "treatment": "置信度已归零，建议人工复审或归档",
+                                   "evidence": f"evidence_trail fail_rate={len(fails)}/{len(rule_ev)}"})
+        except Exception:
+            pass
+        if not causes:
+            causes.append({"type": "unknown", "confidence": 0.3,
+                           "treatment": "记录 breach 并保持 audit 模式观察，必要时人工介入",
+                           "evidence": "未匹配已知根因模式"})
+        causes.sort(key=lambda x: -x["confidence"])
+        return causes
+
+    def _apply_strike_treatment(self, error_type, rule, root_causes):
+        """③三错修复：根据根因执行修复 + 写入追踪记录 + 创建复检提醒（止观门）。"""
+        import datetime as _dt
+        now = _dt.datetime.now().isoformat()
+        result = {"error_type": error_type, "applied": [], "followup": None}
+        if rule is None:
+            return result
+        for rc in root_causes:
+            t = rc.get("type")
+            if t == "generalization_gap":
+                try:
+                    self.rule_engine.update_interception(rule.id, lifecycle_status="deprecating")
+                    result["applied"].append("auto_generalized 规则 → deprecating")
+                except Exception:
+                    pass
+            elif t == "condition_too_broad":
+                try:
+                    new_cond = rule.trigger_condition.split(" OR ")[0] if " OR " in (rule.trigger_condition or "") else rule.trigger_condition
+                    self.rule_engine.update_interception(rule.id, trigger_condition=new_cond,
+                                                         lifecycle_status="staging")
+                    result["applied"].append("触发条件收窄 → staging 重验")
+                except Exception:
+                    pass
+            elif t == "external_persistent":
+                result["applied"].append("外生持续问题 → 保持规则现状，升级人工处理")
+            elif t == "confidence_mismatch":
+                try:
+                    self.rule_engine.update_interception(rule.id, lifecycle_status="deprecating", confidence=0.0)
+                    result["applied"].append("置信度失配 → deprecating")
+                except Exception:
+                    pass
+            elif t == "unknown":
+                result["applied"].append("未知根因 → 保持 audit 观察")
+        try:
+            from closure import get_closure
+            cl = get_closure()
+            cl.open(f"strike_followup_{rule.id}",
+                    f"三错根因修复复检: {error_type} ({rule.id})",
+                    {"check_after_days": 7, "rule_id": rule.id,
+                     "root_causes": [c["type"] for c in root_causes]})
+            result["followup"] = f"strike_followup_{rule.id}"
+        except Exception:
+            pass
+        # 复检提醒持久化（进程重启不丢失）
+        followups = []
+        _fp = os.path.join(self._state_dir(), "dgen_strike_followups.json")
+        try:
+            if os.path.exists(_fp):
+                with open(_fp, "r", encoding="utf-8") as f:
+                    followups = json.load(f) if isinstance(json.load(f), list) else []
+        except Exception:
+            pass
+        followups.append({"rule_id": rule.id, "error_type": error_type,
+                          "check_after_days": 7, "created_at": now,
+                          "root_causes": [c["type"] for c in root_causes]})
+        try:
+            with open(_fp, "w", encoding="utf-8") as f:
+                json.dump(followups[-100:], f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        record = {
+            "error_type": error_type,
+            "rule_id": rule.id,
+            "root_causes": root_causes,
+            "applied": result["applied"],
+            "followup": result["followup"],
+            "recorded_at": now,
+        }
+        try:
+            rp = os.path.join(self._state_dir(), "dgen_strike_rootcause.json")
+            arr = []
+            if os.path.exists(rp):
+                with open(rp, "r", encoding="utf-8") as f:
+                    arr = json.load(f) if isinstance(json.load(f), list) else []
+            arr.append(record)
+            arr = arr[-100:]
+            with open(rp, "w", encoding="utf-8") as f:
+                json.dump(arr, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return result

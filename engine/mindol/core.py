@@ -115,10 +115,16 @@ class Mindol:
             if sp is None or sp.index is None or sp.size == 0: continue
             sims = sp.index @ qvec
             w = sw.get(sn, 1.0)
+            # v3.6: 性能修复——calc_similarity 只对 top 候选窗口增强（原来全量逐条计算导致检索 2.5s+）
             if self._vectorizer and hasattr(self._vectorizer, "calc_similarity"):
+                win = min(len(sp.memory_units), max(top_k * 8, 16))
+                if win < len(sp.memory_units):
+                    idx_top = np.argpartition(-sims, win)[:win]
+                else:
+                    idx_top = np.arange(len(sp.memory_units))
                 kb = np.zeros(len(sp.memory_units), dtype=np.float32)
-                for i, u in enumerate(sp.memory_units):
-                    jsim = self._vectorizer.calc_similarity(query, u.text)
+                for i in idx_top:
+                    jsim = self._vectorizer.calc_similarity(query, sp.memory_units[i].text)
                     if jsim > 0.1:
                         kb[i] = 0.3 * jsim
                 sims = sims + kb

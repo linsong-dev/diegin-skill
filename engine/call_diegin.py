@@ -283,14 +283,54 @@ def pre_check(context: dict) -> dict:
                 pass  # 基础规则仍有效
 
     # ========== 去伪存真·Mindol语义上下文注入 ==========
+    # v3.6: 单次检索复用（format + hits），带超时熔断，不再重复检索
     mindol_context = ""
+    mindol_hits = []
     try:
+        from mindol.diegin_integration import memory_search, memory_format_context
         ctx_str = json.dumps(context, ensure_ascii=False)[:300]
+        mindol_hits = memory_search(ctx_str, max_results=3) or []
         mindol_context = memory_format_context(query=ctx_str, top_k=3)
     except Exception:
         pass
 
-    result = arbitrate(rules["interceptions"], rules["patterns"])
+    result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits)
+
+    # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
+    try:
+        from evo.main import _get_tracker
+        _trk = _get_tracker()
+        for _r in rules["interceptions"]:
+            _trk.record_triggered(getattr(_r, "id", ""))
+        for _p in rules["patterns"]:
+            _trk.record_triggered(getattr(_p, "id", ""))
+    except Exception:
+        pass
+
+    # ========== v3.6: 一二不过三·失败教训注入（AI 每轮可见历史教训） ==========
+    strike_context = ""
+    try:
+        import os as _os3
+        _sp = _os3.path.join(_os3.path.dirname(_os3.path.abspath(__file__)), "..", "var", "state", "strikes_db.json")
+        if _os3.path.exists(_sp):
+            with open(_sp, "r", encoding="utf-8") as _f3:
+                _strikes = json.load(_f3)
+            _entries = []
+            if isinstance(_strikes, dict):
+                for _k, _v in _strikes.items():
+                    _cnt = _v.get("count", 0) if isinstance(_v, dict) else 0
+                    if _cnt >= 1:
+                        _v = _v if isinstance(_v, dict) else {}
+                        _detail = (_v.get("last_detail") or _v.get("detail") or "") or ""
+                        _entries.append((_k, _cnt, str(_detail)[:80]))
+            _entries.sort(key=lambda x: -x[1])
+            if _entries:
+                _lines = ["历史教训(一二不过三):"]
+                for _k, _cnt, _d in _entries[:3]:
+                    _lines.append(f"- {_k} x{_cnt}: {_d}")
+                strike_context = "\n".join(_lines)
+    except Exception:
+        pass
 
     return {
         "matched_interceptions": len(rules["interceptions"]),
@@ -301,6 +341,17 @@ def pre_check(context: dict) -> dict:
         "winning_rule_id": result.get("winning_rule_id"),
         "pace_result": pace_result,
         "mindol_context": mindol_context if mindol_context else "",
+        "mindol_hits": len(mindol_hits),
+        "suggestions": [
+            {
+                "id": getattr(p, "id", ""),
+                "scenario": getattr(p, "trigger_scenario", ""),
+                "decision": getattr(p, "decision_logic", ""),
+                "confidence": getattr(p, "confidence", 0),
+            }
+            for p in rules["patterns"]
+        ][:5],
+        "strike_context": strike_context,
     }
 
 def post_review(task_context: dict, task_result: dict) -> dict:
@@ -314,6 +365,31 @@ def post_review(task_context: dict, task_result: dict) -> dict:
         ctx_str = json.dumps(task_context, ensure_ascii=False)[:200]
         res_str = json.dumps(task_result, ensure_ascii=False)[:200]
         memory_archive("post_review", f"{result.get('decision','?')} | ctx={ctx_str} | res={res_str}")
+    except Exception:
+        pass
+
+    # ========== v3.5: 复盘结论回流规则置信度（双向反馈闭环） ==========
+    try:
+        from evo.main import adjust_rule_confidence
+        _pos = getattr(result, "positive_signals", []) or []
+        _neg = getattr(result, "negative_signals", []) or []
+        for _sig in _pos:
+            for _rid in (getattr(_sig, "linked_rules", []) or []):
+                adjust_rule_confidence(_rid, +0.2, reason=str(getattr(_sig, "description", ""))[:60], source="post_review_positive")
+        for _sig in _neg:
+            for _rid in (getattr(_sig, "linked_rules", []) or []):
+                adjust_rule_confidence(_rid, -0.2, reason=str(getattr(_sig, "description", ""))[:60], source="post_review_negative")
+    except Exception:
+        pass
+
+    # ========== v3.5: 输出实质验证（去伪存真·claim_checker） ==========
+    try:
+        from evo.claim_checker import get_checker
+        _out_text = str(task_result.get("output", task_result.get("text", task_result.get("message", ""))))[:2000]
+        if _out_text:
+            _vc = get_checker().verify_output(_out_text, task_context)
+            if _vc.get("verdict") == "FAIL":
+                print(f"[CLAIM-CHECK] 输出含 {_vc["contradicted"]} 条矛盾声明，已记录待修正")
     except Exception:
         pass
 
@@ -404,9 +480,49 @@ if __name__ == "__main__":
 
     elif mode == "review":
 
-        ctx = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {"task_id": "unknown"}
+        # v3.6.1: JSON 经 argv 在 Windows 会损坏（引号/换行/中文），优先临时文件 @path，其次 stdin 管道
 
-        result = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {"status": "completed"}
+        _payload = None
+
+        if len(sys.argv) > 2 and sys.argv[2].startswith("@"):
+
+            with open(sys.argv[2][1:], "r", encoding="utf-8") as _f:
+
+                _payload = json.load(_f)
+
+        if _payload is None and not sys.stdin.isatty():
+
+            _raw = sys.stdin.read().strip()
+
+            _parts = _raw.split("\n@@RESULT@@\n", 1)
+
+            _payload = [_parts[0], _parts[1] if len(_parts) > 1 else ""]
+
+        if _payload is None:
+
+            _payload = [sys.argv[2] if len(sys.argv) > 2 else "", sys.argv[3] if len(sys.argv) > 3 else ""]
+
+        def _load_json(x, default):
+
+            if not x:
+
+                return default
+
+            if isinstance(x, str):
+
+                try:
+
+                    return json.loads(x)
+
+                except Exception:
+
+                    return default
+
+            return x
+
+        ctx = _load_json(_payload[0], {"task_id": "unknown"})
+
+        result = _load_json(_payload[1] if len(_payload) > 1 else "", {"status": "completed"})
 
         result = post_review(ctx, result)
 
@@ -656,6 +772,7 @@ if __name__ == "__main__":
         reason = check_result.get("reason", "")
         display_line = check_result.get("display_line", "")
         mindol_ctx = check_result.get("mindol_context", "")
+        strike_context = check_result.get("strike_context", "")
 
         if decision in ("block", "iron_wall_block"):
             # block 路径：输出阻断信息，退出 1
@@ -767,7 +884,10 @@ if __name__ == "__main__":
             if len(short_ctx) > 150:
                 short_ctx = short_ctx[:150] + "..."
             mindol_str = " mem:" + short_ctx
-        output_text = marker_str + " PASS" + mindol_str + suggestions_text
+        strike_str = ""
+        if strike_context:
+            strike_str = "\n" + strike_context
+        output_text = marker_str + " PASS" + mindol_str + suggestions_text + strike_str
         output_text += "\n\n=== PROTOCOL ==="
         output_text += "\nFirst tool command MUST contain: " + marker_str
         output_text += "\n=== END PROTOCOL ==="
@@ -797,17 +917,20 @@ if __name__ == "__main__":
             "verify": verify_result,
             "display_text": output_text,
             "mindol_context": mindol_ctx,
+            "strike_context": strike_context,
         }
         print(json.dumps(output, ensure_ascii=False))
 
     elif mode == "record_success":
 
         """攻七：记录一次成功的工具调用（带阈值过滤）
-        用法: python call_diegin.py record_success <tool_name>
+        用法: python call_diegin.py record_success <tool_name> [method]
+        method: 本次成功做法的命令/描述（实质化模式库）
         阈值: 过滤简单查询、重复保存，只保留有学习价值的操作
         """
 
         tool_name = sys.argv[2] if len(sys.argv) > 2 else "unknown"
+        method = sys.argv[3] if len(sys.argv) > 3 else ""
         _tn = tool_name.lower()
 
         # 阈值 1: 跳过简单只读操作
@@ -835,8 +958,17 @@ if __name__ == "__main__":
                     _counter = _json.load(_f)
             except Exception:
                 _counter = {}
+        # v3.6.3 验证门兼容：staging 模式必须允许重复触发以完成验证（第2次转 active）
+        _staging_skip = False
+        try:
+            from evo.main import _get_engine
+            _pat = _get_engine().get_pattern_by_id("pat_auto_tool_" + tool_name.replace(".", "_") + "_1")
+            if _pat and getattr(_pat, "lifecycle_status", "") == "staging":
+                _staging_skip = True
+        except Exception:
+            pass
         _last = _counter.get(tool_name, 0)
-        if _now - _last < _cooldown:
+        if not _staging_skip and _now - _last < _cooldown:
             _r = {"action": "skipped_dedup", "tool": tool_name, "reason": "5分钟内已保存过 " + tool_name + " 的模式"}
             print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
             sys.exit(0)
@@ -848,9 +980,9 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # 通过阈值：保存成功模式
+        # 通过阈值：保存成功模式（v3.6.1 带方法内容实质化）
         from evo.main import auto_sandwich_trigger
-        result = auto_sandwich_trigger("tool_" + tool_name.replace(".", "_"), positive=[tool_name], negative=[])
+        result = auto_sandwich_trigger("tool_" + tool_name.replace(".", "_"), positive=[tool_name], negative=[], method=method)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     elif mode == "record_error":
         """一二不过三：记录并追踪一次错误
@@ -1127,6 +1259,28 @@ if __name__ == "__main__":
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
 
+
+    elif mode == "verify_output":
+        """去伪存真·实质验证: python call_diegin.py verify_output "<输出文本>" """
+        from evo.claim_checker import get_checker
+        _text = sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip()
+        print(json.dumps(get_checker().verify_output(_text), ensure_ascii=False, indent=2))
+
+    elif mode == "principle_health":
+        """P2 八原则健康看板"""
+        from evo.main import principle_health
+        print(json.dumps(principle_health(), ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "verify_fix":
+        """①改毕验：确认修复结果
+        用法: python call_diegin.py verify_fix <error_type> <success=true|false> [detail]
+        success=true → 修复成功，经验固化到攻七模式库
+        """
+        error_type = sys.argv[2] if len(sys.argv) > 2 else ""
+        success = (sys.argv[3] if len(sys.argv) > 3 else "true").lower() in ("true", "1", "yes")
+        detail = sys.argv[4] if len(sys.argv) > 4 else ""
+        result = _get_tracker().verify_fix(error_type, success, detail)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
 
     elif mode == "sandwich_legacy":
 

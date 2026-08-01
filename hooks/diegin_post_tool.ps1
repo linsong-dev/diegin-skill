@@ -80,14 +80,21 @@ if (Test-Path $markerFile) {
     }
 }
 
-# 攻七：记录工具调用成功
+# 攻七：记录工具调用成功（v3.6.1 传递命令文本，实质化模式库）
 try {
     $stdin = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput()).ReadToEnd()
     if ($stdin) {
         $hookInput = $stdin | ConvertFrom-Json
         $toolName = $hookInput.tool_name
+        $toolCmd = ""
+        if ($hookInput.command) { $toolCmd = $hookInput.command }
+        if ($hookInput.cmd) { $toolCmd = $hookInput.cmd }
         if ($toolName -and (Test-Path $pythonExe)) {
-            $recResult = & $pythonExe $enginePy record_success $toolName 2>&1
+            if ($toolCmd) {
+                $recResult = & $pythonExe $enginePy record_success $toolName $toolCmd 2>&1
+            } else {
+                $recResult = & $pythonExe $enginePy record_success $toolName 2>&1
+            }
             if ($LASTEXITCODE -eq 0) {
                 Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"
             }
@@ -168,6 +175,36 @@ try {
     }
 } catch {
     Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze error=$($_.Exception.Message)"
+}
+
+# v3.6: post_review 节流接入（每5次成功工具调用触发一次复盘：置信度回流 + 24h维护）
+try {
+    $reviewCounterFile = Join-Path $stateDir "post_review_counter.txt"
+    $reviewCount = 0
+    if (Test-Path $reviewCounterFile) { $reviewCount = [int](Get-Content $reviewCounterFile -Raw -ErrorAction SilentlyContinue) }
+    $reviewCount++
+    Set-Content -Path $reviewCounterFile -Value $reviewCount -NoNewline
+    $isSuccess = ($toolExitCode -eq 0 -or $toolExitCode -eq $null)
+    if ($reviewCount -ge 5 -and $isSuccess -and (Test-Path $pythonExe)) {
+        Set-Content -Path $reviewCounterFile -Value "0" -NoNewline
+        $reviewToolName = "unknown"
+        if ($toolName) { $reviewToolName = $toolName }
+        $reviewCtx = @{
+            task_type = "post_tool_review"
+            tool_name = $reviewToolName
+            cmd = $toolCmd
+        } | ConvertTo-Json -Compress
+        $reviewResult = @{status="completed"; tool=$toolName; exit_code=$toolExitCode} | ConvertTo-Json -Compress
+        # v3.6.1: 经临时文件传 JSON（Windows argv/管道对长 JSON+中文+引号会损坏）
+        $reviewTmp = Join-Path $env:TEMP ("diegin_review_" + [System.Guid]::NewGuid().ToString("N") + ".json")
+        [System.IO.File]::WriteAllText($reviewTmp, (@($reviewCtx, $reviewResult) | ConvertTo-Json -Compress -Depth 6), $script:utf8NoBOM)
+        $rv = & $pythonExe $enginePy review ("@" + $reviewTmp) 2>&1
+        if (Test-Path $reviewTmp) { Remove-Item -LiteralPath $reviewTmp -Force -ErrorAction SilentlyContinue }
+        $rvText = ($rv | Out-String).Trim()
+        Add-NoBOMLog -Path $auditLog -Message "$time v3.6 post_review triggered tool=$toolName result=$rvText"
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time v3.6 post_review error=$($_.Exception.Message)"
 }
 
 # ---- Mindol 语义记忆写入 ----

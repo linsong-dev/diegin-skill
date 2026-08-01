@@ -198,7 +198,14 @@ class RuleEngine:
             text = json.dumps({
                 "id": p.id, "name": p.pattern_name, "scene": p.trigger_scenario,
                 "confidence": p.confidence, "status": p.lifecycle_status,
-                "source": p.source
+                "source": p.source,
+                "decision_logic": p.decision_logic or "",
+                "micro_template": p.micro_template or "",
+                "trigger_condition": p.trigger_condition or "",
+                "logic_score": p.logic_score, "outcome_score": p.outcome_score,
+                "triggered_count": p.triggered_count, "auto_promoted": p.auto_promoted,
+                "created_at": p.created_at or "", "last_triggered": p.last_triggered or "",
+                "valid_until": p.valid_until or ""
             }, ensure_ascii=False)
             m.add_unit(text=text, source="diegin_pattern", uid=uid, space=m.SPACE_PATTERN)
 
@@ -333,7 +340,17 @@ class RuleEngine:
                             trigger_scenario=data.get("scene", ""),
                             confidence=data.get("confidence", 3.0),
                             lifecycle_status=data.get("status", "active"),
-                            source=data.get("source", "mindol")
+                            source=data.get("source", "mindol"),
+                            decision_logic=data.get("decision_logic", ""),
+                            micro_template=data.get("micro_template", ""),
+                            trigger_condition=data.get("trigger_condition", ""),
+                            logic_score=data.get("logic_score", 5.0),
+                            outcome_score=data.get("outcome_score", 5.0),
+                            triggered_count=data.get("triggered_count", 0),
+                            auto_promoted=data.get("auto_promoted", False),
+                            created_at=data.get("created_at", ""),
+                            last_triggered=data.get("last_triggered", ""),
+                            valid_until=data.get("valid_until", "")
                         )
                         patterns.append(sp)
                     except Exception:
@@ -528,13 +545,15 @@ class RuleEngine:
         return True
 
     def delete_interception(self, rule_id: str) -> bool:
-        """删除拦截规则 - 从 Mindol（权威）同步删除"""
+        """删除拦截规则 - 从 Mindol（权威）同步删除（v3.6.3 补懒加载）"""
         for i, r in enumerate(self._interceptions):
             if r.id == rule_id:
                 del self._interceptions[i]
                 self._dirty.add("interception_rules.json")
                 # 从 Mindol 删除
                 try:
+                    if self._mindol is None:
+                        self._init_mindol()
                     if self._mindol:
                         self._mindol.remove_unit(f"rule_{rule_id}")
                 except Exception:
@@ -550,6 +569,8 @@ class RuleEngine:
             pattern.id = f"pattern_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(pattern.pattern_name) % 10000:04d}"
         if not pattern.created_at:
             pattern.created_at = datetime.now().isoformat()
+        if not pattern.last_triggered and pattern.triggered_count and pattern.triggered_count > 0:
+            pattern.last_triggered = datetime.now().isoformat()
         self._patterns.append(pattern)
         self._save_json("success_patterns.json", self._patterns)
         return pattern.id
@@ -568,7 +589,7 @@ class RuleEngine:
         return None
 
     def update_pattern(self, pattern_id: str, **kwargs) -> bool:
-        """更新成功模式"""
+        """更新成功模式（v3.6.1 同步写 Mindol 权威源）"""
         pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return False
@@ -576,14 +597,44 @@ class RuleEngine:
             if hasattr(pattern, key):
                 setattr(pattern, key, value)
         self._save_json("success_patterns.json", self._patterns)
+        # 同步 Mindol 权威单元（幂等 uid）
+        try:
+            if self._mindol is None:
+                self._init_mindol()
+            if self._mindol:
+                import json as _j
+                _m = self._mindol
+                _uid = f"pat_{pattern.id}"
+                _text = _j.dumps({
+                    "id": pattern.id, "name": pattern.pattern_name, "scene": pattern.trigger_scenario,
+                    "confidence": pattern.confidence, "status": pattern.lifecycle_status,
+                    "source": pattern.source,
+                    "decision_logic": pattern.decision_logic or "",
+                    "micro_template": pattern.micro_template or "",
+                    "trigger_condition": pattern.trigger_condition or "",
+                    "logic_score": pattern.logic_score, "outcome_score": pattern.outcome_score,
+                    "triggered_count": pattern.triggered_count, "auto_promoted": pattern.auto_promoted,
+                    "created_at": pattern.created_at or "", "last_triggered": pattern.last_triggered or "",
+                    "valid_until": pattern.valid_until or ""
+                }, ensure_ascii=False)
+                _m.add_unit(text=_text, source="diegin_pattern", uid=_uid, space=_m.SPACE_PATTERN)
+        except Exception:
+            pass
         return True
 
     def delete_pattern(self, pattern_id: str) -> bool:
-        """删除成功模式"""
+        """删除成功模式（v3.6.1 同步删除 Mindol 权威单元）"""
         for i, p in enumerate(self._patterns):
             if p.id == pattern_id:
                 del self._patterns[i]
                 self._save_json("success_patterns.json", self._patterns)
+                try:
+                    if self._mindol is None:
+                        self._init_mindol()
+                    if self._mindol:
+                        self._mindol.remove_unit(f"pat_{pattern_id}")
+                except Exception:
+                    pass
                 return True
         return False
 
@@ -643,9 +694,8 @@ class RuleEngine:
         for pattern in self.get_patterns(active_only=True):
             if not self._rule_applies_to_context(pattern.tags if hasattr(pattern, 'tags') else [], task_context):
                 continue
-            # trigger_condition 优先，空时回退到 trigger_scenario
-            condition = getattr(pattern, 'trigger_condition', '') or pattern.trigger_scenario
-            if self._match_condition(condition, task_context):
+            # v3.6: 增强匹配（修复 tool_xxx 空壳模式错位）
+            if self._match_pattern_context(pattern, task_context):
                 matched_patterns.append(pattern)
 
         # ========== Mindol 语义回退：表达式匹配不到时使用语义检索 ==========
@@ -677,28 +727,70 @@ class RuleEngine:
 
     # ─── 攻七专用匹配 ───
 
+    def _match_pattern_context(self, pattern, context: dict) -> bool:
+        """模式增强匹配（v3.6）：修复 tool_xxx 空壳模式匹配错位
+        1) 标准条件匹配（原 _match_condition 逻辑）
+        2) tool_xxx 场景：与 tool_name/tool/op/cmd 字段比对（去前缀、去分隔符）
+        """
+        scenario = getattr(pattern, 'trigger_scenario', '') or ''
+        condition = getattr(pattern, 'trigger_condition', '') or scenario
+        if condition and condition.strip():
+            if self._match_condition(condition, context):
+                return True
+        # tool_xxx 场景增强匹配
+        if scenario.startswith('tool_'):
+            tool_key = scenario[len('tool_'):].strip().lower()
+            if not tool_key:
+                return False
+            ctx_str = str(context).lower()
+            if scenario.lower() in ctx_str:
+                return True
+            for field in ('tool_name', 'tool', 'op'):
+                val = str(context.get(field, '') or '').lower()
+                if val and (tool_key in val or val in tool_key):
+                    return True
+            norm_key = tool_key.replace('_', '').replace('-', '')
+            for field in ('cmd', 'command', 'text', 'prompt'):
+                val = str(context.get(field, '') or '').lower()
+                if val:
+                    norm_val = val.replace('_', '').replace('-', '').replace(' ', '')
+                    if norm_key and norm_key in norm_val:
+                        return True
+        return False
+
     def match_patterns(self, context: dict, top_k: int = 5) -> list:
-        """攻七：返回与上下文匹配的成功模式，复用 _match_condition AST引擎"""
+        """攻七：返回与上下文匹配的成功模式（v3.6 增强 tool_xxx 匹配）"""
         scored = []
         for pattern in self.get_patterns(active_only=True):
-            condition = getattr(pattern, 'trigger_condition', '') or pattern.trigger_scenario
-            if self._match_condition(condition, context):
-                conf = getattr(pattern, 'confidence', 3.0) or 3.0
-                auto_bonus = 2.0 if getattr(pattern, 'auto_promoted', False) else 1.0
-                scored.append((conf * auto_bonus, pattern))
+            if not self._match_pattern_context(pattern, context):
+                continue
+            conf = getattr(pattern, 'confidence', 3.0) or 3.0
+            auto_bonus = 2.0 if getattr(pattern, 'auto_promoted', False) else 1.0
+            scored.append((conf * auto_bonus, pattern))
         scored.sort(key=lambda x: -x[0])
         return [s[1] for s in scored[:top_k]]
 
     def promote_pattern(self, pattern_id: str) -> bool:
-        """自动提升：当 triggered_count>=3 且 outcome_score>=4.0"""
+        """自动提升（v3.6.3 验证门）：
+        staging 模式第2次成功触发（tc>=2）= 可复用验证通过 → 转 active
+        active 模式 tc>=3 且 outcome_score>=4.0 → auto_promoted 强化
+        """
         pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return False
+        import datetime
+        now = datetime.datetime.now().isoformat()
         tc = getattr(pattern, 'triggered_count', 0) or 0
         os_val = getattr(pattern, 'outcome_score', 0) or 0
-        if tc >= 3 and os_val >= 4.0:
-            import datetime
-            now = datetime.datetime.now().isoformat()
+        status = getattr(pattern, 'lifecycle_status', '') or ''
+        if status == "staging" and tc >= 2:
+            # 验证门：第2次成功 = 可复用性验证通过
+            self.update_pattern(pattern_id,
+                                lifecycle_status="active",
+                                promoted_from="verified",
+                                promoted_at=now)
+            return True
+        if status == "active" and tc >= 3 and os_val >= 4.0:
             self.update_pattern(pattern_id,
                                 auto_promoted=True,
                                 promoted_from="auto",
@@ -707,12 +799,35 @@ class RuleEngine:
         return False
 
     def auto_promote_all(self) -> int:
-        """扫描所有成功模式，自动提升符合条件的"""
+        """扫描所有成功模式，自动提升符合条件的（v3.6.3 含 staging 验证转正）"""
         count = 0
-        for p in self.get_patterns(active_only=True):
+        for p in self.get_patterns(active_only=False):
             if not getattr(p, 'auto_promoted', False):
                 if self.promote_pattern(p.id):
                     count += 1
+        return count
+
+    def demote_patterns(self) -> int:
+        """无效淘汰（v3.6.3）：高频触发但低效果的模式降级或归档（防误杀高成功模式）
+        - triggered_count>=8 且 outcome_score<3.0 → archived（高频但效果平庸，淘汰）
+        - triggered_count>=5 且 outcome_score<2.0 → archived（效果极差，淘汰）
+        - active 且 triggered_count>=5 且 confidence<2.5 → staging（降级再观察）
+        注意：高 outcome_score 的高频模式（如 outcome>=4.0）不淘汰，只淘汰"高频但无效果"模式。
+        """
+        count = 0
+        for p in self.get_patterns(active_only=False):
+            status = getattr(p, 'lifecycle_status', '') or ''
+            if status not in ("active", "staging"):
+                continue
+            tc = getattr(p, 'triggered_count', 0) or 0
+            conf = getattr(p, 'confidence', 0) or 0
+            os_val = getattr(p, 'outcome_score', 0) or 0
+            if (tc >= 8 and os_val < 3.0) or (tc >= 5 and os_val < 2.0):
+                self.update_pattern(p.id, lifecycle_status="archived")
+                count += 1
+            elif status == "active" and tc >= 5 and conf < 2.5:
+                self.update_pattern(p.id, lifecycle_status="staging")
+                count += 1
         return count
 
     def _match_condition(self, condition: str, context: Dict[str, Any]) -> bool:

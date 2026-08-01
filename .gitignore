@@ -44,3 +44,6 @@ pyproject.toml
 requirements.txt
 # Backup files
 *.bak
+
+# Sync backups (local only)
+*_backup_sync_*/

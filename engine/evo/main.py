@@ -1163,7 +1163,8 @@ def get_rules_for_task(task_context: Dict[str, Any]) -> Dict[str, List]:
 def arbitrate(interceptions: List[InterceptionRule],
 
 
-              patterns: List[SuccessPattern]) -> Dict[str, Any]:
+              patterns: List[SuccessPattern],
+              mindol_hits: Optional[List[Dict]] = None) -> Dict[str, Any]:
 
 
     """冲突仲裁 — 使用 arbiter.to_display() 对齐 AGENTS.md 裁决格式"""
@@ -1175,7 +1176,7 @@ def arbitrate(interceptions: List[InterceptionRule],
     arbiter_obj = _get_arbiter()
 
 
-    result = arbiter_obj.resolve(interceptions, patterns)
+    result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits)
 
 
     display = arbiter_obj.to_display(result)
@@ -1199,7 +1200,8 @@ def arbitrate(interceptions: List[InterceptionRule],
         "winning_rule_id": display.get("winning_rule_id"),
 
 
-        "conflict_set": []
+        "conflict_set": [],
+        "mindol_memory_note": getattr(result, "reason", "") if mindol_hits and "P6记忆" in getattr(result, "reason", "") else ""
 
 
     }
@@ -1340,7 +1342,7 @@ def full_review(task_context: Dict[str, Any],
     }
 
 
-def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "general") -> Dict:
+def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "general", method: str = "") -> Dict:
 
 
     """
@@ -1448,13 +1450,55 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
             existing.triggered_count += 1
 
 
-            engine.update_pattern(pat_id,
+            _upd = {
 
 
-                confidence=existing.confidence,
+                "confidence": existing.confidence,
 
 
-                triggered_count=existing.triggered_count)
+                "triggered_count": existing.triggered_count,
+
+
+            }
+
+
+            # v3.6.1 攻七·模式实质化：空壳模式（无方法内容）用本次成功做法补全
+
+
+            if method and (not existing.decision_logic or existing.decision_logic.strip() == "" or existing.decision_logic.strip() == p):
+
+
+                _upd["decision_logic"] = method[:200]
+
+
+                _upd["micro_template"] = method[:80]
+
+
+                if task_type.startswith("tool_"):
+
+
+                    _upd["trigger_condition"] = "tool_name == " + repr(p)
+
+
+            engine.update_pattern(pat_id, **_upd)
+
+
+            # v3.6.3 攻七⑤验证门：staging 第2次成功 → active；active 达标 → auto_promoted
+
+
+            _promoted = engine.promote_pattern(pat_id)
+
+
+            if _promoted and (getattr(existing, "lifecycle_status", "") == "staging"):
+
+
+                _upd2 = {"lifecycle_status": "active"}
+
+
+                engine.update_pattern(pat_id, **_upd2)
+
+
+                report_lines.append(f"   🟢 验证门通过：staging→active\n")
 
 
             report_lines.append(f"   ✅ 已有模式，置信度+0.3 → {existing.confidence}\n")
@@ -1469,6 +1513,15 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
             from rule_engine import SuccessPattern
 
 
+            _dl = method[:200] if method else p
+
+
+            _mt = method[:80] if method else p[:80]
+
+
+            _tc = ("tool_name == " + repr(p)) if (task_type.startswith("tool_") and method) else ""
+
+
             new_pat = SuccessPattern(
 
 
@@ -1481,10 +1534,13 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
                 trigger_scenario=task_type,
 
 
-                decision_logic=p,
+                decision_logic=_dl,
 
 
-                micro_template=p[:80],
+                micro_template=_mt,
+
+
+                trigger_condition=_tc,
 
 
                 logic_score=4.0,
@@ -1499,7 +1555,10 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
                 source="auto_sandwich",
 
 
-                lifecycle_status="active",
+                # v3.6.3 攻七⑤验证门：新模式先进 staging，第2次成功触发转 active
+
+
+                lifecycle_status="staging",
 
 
                 created_at=datetime.now().isoformat(),
@@ -1514,10 +1573,55 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
             engine.add_pattern(new_pat)
 
 
-            report_lines.append(f"   ✅ 已创建新模式, conf=3.8\n")
+            report_lines.append(f"   ✅ 已创建新模式(staging待验证), conf=3.8\n")
 
 
     engine.save_all()
+
+
+    # v3.6.3 攻七⑥生命周期维护：staging验证转正 / 无效模式淘汰
+
+
+    try:
+
+
+        engine.auto_promote_all()
+
+
+        engine.demote_patterns()
+
+
+    except Exception:
+
+
+        pass
+
+
+    # v3.6.3 攻七→举一反三互联：满足条件的模式泛化为 staging 拦截规则
+
+
+    _gen_count = 0
+
+
+    try:
+
+
+        if any((getattr(p, "triggered_count", 0) or 0) >= 3 for p in engine.get_patterns(active_only=True)):
+
+
+            _gen_count = len(generalize_from_patterns() or [])
+
+
+    except Exception:
+
+
+        pass
+
+
+    if _gen_count:
+
+
+        report_lines.append(f"\n   🔗 举一反三: 泛化出 {_gen_count} 条 staging 规则\n")
 
 
     report = "".join(report_lines)
@@ -1640,6 +1744,145 @@ def run_war_game(portfolio: Dict, macro_data: Dict) -> List[Dict]:
     return wargame.run_scenarios(portfolio, macro_data)
 
 
+def adjust_rule_confidence(rule_id: str, delta: float, reason: str = "", source: str = "post_review") -> bool:
+    """复盘/反馈回流：调整规则或模式的置信度（双向反馈闭环）"""
+    try:
+        engine = _get_engine()
+        rule = engine.get_interception_by_id(rule_id)
+        if rule:
+            new_conf = max(0.5, min(5.0, (rule.confidence or 5.0) + delta))
+            engine.update_interception(rule.id, confidence=new_conf)
+            try:
+                from evidence_vault import get_vault
+                get_vault().record(rule_id, "review_adjust", f"{source}: conf {rule.confidence:.2f}->{new_conf:.2f} | {reason[:80]}", source=source)
+            except Exception:
+                pass
+            return True
+        pattern = engine.get_pattern_by_id(rule_id)
+        if pattern:
+            new_conf = max(0.5, min(5.0, (pattern.confidence or 5.0) + delta))
+            engine.update_pattern(pattern.id, confidence=new_conf)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def principle_health() -> dict:
+    """P2 八原则健康看板：每个原则一个健康报告（🟢正常 / 🟡关注 / 🔴干预）"""
+    try:
+        engine = _get_engine()
+        tracker = _get_tracker()
+    except Exception:
+        return {"error": "engine_unavailable"}
+
+    report = {}
+
+    # 守三：规则命中率与无视率
+    try:
+        rules = engine.get_interceptions(active_only=True)
+        total_trig = sum(getattr(r, "triggered_count", 0) or 0 for r in rules)
+        total_ign = sum(getattr(r, "ignored_count", 0) or 0 for r in rules)
+        ignore_rate = total_ign / total_trig if total_trig > 0 else 0.0
+        report["守三"] = {
+            "active_rules": len(rules),
+            "total_triggers": total_trig,
+            "ignore_rate": round(ignore_rate, 3),
+            "health": "🟢" if ignore_rate < 0.3 else ("🟡" if ignore_rate < 0.5 else "🔴"),
+        }
+    except Exception as e:
+        report["守三"] = {"error": str(e)[:80]}
+
+    # 攻七：模式数量与晋升率
+    try:
+        pats = engine.get_patterns(active_only=True)
+        promoted = len([p for p in pats if getattr(p, "auto_promoted", False)])
+        report["攻七"] = {
+            "patterns": len(pats),
+            "promoted_rate": round(promoted / len(pats), 3) if pats else 0.0,
+            "health": "🟢" if len(pats) >= 5 else "🟡",
+        }
+    except Exception as e:
+        report["攻七"] = {"error": str(e)[:80]}
+
+    # 一二不过三：升级率
+    try:
+        db = tracker._load_strikes_db()
+        types = len(db)
+        escalated = len([e for e in db.values() if (e.get("count", 0) or 0) >= 3])
+        report["一二不过三"] = {
+            "strike_types": types,
+            "escalation_rate": round(escalated / types, 3) if types else 0.0,
+            "health": "🟢" if types == 0 or escalated / types < 0.2 else ("🟡" if escalated / types < 0.4 else "🔴"),
+        }
+    except Exception as e:
+        report["一二不过三"] = {"error": str(e)[:80]}
+
+    # 举一反三：staging 通过率
+    try:
+        all_r = engine.get_interceptions(active_only=False)
+        staging = [r for r in all_r if getattr(r, "lifecycle_status", "") == "staging"]
+        staging_ok = [r for r in staging if (getattr(r, "triggered_count", 0) or 0) >= 2]
+        report["举一反三"] = {
+            "staging_count": len(staging),
+            "staging_pass_rate": round(len(staging_ok) / len(staging), 3) if staging else 0.0,
+            "health": "🟢" if not staging or len(staging_ok) / len(staging) >= 0.3 else "🟡",
+        }
+    except Exception as e:
+        report["举一反三"] = {"error": str(e)[:80]}
+
+    # 去伪存真：证据链规模与归因
+    try:
+        from evidence_vault import get_vault
+        vault = get_vault()
+        stats = vault.get_stats()
+        report["去伪存真"] = {
+            "evidence_verdicts": stats.get("total_verdicts", 0),
+            "attributions": len(vault._attribution_log) if hasattr(vault, "_attribution_log") else 0,
+            "health": "🟢",
+        }
+    except Exception as e:
+        report["去伪存真"] = {"error": str(e)[:80]}
+
+    # 裁决律：待决冲突
+    try:
+        arb = _get_arbiter()
+        pending = len(getattr(arb, "pending_conflicts", []))
+        report["裁决律"] = {
+            "pending_conflicts": pending,
+            "health": "🟢" if pending < 3 else ("🟡" if pending < 6 else "🔴"),
+        }
+    except Exception as e:
+        report["裁决律"] = {"error": str(e)[:80]}
+
+    # 缓急律：分类次数与宕机
+    try:
+        pm = _get_pacemaker_inst()
+        log = getattr(pm, "_classify_log", [])
+        report["缓急律"] = {
+            "total_classifications": len(log),
+            "downtime_active": pm._check_downtime() if hasattr(pm, "_check_downtime") else False,
+            "health": "🟢",
+        }
+    except Exception as e:
+        report["缓急律"] = {"error": str(e)[:80]}
+
+    # 止观门：开放事项
+    try:
+        cg = _get_closure_inst()
+        open_items = len(cg.get_open_items())
+        report["止观门"] = {
+            "open_items": open_items,
+            "closed_items": cg.get_closed_count(),
+            "health": "🟢" if open_items < 10 else ("🟡" if open_items < 20 else "🔴"),
+        }
+    except Exception as e:
+        report["止观门"] = {"error": str(e)[:80]}
+
+    report["generated_at"] = datetime.datetime.now().isoformat()
+    return report
+
+
 def health_check(verbose: bool = True) -> Dict[str, Any]:
 
 
@@ -1706,8 +1949,8 @@ def run_maintenance():
         _max_age_days = 30
         if os.path.isfile(_cfg_path):
             import tomllib
-            with open(_cfg_path, 'rb') as _f:
-                _cfg = tomllib.load(_f)
+            with open(_cfg_path, 'r', encoding='utf-8-sig') as _f:
+                _cfg = tomllib.loads(_f.read())
             _max_age_days = _cfg.get('maintenance', {}).get('cached_max_age_days', 30)
     except Exception:
         _max_age_days = 30
@@ -1872,12 +2115,12 @@ def run_maintenance():
         _qf_enabled = True
         if os.path.isfile(_cfg_path):
             import tomllib
-            with open(_cfg_path, 'rb') as _f:
-                _cfg = tomllib.load(_f)
+            with open(_cfg_path, 'r', encoding='utf-8-sig') as _f:
+                _cfg = tomllib.loads(_f.read())
             _qf_enabled = _cfg.get('evidence_vault', {}).get('quarterly_falsification_enabled', True)
         if _qf_enabled:
             _last_qf = getattr(tracker, '_last_quarterly_falsification', None)
-            _now_q = f"{_dt.datetime.now().year}-Q{(_dt.datetime.now().month - 1) // 3 + 1}"
+            _now_q = f"{datetime.now().year}-Q{(datetime.now().month - 1) // 3 + 1}"
             if _last_qf != _now_q:
                 from evidence_vault import get_vault
                 _vault = get_vault()
@@ -1885,11 +2128,19 @@ def run_maintenance():
                 tracker._last_quarterly_falsification = _now_q
                 if _qr.get('needs_revision'):
                     print(f"  [QF] 建议: {len(_qr.get('repeated_failures', []))} 个失效模式需修订")
+                    # v3.5：实际复审 —— 重复失效规则降权 + 标记 deprecating
+                    for _rr in _qr.get('repeated_rules', [])[:5]:
+                        _rr_id = _rr.get('rule_id', '')
+                        _rr_rule = engine.get_interception_by_id(_rr_id)
+                        if _rr_rule:
+                            _nc = max(0.5, (_rr_rule.confidence or 5.0) * 0.7)
+                            engine.update_interception(_rr_id, confidence=_nc, lifecycle_status='deprecating')
+                            print(f"    [APPLY] 证伪复审: {_rr_id} → deprecating, conf={_nc:.2f}")
                 print(f"  [QF] 季度证伪({_now_q}) 完成")
     except Exception as e:
         print(f"  [QF] 季度证伪跳过: {e}")
 
-    # === P0 #6: 归因正确率回溯 ===
+    # === P0 #6: 归因正确率回溯（v3.5：实际应用，不只是打印） ===
     try:
         from evidence_vault import get_vault
         _vault = get_vault()
@@ -1898,6 +2149,14 @@ def run_maintenance():
             print(f"  [ATTRIB] 发现 {_ar['misattributed']} 条可能误判的归因")
             for _sug in _ar.get('suggestions', [])[:3]:
                 print(f"    [SUG] {_sug}")
+                # 实际应用：误判归因涉及的规则降权
+                _rid = _sug.split("归因重审:")[1].strip().split()[0] if "归因重审:" in _sug else ""
+                if _rid:
+                    _r = engine.get_interception_by_id(_rid)
+                    if _r:
+                        _nc = max(0.5, (_r.confidence or 5.0) * 0.8)
+                        engine.update_interception(_rid, confidence=_nc)
+                        print(f"    [APPLY] {_rid} 置信度 {_r.confidence:.2f} -> {_nc:.2f}（归因误判降权）")
         if _ar.get('verified', 0) > 0:
             print(f"  [ATTRIB] {_ar['verified']} 条归因已确认正确")
     except Exception as _e:
@@ -1932,13 +2191,43 @@ def run_maintenance():
     except Exception:
         pass
     engine.save_all()
+
+    # v3.4.1: ①改毕验自动验证（24h 未再犯 → 修复成功 → 攻七固化）
+    try:
+        _tk = _get_tracker()
+        _auto = _tk._auto_verify_pending_fixes(max_age_hours=24)
+        for _a in _auto:
+            print(f"  [FIX-VERIFY] 自动改毕验通过: {_a['error_type']} (age={_a['age_hours']}h) → 攻七经验已固化")
+    except Exception as _e:
+        print(f"  [FIX-VERIFY] 跳过: {_e}")
+
+    # === P2: 八原则健康看板（写 Mindol + 三态响应） ===
+    try:
+        _ph = principle_health()
+        _red = [k for k, v in _ph.items() if isinstance(v, dict) and v.get("health") == "🔴"]
+        _yellow = [k for k, v in _ph.items() if isinstance(v, dict) and v.get("health") == "🟡"]
+        if _red:
+            print(f"  [HEALTH] 🔴 需要干预: {_red}")
+        if _yellow:
+            print(f"  [HEALTH] 🟡 建议关注: {_yellow}")
+        if not _red and not _yellow:
+            print(f"  [HEALTH] 八原则健康看板: 全部 🟢")
+        # 写入 Mindol codex 空间（下一轮 pre_check 可检索到）
+        try:
+            from mindol.diegin_integration import memory_archive
+            memory_archive("principle_health", json.dumps({k: v for k, v in _ph.items() if k != "generated_at"}, ensure_ascii=False)[:800])
+        except Exception:
+            pass
+    except Exception as _e:
+        print(f"  [HEALTH] 健康看板跳过: {_e}")
+
     print("[OK] 定期维护完成")
 
 
 _last_work_context: Optional[Dict] = None
 
 
-def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: List[str] = None):
+def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: List[str] = None, method: str = ""):
 
 
     """
@@ -1976,7 +2265,7 @@ def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: 
     # 如果没有提供正/负向点，输出提示但不报错（允许空复盘）
 
 
-    result = auto_sandwich(positive, negative, task_type)
+    result = auto_sandwich(positive, negative, task_type, method)
 
 
     # 归档触发记录
