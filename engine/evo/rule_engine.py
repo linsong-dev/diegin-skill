@@ -593,6 +593,37 @@ class RuleEngine:
         import shutil, datetime as dt
         filepath = self.rules_dir / filename
 
+        # [L4-防再生] 计数保全：Mindol 权威单元不携带 triggered_count，
+        # 任何全量重写(save_all/_rebuild_from_mindol)前从现有 JSON 合并最大计数，防清零
+        if filename == "interception_rules.json":
+            try:
+                _existing = {}
+                if filepath.exists():
+                    with open(filepath, "r", encoding="utf-8") as _ef:
+                        _old = json.load(_ef)
+                    _existing = {it.get("id"): it for it in _old if isinstance(it, dict)}
+                for _item in data:
+                    _oid = _item.get("id") if isinstance(_item, dict) else getattr(_item, "id", None)
+                    _o = _existing.get(_oid) or {}
+                    for _k in ("triggered_count", "ignored_count", "override_count"):
+                        _ov = _o.get(_k) or 0
+                        _nv = (_item.get(_k) if isinstance(_item, dict) else getattr(_item, _k, 0)) or 0
+                        if _ov > _nv:
+                            if isinstance(_item, dict):
+                                _item[_k] = _ov
+                            else:
+                                setattr(_item, _k, _ov)
+                    for _k in ("last_triggered", "last_ignored"):
+                        _ov = _o.get(_k) or ""
+                        _nv = (_item.get(_k) if isinstance(_item, dict) else getattr(_item, _k, "")) or ""
+                        if _ov and (not _nv or _ov > _nv):
+                            if isinstance(_item, dict):
+                                _item[_k] = _ov
+                            else:
+                                setattr(_item, _k, _ov)
+            except Exception as _e:
+                print(f"[RULE_ENGINE] count-preserve merge failed: {_e}")
+
         # Step 1: 写前备份
         bak_path = None
         if filepath.exists():
