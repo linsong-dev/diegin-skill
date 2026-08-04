@@ -240,6 +240,9 @@ def pre_check(context: dict) -> dict:
     """任务前预检 - 检索规则 + 仲裁（对齐 AGENTS.md 裁决格式）
     集成：缓急律（优先分流）→ 止观门（去重封存）→ 去伪存真 → 裁决律
     """
+    # [FIX v3.6.7] 入参防御：非 dict 上下文（如 CLI 误传 JSON 字符串）不再崩溃，避免 fail-open 状态注水
+    if not isinstance(context, dict):
+        context = {}
 
     # ========== P0: raw_chat 写入 Mindol ==========
     try:
@@ -458,7 +461,7 @@ if __name__ == "__main__":
 
         else:
 
-            raw = sys.stdin.read().strip()
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _b.decode("utf-8", errors="replace").strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
 
         ctx = json.loads(raw)
 
@@ -581,7 +584,9 @@ if __name__ == "__main__":
     elif mode == "record_evidence":
         """记录一条证据到 EvidenceVault"""
         try:
-            raw_input = sys.stdin.read().strip()
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            raw_input = _b.decode("utf-8", errors="replace").strip()
             ctx = json.loads(raw_input) if raw_input else {}
             from evo.evidence_vault import EvidenceVault
             ev = EvidenceVault()
@@ -644,7 +649,7 @@ if __name__ == "__main__":
         """
 
         if not sys.stdin.isatty():
-            raw = sys.stdin.read().strip()
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _b.decode("utf-8", errors="replace").strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
         elif len(sys.argv) > 2:
             raw = sys.argv[2]
         else:
@@ -733,7 +738,12 @@ if __name__ == "__main__":
         """
         import sys as _sys
         try:
-            raw = _sys.stdin.read().strip() if not _sys.stdin.isatty() else _sys.argv[2]
+            if not _sys.stdin.isatty():
+                _b = _sys.stdin.buffer.read()
+                _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+                raw = _b.decode("utf-8", errors="replace").strip()
+            else:
+                raw = _sys.argv[2]
         except (IndexError, IOError):
             raw = "{}"
         input_data = json.loads(raw) if raw else {}
@@ -938,7 +948,9 @@ if __name__ == "__main__":
         # v3.6.6 修复：PowerShell 传参会拆分含引号/分号的命令 → 支持 stdin JSON 传 method（无损）
         if not method and not sys.stdin.isatty():
             try:
-                _in = sys.stdin.read().strip()
+                _b = sys.stdin.buffer.read()
+                _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+                _in = _b.decode("utf-8", errors="replace").strip()
                 if _in:
                     _j = json.loads(_in)
                     if isinstance(_j, dict):
@@ -1020,7 +1032,7 @@ if __name__ == "__main__":
         if len(sys.argv) > 2:
             raw = sys.argv[2]
         else:
-            raw = sys.stdin.read().strip()
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _b.decode("utf-8", errors="replace").strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
         ctx = json.loads(raw)
         rules = get_rules_for_task(ctx)
         result = arbitrate(rules["interceptions"], rules["patterns"])
@@ -1204,7 +1216,9 @@ if __name__ == "__main__":
         if len(sys.argv) > 2:
             ctx = json.loads(sys.argv[2])
         else:
-            ctx = json.loads(sys.stdin.read().strip() or "{}")
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
         pm = get_pacemaker()
         result = pm.classify(ctx)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
@@ -1382,7 +1396,12 @@ if __name__ == "__main__":
         print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     elif mode == "analyze":
         """Analyze tool execution result and record strikes (post-tool analysis)"""
-        ctx = json.loads(sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip())
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
         tool_name = ctx.get("tool_name", ctx.get("tool", ""))
         exit_code = ctx.get("exit_code", ctx.get("exit", 0))
         cmd = ctx.get("cmd", ctx.get("command", ""))
@@ -1414,7 +1433,12 @@ if __name__ == "__main__":
 
     elif mode == "record_error":
         """Record a self-detected error for one-two-no-three tracking"""
-        ctx = json.loads(sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip())
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
         error_type = ctx.get("error_type", ctx.get("type", "unknown"))
         detail = ctx.get("detail", ctx.get("error", ""))
         severity = ctx.get("severity", "high")
@@ -1422,7 +1446,12 @@ if __name__ == "__main__":
         print(json.dumps(result or {}, ensure_ascii=False, indent=2, default=str))
 
     elif mode == "generate_fix":
-        ctx = json.loads(sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip())
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
         error_type = ctx.get("error_type", ctx.get("type", ctx.get("detected_type", "unknown")))
         detail = ctx.get("detail", ctx.get("error", ""))
         severity = ctx.get("severity", "high")
@@ -1479,7 +1508,12 @@ if __name__ == "__main__":
         print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
 
     elif mode == "verify_fix":
-        ctx = json.loads(sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip())
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
         error_type = ctx.get("error_type", "unknown")
         fix_exit_code = ctx.get("exit_code", ctx.get("exit", -1))
         fix_error = ctx.get("error", ctx.get("err", ""))
@@ -1821,7 +1855,3 @@ if __name__ == "__main__":
         else:
             print(f"  {chr(0x2705)} 系统健康，无异常")
         print(f"{'=' * 56}")
-
-
-
-

@@ -16,50 +16,172 @@ function Add-NoBOMLog {
     }
 }
 
+# 读取/写入会话文件时使用 FileShare.ReadWrite，避免 Codex 应用瞬态占用导致静默失败
+function Read-TextShare {
+    param([string]$Path)
+    for ($i=0; $i -lt 8; $i++) {
+        try {
+            $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try {
+                $sr = New-Object System.IO.StreamReader($fs, $script:utf8NoBOM)
+                return $sr.ReadToEnd()
+            } finally { $fs.Dispose() }
+        } catch {
+            if ($i -eq 7) { throw }
+            Start-Sleep -Milliseconds 300
+        }
+    }
+}
+
+function Write-TextShare {
+    param([string]$Path,[string]$Content)
+    for ($i=0; $i -lt 8; $i++) {
+        try {
+            $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+            try {
+                $sw = New-Object System.IO.StreamWriter($fs, $script:utf8NoBOM)
+                $sw.Write($Content); $sw.Flush()
+            } finally { $fs.Dispose() }
+            return
+        } catch {
+            if ($i -eq 7) { throw }
+            Start-Sleep -Milliseconds 300
+        }
+    }
+}
+
 $pluginRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $auditLog = Join-Path $pluginRoot "var\logs\diegin_audit.log"
+$time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 $pythonExe = Join-Path $pluginRoot "bin\.venv\Scripts\python.exe"
 $enginePy = Join-Path $pluginRoot "engine\call_diegin.py"
-$time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
-# 查找会话文件
+# 查找会话文件（仅活动会话，排除备份/补丁副本）
 $sessionsDir = if ($env:CODEX_HOME) { Join-Path $env:CODEX_HOME "sessions" } else { Join-Path (Split-Path $pluginRoot -Parent) "sessions" }
-$allSessions = Get-ChildItem "$sessionsDir\*\*\*\*.jsonl" -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-24) } | Sort-Object LastWriteTime -Descending
+$allSessions = Get-ChildItem "$sessionsDir\*\*\*\*.jsonl" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -notlike "*.bak*" -and $_.Name -notlike "*.patched" -and $_.LastWriteTime -gt (Get-Date).AddHours(-24) } |
+    Sort-Object LastWriteTime -Descending
 
 if (-not $allSessions) {
     Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] no_sessions"
     exit 0
 }
 
+# 二进制内容类型：keysync/DeepSeek 桥接不支持，会触发 "unknown variant image_url" 反序列化错误
+$binaryTypes = @('input_image','image_url','output_image','input_file','output_file','input_audio','output_audio','input_video','output_video')
+$placeholder = "[Diegin: 图片/文件内容已移除，当前模型不支持image_url]"
+
+function Test-BinaryPart {
+    param($Part)
+    if (-not $Part) { return $false }
+    if ($Part -is [string]) { return $false }
+    try { return $binaryTypes -contains $Part.type } catch { return $false }
+}
+
 $totalCleaned = 0
+$failures = @()
 
 foreach ($sessionFile in $allSessions) {
     $sessionPath = $sessionFile.FullName
     try {
-        $content = [System.IO.File]::ReadAllText($sessionPath, $script:utf8NoBOM)
-    } catch { continue }
+        $content = Read-TextShare -Path $sessionPath
+    } catch {
+        $failures += "$($sessionFile.Name):locked"
+        continue
+    }
+    # 快速过滤：无二进制标记则跳过
+    $needleFound = $false
+    foreach ($t in $binaryTypes) {
+        if ($content.Contains('"' + $t + '"')) { $needleFound = $true; break }
+    }
+    if (-not $needleFound) { continue }
 
-    if (-not $content.Contains('"input_image"')) { continue }
+    $lines = $content -split "`n"
+    $outLines = New-Object System.Collections.Generic.List[string]
+    $lineChanged = $false
 
-    # 正则替换：{"type":"input_image",...,"detail":"..."} → 文本占位
-    $newContent = $content -replace '"type":"input_image"[^}]*"detail":"[^"]*"', '"type":"text","text":"[Diegin: 图片已移除，当前模型不支持image_url]"'
-    if ($newContent -ne $content) {
-        $diff = [Math]::Max(0, $content.Length - $newContent.Length)
-        [System.IO.File]::WriteAllText($sessionPath, $newContent, $script:utf8NoBOM)
-        Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] cleaned $($sessionFile.Name) (-${diff}B)"
-        $totalCleaned++
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if ($trimmed -eq '') { $outLines.Add($line); continue }
+        $obj = $null
+        try { $obj = $line | ConvertFrom-Json } catch { $outLines.Add($line); continue }
+        if (-not $obj -or -not $obj.payload) { $outLines.Add($line); continue }
+        $payload = $obj.payload
+        $pt = $payload.type
+        $dirty = $false
+
+        # 1) function_call_output：output 数组/对象含二进制 → 替换为纯文本字符串（与已验证的手工修复一致）
+        if ($pt -eq 'function_call_output') {
+            $out = $payload.output
+            if ($out -is [System.Array]) {
+                $hasBinary = $false
+                foreach ($part in $out) { if (Test-BinaryPart $part) { $hasBinary = $true; break } }
+                if ($hasBinary) { $payload.output = $placeholder; $dirty = $true }
+            } elseif (Test-BinaryPart $out) {
+                $payload.output = $placeholder
+                $dirty = $true
+            }
+        }
+
+        # 2) message content 数组：二进制 part → text part
+        if ($payload.content -is [System.Array]) {
+            $newContent = @()
+            $contentDirty = $false
+            foreach ($part in $payload.content) {
+                if (Test-BinaryPart $part) {
+                    $newContent += [pscustomobject]@{ type='text'; text=$placeholder }
+                    $contentDirty = $true
+                } else {
+                    $newContent += $part
+                }
+            }
+            if ($contentDirty) { $payload.content = $newContent; $dirty = $true }
+        }
+
+        if ($dirty) {
+            $outLines.Add(($obj | ConvertTo-Json -Compress -Depth 100))
+            $lineChanged = $true
+        } else {
+            $outLines.Add($line)
+        }
+    }
+
+    if ($lineChanged) {
+        $newContent = $outLines -join "`n"
+        if ($content.EndsWith("`n") -and -not $newContent.EndsWith("`n")) { $newContent += "`n" }
+        try {
+            Write-TextShare -Path $sessionPath -Content $newContent
+            # 写后验证：可解析 + 无二进制标记
+            $verify = Read-TextShare -Path $sessionPath
+            $verifyOk = $true
+            foreach ($t in $binaryTypes) { if ($verify.Contains('"' + $t + '"')) { $verifyOk = $false; break } }
+            $allParseOk = $true
+            foreach ($vl in ($verify -split "`n")) {
+                if ($vl.Trim() -eq '') { continue }
+                try { $null = $vl | ConvertFrom-Json } catch { $allParseOk = $false }
+            }
+            if ($verifyOk -and $allParseOk) {
+                Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] cleaned $($sessionFile.Name) (-$($content.Length - $newContent.Length)B) verified"
+                $totalCleaned++
+            } else {
+                Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] WARN $($sessionFile.Name) write-verify failed (clean=$verifyOk parse=$allParseOk)"
+            }
+        } catch {
+            Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] WARN $($sessionFile.Name) write failed: $($_.Exception.Message)"
+        }
     }
 }
 
 if ($totalCleaned -gt 0) {
-    Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] total: cleaned $totalCleaned files"
-
-    # 记录到一二不过三
+    $extra = ""
+    if ($failures.Count -gt 0) { $extra = " (skipped locked: $($failures -join ','))" }
+    Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] total: cleaned $totalCleaned files$extra"
     if (Test-Path $pythonExe) {
         & $pythonExe $enginePy record_error "image_url" "session_image_clean: 清理了${totalCleaned}个会话文件" "high" 2>&1 | Out-Null
     }
 } else {
-    Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] clean_noop"
+    $msg = if ($failures.Count -gt 0) { "clean_noop (skipped locked: $($failures -join ','))" } else { "clean_noop" }
+    Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] $msg"
 }
 
 exit 0

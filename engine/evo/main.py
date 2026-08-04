@@ -1895,6 +1895,45 @@ def health_check(verbose: bool = True) -> Dict[str, Any]:
     return run_health_check(engine)
 
 
+def maintenance_staging_ttl(engine):
+    """B1 防再生：staging 规则 14 天未验证 → 弃用 + 记边界（防 HOLD 僵尸 staging 堆积）"""
+    from datetime import datetime as _dt
+    _cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.toml')
+    _max_age = 14
+    try:
+        if os.path.isfile(_cfg_path):
+            import tomllib
+            with open(_cfg_path, 'r', encoding='utf-8-sig') as _f:
+                _cfg = tomllib.loads(_f.read())
+            _max_age = int(_cfg.get('maintenance', {}).get('staging_max_age_days', 14) or 14)
+    except Exception:
+        _max_age = 14
+    _now = _dt.now()
+    _dep = 0
+    for rule in engine.get_interceptions(active_only=False):
+        if rule.lifecycle_status != 'staging':
+            continue
+        # 已有 TTL 边界记录则跳过（幂等）
+        if any('staging_ttl' in str(b) for b in (getattr(rule, 'boundary_conditions', None) or [])):
+            continue
+        if not rule.created_at:
+            continue
+        try:
+            _base = _dt.fromisoformat(rule.created_at)
+        except Exception:
+            continue
+        _age = (_now - _base).days
+        if _age >= _max_age:
+            _bc = list(getattr(rule, 'boundary_conditions', None) or [])
+            _bc.append('staging_ttl: %d天未验证淘汰 @ %s' % (_age, _now.isoformat()))
+            engine.update_interception(rule.id, lifecycle_status='deprecating', boundary_conditions=_bc)
+            print('  [STAGING-TTL] 弃用未验证 staging: %s (创建%d天 >= %d天)' % (rule.id, _age, _max_age))
+            _dep += 1
+    if _dep > 0:
+        print('  [STAGING-TTL] %d 条 staging 因超期未验证被弃用（边界已记录）' % _dep)
+    return _dep
+
+
 def run_maintenance():
 
 
@@ -2105,6 +2144,11 @@ def run_maintenance():
         print(f"  [DGEN] 验证门: {promoted} 条晋升active (成功率>=2/3)")
     if archived > 0:
         print(f"  [DGEN] 验证门: {archived} 条已归档 (成功率<2/3)")
+    # B1 防再生: staging TTL 淘汰（14天未验证 → 弃用 + 记边界）
+    try:
+        maintenance_staging_ttl(engine)
+    except Exception as _e:
+        print(f"  [STAGING-TTL] 跳过: {_e}")
     # 守三循环闭环: 检查shousan规则触发效果
     tracker.cycle_shousan_rules()
     tracker.cycle_gongqi_patterns()
@@ -2223,8 +2267,49 @@ def run_maintenance():
 
     print("[OK] 定期维护完成")
 
+    # 一击即中: strikes 过期清理（14 天无活动则归档）—— 自 evidence_record 死代码迁入
+    try:
+        _sp2 = os.path.join(os.path.dirname(__file__), '..', 'var', 'state', 'strikes_db.json')
+        if os.path.isfile(_sp2):
+            with open(_sp2, 'r', encoding='utf-8') as _sf2:
+                _st2 = json.load(_sf2)
+            _ttl2 = _cfg.get('maintenance', {}).get('strike_ttl_days', 14) if '_cfg' in dir() else 14
+            _now2 = datetime.now()
+            _ch2 = False
+            for _et2 in list(_st2.keys()):
+                _last2 = _st2[_et2].get('last_seen', '')
+                if _last2:
+                    try:
+                        if (_now2 - datetime.fromisoformat(_last2)).days >= _ttl2:
+                            del _st2[_et2]
+                            _ch2 = True
+                            print(f"  [CLEAN] strike 过期清理: {_et2} (最后触发 {_last2[:10]})")
+                    except Exception:
+                        pass
+            if _ch2:
+                with open(_sp2, 'w', encoding='utf-8') as _sf2:
+                    json.dump(_st2, _sf2, ensure_ascii=False, indent=2)
+                print("  [CLEAN] strikes_db 清理完成")
+    except Exception as _se2:
+        print(f"  [CLEAN] strikes 清理跳过: {_se2}")
 
-_last_work_context: Optional[Dict] = None
+    # B2 防再生: dgen_evolve 最小接入——维护统计写入健康度基线
+    try:
+        _evo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _evo_dir not in sys.path:
+            sys.path.insert(0, _evo_dir)
+        from dgen_evolve import maintenance_report
+        _all_r = engine.get_interceptions(active_only=False)
+        _stats = {
+            "rules": len(_all_r),
+            "staging": sum(1 for r in _all_r if r.lifecycle_status == "staging"),
+            "deprecated": sum(1 for r in _all_r if r.lifecycle_status == "deprecating"),
+            "strikes": len(tracker._load_strikes_db()) if hasattr(tracker, "_load_strikes_db") else 0,
+        }
+        if maintenance_report(_stats):
+            print("  [DGEN] dgen_evolve 健康度已更新")
+    except Exception as _e2:
+        print(f"  [DGEN] dgen_evolve 接入跳过: {_e2}")
 
 
 def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: List[str] = None, method: str = ""):
@@ -2388,29 +2473,3 @@ def evidence_record(rule_id, verdict, reason, source="auto", context=None):
     """去伪存真：记录证据判定"""
     v = _get_vault_inst()
     return v.record(rule_id, verdict, reason, source, context)
-
-    # 一击即中: strikes 过期清理（14 天无活动则归档）
-    try:
-        _strikes_path = os.path.join(os.path.dirname(__file__), '..', 'var', 'state', 'strikes_db.json')
-        if os.path.isfile(_strikes_path):
-            with open(_strikes_path, 'r', encoding='utf-8') as _sf:
-                _strikes = json.load(_sf)
-            _changed = False
-            _strike_ttl_days = _cfg.get('maintenance', {}).get('strike_ttl_days', 14) if '_cfg' in dir() else 14
-            for _etype in list(_strikes.keys()):
-                _last_seen = _strikes[_etype].get('last_seen', '')
-                if _last_seen:
-                    try:
-                        _last_dt = datetime.fromisoformat(_last_seen)
-                        if (_now_dt - _last_dt).days >= _strike_ttl_days:
-                            del _strikes[_etype]
-                            _changed = True
-                            print(f"  [CLEAN] strike 过期清理: {_etype} (最后触发 {_last_seen[:10]})")
-                    except Exception:
-                        pass
-            if _changed:
-                with open(_strikes_path, 'w', encoding='utf-8') as _sf:
-                    json.dump(_strikes, _sf, ensure_ascii=False, indent=2)
-                print(f"  [CLEAN] strikes_db 清理完成")
-    except Exception as _se:
-        print(f"  [CLEAN] strikes 清理跳过: {_se}")

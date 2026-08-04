@@ -1,5 +1,29 @@
 ﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 
+function Write-AtomicFile {
+    param([string]$Path,[string]$Content)
+    # [C2] 原子写：tmp+Replace(真实备份) 防读半截；失败兜底 Delete+Move；任何情况清理 tmp 防残留
+    $tmp = $Path + ".tmp_" + [System.Guid]::NewGuid().ToString("N")
+    $bak = $Path + ".bak"
+    [System.IO.File]::WriteAllText($tmp, $Content, $script:utf8NoBOM)
+    $ok = $false
+    try {
+        if ([System.IO.File]::Exists($Path)) {
+            [System.IO.File]::Replace($tmp, $Path, $bak)
+            if ([System.IO.File]::Exists($bak)) { [System.IO.File]::Delete($bak) }
+        } else {
+            [System.IO.File]::Move($tmp, $Path)
+        }
+        $ok = $true
+    } catch {
+        # 兜底：非原子但保证不失败不残留
+        if ([System.IO.File]::Exists($Path)) { [System.IO.File]::Delete($Path) }
+        [System.IO.File]::Move($tmp, $Path)
+        $ok = $true
+    }
+    if ([System.IO.File]::Exists($tmp)) { [System.IO.File]::Delete($tmp) }
+}
+
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)
     $ts=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
@@ -28,7 +52,7 @@ function Write-PhaseState {
     $Data.Keys|ForEach-Object{$o|Add-Member NoteProperty $_ $Data[$_] -Force}
     $s.phases|Add-Member NoteProperty $Phase $o -Force
     $s.last_update=(Get-Date -Format "o")
-    [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
+    Write-AtomicFile -Path $g_sf -Content ($s|ConvertTo-Json -Depth 5)
 }
 
 function Write-DGENStatusFile {
@@ -42,7 +66,7 @@ function Write-DGENStatusFile {
         $s += "`nMATCHED: $Matched"
         $s += "`nTS: " + (Get-Date -Format "o")
         $s += "`n=================="
-        [System.IO.File]::WriteAllText($sf, $s, $script:utf8NoBOM)
+        Write-AtomicFile -Path $sf -Content $s
     } catch {}
 }
 
@@ -95,14 +119,13 @@ try {
         $hookInput = $stdin | ConvertFrom-Json
         $toolName = $hookInput.tool_name
         $toolCmd = ""
+        if ($hookInput.tool_input) { if ($hookInput.tool_input.command) { $toolCmd = $hookInput.tool_input.command } }
         if ($hookInput.command) { $toolCmd = $hookInput.command }
         if ($hookInput.cmd) { $toolCmd = $hookInput.cmd }
         if ($toolName -and (Test-Path $pythonExe)) {
-            if ($toolCmd) {
-                $recResult = & $pythonExe $enginePy record_success $toolName $toolCmd 2>&1
-            } else {
-                $recResult = & $pythonExe $enginePy record_success $toolName 2>&1
-            }
+            # v3.6.6 修复：PowerShell argv 会拆分含引号/分号的命令 → 改 stdin JSON 传递（无损）
+            $rsJson = @{tool_name=$toolName; method=$toolCmd} | ConvertTo-Json -Compress
+            $recResult = $rsJson | & $pythonExe $enginePy record_success 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"
             }
@@ -124,9 +147,9 @@ $genCounterFile = Join-Path $stateDir "generalize_counter.txt"
 $genCount = 0
 if (Test-Path $genCounterFile) { $genCount = [int](Get-Content $genCounterFile -Raw -ErrorAction SilentlyContinue) }
 $genCount++
-Set-Content -Path $genCounterFile -Value $genCount -NoNewline
+[System.IO.File]::WriteAllText($genCounterFile, "$genCount", $script:utf8NoBOM)
 if ($genCount -ge 5) {
-    Set-Content -Path $genCounterFile -Value "0" -NoNewline
+[System.IO.File]::WriteAllText($genCounterFile, "0", $script:utf8NoBOM)
     if (Test-Path $pythonExe) {
         $genResult = & $pythonExe $enginePy generalize_cross_domain 2>&1
         Add-NoBOMLog -Path $auditLog -Message "$time 举一反三 generalize_result=$genResult"
@@ -191,10 +214,10 @@ try {
     $reviewCount = 0
     if (Test-Path $reviewCounterFile) { $reviewCount = [int](Get-Content $reviewCounterFile -Raw -ErrorAction SilentlyContinue) }
     $reviewCount++
-    Set-Content -Path $reviewCounterFile -Value $reviewCount -NoNewline
+[System.IO.File]::WriteAllText($reviewCounterFile, "$reviewCount", $script:utf8NoBOM)
     $isSuccess = ($toolExitCode -eq 0 -or $toolExitCode -eq $null)
     if ($reviewCount -ge 5 -and $isSuccess -and (Test-Path $pythonExe)) {
-        Set-Content -Path $reviewCounterFile -Value "0" -NoNewline
+[System.IO.File]::WriteAllText($reviewCounterFile, "0", $script:utf8NoBOM)
         $reviewToolName = "unknown"
         if ($toolName) { $reviewToolName = $toolName }
         $reviewCtx = @{

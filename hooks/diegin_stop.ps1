@@ -2,6 +2,30 @@
 
 
 
+function Write-AtomicFile {
+    param([string]$Path,[string]$Content)
+    # [C2] 原子写：tmp+Replace(真实备份) 防读半截；失败兜底 Delete+Move；任何情况清理 tmp 防残留
+    $tmp = $Path + ".tmp_" + [System.Guid]::NewGuid().ToString("N")
+    $bak = $Path + ".bak"
+    [System.IO.File]::WriteAllText($tmp, $Content, $script:utf8NoBOM)
+    $ok = $false
+    try {
+        if ([System.IO.File]::Exists($Path)) {
+            [System.IO.File]::Replace($tmp, $Path, $bak)
+            if ([System.IO.File]::Exists($bak)) { [System.IO.File]::Delete($bak) }
+        } else {
+            [System.IO.File]::Move($tmp, $Path)
+        }
+        $ok = $true
+    } catch {
+        # 兜底：非原子但保证不失败不残留
+        if ([System.IO.File]::Exists($Path)) { [System.IO.File]::Delete($Path) }
+        [System.IO.File]::Move($tmp, $Path)
+        $ok = $true
+    }
+    if ([System.IO.File]::Exists($tmp)) { [System.IO.File]::Delete($tmp) }
+}
+
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)
     $ts=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
@@ -56,7 +80,7 @@ function Write-PhaseState {
 
     $s.last_update=(Get-Date -Format "o")
 
-    [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
+    Write-AtomicFile -Path $g_sf -Content ($s|ConvertTo-Json -Depth 5)
 
 }
 

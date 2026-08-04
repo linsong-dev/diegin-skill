@@ -1,5 +1,29 @@
 ﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 
+function Write-AtomicFile {
+    param([string]$Path,[string]$Content)
+    # [C2] 原子写：tmp+Replace(真实备份) 防读半截；失败兜底 Delete+Move；任何情况清理 tmp 防残留
+    $tmp = $Path + ".tmp_" + [System.Guid]::NewGuid().ToString("N")
+    $bak = $Path + ".bak"
+    [System.IO.File]::WriteAllText($tmp, $Content, $script:utf8NoBOM)
+    $ok = $false
+    try {
+        if ([System.IO.File]::Exists($Path)) {
+            [System.IO.File]::Replace($tmp, $Path, $bak)
+            if ([System.IO.File]::Exists($bak)) { [System.IO.File]::Delete($bak) }
+        } else {
+            [System.IO.File]::Move($tmp, $Path)
+        }
+        $ok = $true
+    } catch {
+        # 兜底：非原子但保证不失败不残留
+        if ([System.IO.File]::Exists($Path)) { [System.IO.File]::Delete($Path) }
+        [System.IO.File]::Move($tmp, $Path)
+        $ok = $true
+    }
+    if ([System.IO.File]::Exists($tmp)) { [System.IO.File]::Delete($tmp) }
+}
+
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)
     $ts=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
@@ -28,7 +52,7 @@ function Write-PhaseState {
     $Data.Keys|ForEach-Object{$o|Add-Member NoteProperty $_ $Data[$_] -Force}
     $s.phases|Add-Member NoteProperty $Phase $o -Force
     $s.last_update=(Get-Date -Format "o")
-    [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
+    Write-AtomicFile -Path $g_sf -Content ($s|ConvertTo-Json -Depth 5)
 }
 
 
@@ -57,7 +81,7 @@ function Write-DGENStatusFile {
         $s += "`nMATCHED: $Matched"
         $s += "`nTS: " + (Get-Date -Format "o")
         $s += "`n=================="
-        [System.IO.File]::WriteAllText($sf, $s, $script:utf8NoBOM)
+        Write-AtomicFile -Path $sf -Content $s
     } catch {}
 }
 
@@ -72,7 +96,7 @@ $g_sf=Join-Path $g_pr "var\state\phase_state.json"
 
 $auditLog = Join-Path $g_pr "var\logs\diegin_audit.log"
 $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-$pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" }
 $enginePy = Join-Path $g_pr "engine\call_diegin.py"
 $stateDir = Join-Path $g_pr "var\state"
 $gateFile = Join-Path $g_pr "var/state/dgen_last_reply.json"
@@ -306,6 +330,7 @@ $finalDecision = "allow"
 $finalMatched = 0
 $finalRule = ""
 $activeRules = "?"
+$engineError = $false
 try {
     if (Test-Path $pythonExe) {
         $ctx = [ordered]@{
@@ -319,58 +344,79 @@ try {
         }
         $ctxJson = $ctx | ConvertTo-Json -Compress -Depth 3
         $rawOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
-        $checkResult = $rawOutput | ConvertFrom-Json
-        $finalDecision = $checkResult.decision
-        $finalMatched = $checkResult.matched_interceptions
-        $finalRule = $checkResult.winning_rule_id
+        $checkResult = $null
+        try { $checkResult = $rawOutput | ConvertFrom-Json } catch { $checkResult = $null }
+        if ($null -eq $checkResult -or [string]::IsNullOrEmpty($checkResult.decision)) {
+            $engineError = $true
+        } else {
+            $finalDecision = $checkResult.decision
+            $finalMatched = $checkResult.matched_interceptions
+            $finalRule = $checkResult.winning_rule_id
 
-        $s2=@{ts=(Get-Date -Format "o");decision=$finalDecision;reason=$checkResult.reason;winning_rule=$finalRule;matched_count=$finalMatched;source="pre_tool"}
-        [System.IO.File]::WriteAllText($replyFile,($s2|ConvertTo-Json -Compress),$script:utf8NoBOM)
+            $s2=@{ts=(Get-Date -Format "o");decision=$finalDecision;reason=$checkResult.reason;winning_rule=$finalRule;matched_count=$finalMatched;source="pre_tool"}
+            [System.IO.File]::WriteAllText($replyFile,($s2|ConvertTo-Json -Compress),$script:utf8NoBOM)
 
-        if($finalDecision -in @("block","iron_wall_block")){
-            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK] rule=$finalRule"
-            $blockRule = $finalRule
-            if ([string]::IsNullOrEmpty($blockRule)) { $blockRule = "unknown" }
-    Write-Output ("")
-    Write-Output ("⚠️ [迭进] 规则阻断 | 规则: " + $blockRule + " | 原因: " + $checkResult.reason)
-    Write-Output ("")
-            Write-Error ("DGEN_BLOCK|reason=" + $checkResult.reason + "|rule=" + $blockRule)
-            Write-DGENStatusFile -Status "BLOCKED" -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
-            Write-DGENContextAndExit -ExitCode 1
-        }
-        
-        # 读取活跃规则数
-        try { $h = & $pythonExe $enginePy health 2>&1 | ConvertFrom-Json; $activeRules = $h.active_rules } catch {}
-        
-        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ALLOW] decision=$finalDecision matched=$finalMatched"
-        # v3.6: 攻七建议注入（成功模式匹配时输出推荐，供 AI 工具调用前参考）
-        $sugText = ""
-        try {
-            if ($checkResult.suggestions -and $checkResult.suggestions.Count -gt 0) {
-                $sugLines = @()
-                foreach ($s in $checkResult.suggestions) {
-                    $sugName = if ($s.scenario) { $s.scenario } else { $s.id }
-                    $sugLine = "  - " + $sugName + " (置信度 " + $s.confidence + ")"
-                    if ($s.decision) {
-                        $dText = [string]$s.decision
-                        if ($dText.Length -gt 80) { $dText = $dText.Substring(0, 80) + "…" }
-                        $sugLine += " 做法: " + $dText
-                    }
-                    $sugLines += $sugLine
-                }
-                if ($sugLines.Count -gt 0) {
-                    $sugText = "`n攻七·推荐:" + ($sugLines -join "`n")
-                }
+            if($finalDecision -in @("block","iron_wall_block")){
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK] rule=$finalRule"
+                $blockRule = $finalRule
+                if ([string]::IsNullOrEmpty($blockRule)) { $blockRule = "unknown" }
+        Write-Output ("")
+        Write-Output ("⚠️ [迭进] 规则阻断 | 规则: " + $blockRule + " | 原因: " + $checkResult.reason)
+        Write-Output ("")
+                Write-Error ("DGEN_BLOCK|reason=" + $checkResult.reason + "|rule=" + $blockRule)
+                Write-DGENStatusFile -Status "BLOCKED" -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
+                Write-DGENContextAndExit -ExitCode 1
             }
-        } catch {}
-        if ($finalMatched -gt 0) {
-            Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行" + $sugText)
-        } elseif ($sugText) {
-            Write-Output ("ℹ️ [迭进] 预检放行" + $sugText)
+            
+            # 读取活跃规则数
+            try { $h = & $pythonExe $enginePy health 2>&1 | ConvertFrom-Json; $activeRules = $h.active_rules } catch {}
+            
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ALLOW] decision=$finalDecision matched=$finalMatched"
+            # v3.6: 攻七建议注入（成功模式匹配时输出推荐，供 AI 工具调用前参考）
+            $sugText = ""
+            try {
+                if ($checkResult.suggestions -and $checkResult.suggestions.Count -gt 0) {
+                    $sugLines = @()
+                    foreach ($s in $checkResult.suggestions) {
+                        $sugName = if ($s.scenario) { $s.scenario } else { $s.id }
+                        $sugLine = "  - " + $sugName + " (置信度 " + $s.confidence + ")"
+                        if ($s.decision) {
+                            $dText = [string]$s.decision
+                            if ($dText.Length -gt 80) { $dText = $dText.Substring(0, 80) + "…" }
+                            $sugLine += " 做法: " + $dText
+                        }
+                        $sugLines += $sugLine
+                    }
+                    if ($sugLines.Count -gt 0) {
+                        $sugText = "`n攻七·推荐:" + ($sugLines -join "`n")
+                    }
+                }
+            } catch {}
+            if ($finalMatched -gt 0) {
+                Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行" + $sugText)
+            } elseif ($sugText) {
+                Write-Output ("ℹ️ [迭进] 预检放行" + $sugText)
+            }
         }
+    } else {
+        $engineError = $true
     }
 } catch {
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ERROR] $($_.Exception.Message)"
+    $engineError = $true
+}
+
+# [A1] 去伪存真：引擎故障必须显式标注 ENGINE_ERROR，不得伪装 VERIFIED
+# 放行（audit 精神·不阻断业务），但状态文件与上下文如实记录
+if ($engineError) {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ENGINE-ERROR] 引擎异常，本次放行但状态未验证"
+    Write-DGENStatusFile -Status "ENGINE_ERROR" -Rules "?" -Decision "unknown" -Matched "0"
+    $toolCtxStr = '{"ts":"' + (Get-Date -Format "o") + '","decision":"engine_error","matched_count":0,"tool_name":"' + $toolName + '","error":"engine_unavailable"}'
+    try { [System.IO.File]::WriteAllText((Join-Path $stateDir "diegin_pre_tool_context.json"), $toolCtxStr, $script:utf8NoBOM) } catch {}
+    Write-Output ("")
+    Write-Output ("⚠️ [迭进] 引擎异常（预检未执行），本次放行但状态未验证")
+    Write-Output ("")
+    exit 0
 }
 
 # 写状态文件供 AI 读取

@@ -158,6 +158,56 @@ class RuleEngine:
 
     # ─── Mindol 语义记忆引擎集成（全局全域） ───
 
+
+    def _mindol_warn(self, ctx: str, exc: Exception):
+        """记录 Mindol 同步失败（消除静默失败，防复发：失败必须可见）"""
+        try:
+            import sys as _sys
+            print(f"[RULE_ENGINE][WARN] Mindol {ctx} failed: {exc}", file=_sys.stderr)
+            try:
+                _logp = os.path.join(os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
+                _logp = os.path.abspath(_logp)
+                if os.path.isdir(os.path.dirname(_logp)):
+                    _line = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + f" [RULE_ENGINE][WARN] Mindol {ctx} failed: {exc}\n"
+                    _old = ""
+                    try:
+                        with io.open(_logp, "r", encoding="utf-8", errors="replace") as _f:
+                            _old = _f.read()
+                    except Exception:
+                        pass
+                    with io.open(_logp, "w", encoding="utf-8") as _f:
+                        _f.write(_line + _old)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
+    def _validate_trigger(self, trigger: str) -> list:
+        """恒真规则守卫（防复发 P2）：检测 trigger 是否可能在空/无关上下文下恒真
+        返回问题列表（空 = 通过）。发现恒真只告警，不阻断写入（历史规则兼容）。
+        """
+        issues = []
+        try:
+            if not trigger or not trigger.strip():
+                issues.append("trigger 为空（永远命中）")
+                return issues
+            t = trigger.strip()
+            # 空条件（纯关键词）是合法设计（子串匹配），跳过
+            ops = ['==', '!=', '>', '<', '>=', '<=', ' and ', ' or ', ' AND ', ' OR ',
+                   '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ']
+            if not any(op in t for op in ops):
+                return issues
+            # 逻辑表达式中的裸词 → AST 会转字符串常量 → 恒真
+            import re as _re
+            for part in _re.split(r"\b(?:and|or|AND|OR)\b", t):
+                part = part.strip().strip("()")
+                if _re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", part):
+                    issues.append(f"逻辑表达式含裸词 '{part}'（AST 会转为字符串常量导致恒真）")
+        except Exception as _e:
+            issues.append(f"trigger 校验异常: {_e}")
+        return issues
+
     def _init_mindol(self):
         """懒加载 Mindol 实例"""
         if self._mindol is None:
@@ -188,9 +238,15 @@ class RuleEngine:
                 "action": r.action, "severity": r.severity,
                 "confidence": r.confidence, "status": r.lifecycle_status,
                 "source": r.source, "created": r.created_at,
-                "tags": getattr(r, "tags", [])
+                "tags": getattr(r, "tags", []),
+                "boundary_conditions": getattr(r, "boundary_conditions", []) or []
             }, ensure_ascii=False)
             m.add_unit(text=text, source="diegin_rule", uid=uid, space=m.SPACE_RULE)
+        # [统一存储] 全量同步后立即提交权威库
+        if hasattr(m, "flush"):
+            m.flush()
+        else:
+            m.save()
 
         # 2. 成功模式 → SPACE_PATTERN
         for p in self._patterns:
@@ -261,7 +317,11 @@ class RuleEngine:
                     # 任一 token 匹配规则 ID 或触发条件即建立关系
                     if any(t in _rid_lower or t in _cond_lower for t in _et_tokens if len(t) > 2):
                         m.add_relation(uid, f"rule_{r.id}", "strike_affects")
-        m.save()
+        # C1: 轻量提交（add_unit/add_relation 已落 SQL 未提交，flush 即提交）
+        if hasattr(m, "flush"):
+            m.flush()
+        else:
+            m.save()
 
     def _mindol_sync_state(self, state_data: dict):
         """同步阶段状态到 SPACE_STATE"""
@@ -274,7 +334,11 @@ class RuleEngine:
         uid = "current_phase_state"
         m.add_unit(text=json.dumps(state_data, ensure_ascii=False),
                    source="diegin_state", uid=uid, space=m.SPACE_STATE)
-        m.save()
+        # C1: 轻量提交
+        if hasattr(m, "flush"):
+            m.flush()
+        else:
+            m.save()
 
     # ─── Mindol 权威：新增辅助方法 ───
 
@@ -289,9 +353,15 @@ class RuleEngine:
             "action": rule.action, "severity": rule.severity,
             "confidence": rule.confidence, "status": rule.lifecycle_status,
             "source": rule.source, "created": rule.created_at,
-            "tags": getattr(rule, "tags", [])
+            "tags": getattr(rule, "tags", []),
+            "boundary_conditions": getattr(rule, "boundary_conditions", []) or []
         }, ensure_ascii=False)
         self._mindol.add_unit(text=text, source="diegin_rule", uid=uid, space=self._mindol.SPACE_RULE)
+        # [统一存储] Mindol 为权威：写后立即 commit，防止进程退出丢数据（JSON 仅为单向镜像）
+        if hasattr(self._mindol, "flush"):
+            self._mindol.flush()
+        else:
+            self._mindol.save()
 
     def _load_from_mindol(self) -> bool:
         """从 Mindol 权威源加载所有规则数据"""
@@ -317,7 +387,8 @@ class RuleEngine:
                             outcome_score=data.get("outcome_score", 5.0),
                             lifecycle_status=data.get("status", "active"),
                             source=data.get("source", "mindol"),
-                            created_at=data.get("created", "")
+                            created_at=data.get("created", ""),
+                            boundary_conditions=data.get("boundary_conditions", []) or []
                         )
                         interceptions.append(ir)
                     except Exception:
@@ -464,7 +535,32 @@ class RuleEngine:
                 print(f"[RULE_ENGINE] X 写后验证失败({filename}仅{len(saved)}条, 阈值={min_rules}) 已回滚")
             raise RuntimeError(f"_save_json validation failed: {filename} only {len(saved)} rules (min={min_rules})")
 
-        # Step 5: 清理旧备份
+        # Step 5: 双存储一致性校验（防复发 P3）— JSON 镜像必须与 Mindol 权威一致
+        if filename == "interception_rules.json":
+            try:
+                if self._mindol is None:
+                    self._init_mindol()
+                if self._mindol is not None:
+                    _space = self._mindol.get_space(self._mindol.SPACE_RULE)
+                    _mid_ids = set()
+                    for _u in _space.memory_units:
+                        try:
+                            _d = json.loads(_u.text)
+                            _mid_ids.add(_d.get("id"))
+                        except Exception:
+                            pass
+                    _jid_ids = {item.get("id") for item in saved}
+                    if _mid_ids != _jid_ids and len(_mid_ids) > 0:
+                        _only_j = _jid_ids - _mid_ids
+                        _only_m = _mid_ids - _jid_ids
+                        self._mindol_warn(
+                            "dual-store-consistency",
+                            Exception(f"JSON 与 Mindol 不一致: onlyJSON={len(_only_j)} onlyMindol={len(_only_m)}")
+                        )
+            except Exception as _e:
+                self._mindol_warn("dual-store-check", _e)
+
+        # Step 6: 清理旧备份
         self._clean_old_backups(filename, keep=5)
 
     def save_all(self, force: bool = False):
@@ -481,10 +577,37 @@ class RuleEngine:
             to_save = [f for f in self._dirty if f in filenames]
 
         # Step 1: 同步到 Mindol（权威存储，ACID 事务保护）
+        # C1 防再生：脏标记增量写——规则/模式单元已由 CRUD 逐条维护，
+        # 仅当数量不一致才全量同步；常规路径只同步 strikes/state（flush 轻量提交）。
         try:
             self._init_mindol()
             if self._mindol:
-                self._mindol_sync_all()
+                _rule_units = len(self._mindol.get_space(self._mindol.SPACE_RULE).memory_units)
+                if _rule_units != len(self._interceptions):
+                    print("[MINDOL] 规则数量不一致(memory=%d mindol=%d)，执行全量同步"
+                          % (len(self._interceptions), _rule_units))
+                    self._mindol_sync_all()
+                else:
+                    import os as _os
+                    _sp = str(Path(__file__).parent.parent.parent / "var" / "state" / "strikes_db.json")
+                    if _os.path.exists(_sp):
+                        try:
+                            with open(_sp, "r", encoding="utf-8") as _sf:
+                                _sd = json.load(_sf)
+                            if _sd:
+                                self._mindol_sync_strikes(_sd)
+                        except Exception:
+                            pass
+                    try:
+                        _sd = {
+                            "active_rules": len(self._interceptions),
+                            "active_patterns": len(self._patterns),
+                            "staging_rules": sum(1 for r in self._interceptions if r.lifecycle_status == "staging"),
+                            "last_sync": datetime.now().isoformat()
+                        }
+                        self._mindol_sync_state(_sd)
+                    except Exception:
+                        pass
         except Exception as _e:
             print(f"[MINDOL] primary sync failed: {_e}")
 
@@ -497,6 +620,9 @@ class RuleEngine:
 
     def add_interception(self, rule: InterceptionRule, auto_save: bool = False) -> str:
         """添加拦截规则 - 同步写入 Mindol（权威）"""
+        _issues = self._validate_trigger(rule.trigger_condition)
+        for _iss in _issues:
+            self._mindol_warn(f"add_interception trigger-check [{rule.id}]", Exception(_iss))
         if not rule.id:
             rule.id = f"rule_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(rule.trigger_condition) % 10000:04d}"
         if not rule.created_at:
@@ -508,8 +634,8 @@ class RuleEngine:
             self._init_mindol()
             if self._mindol:
                 self._sync_one_rule_to_mindol(rule)
-        except Exception:
-            pass
+        except Exception as _e:
+            self._mindol_warn("add_interception", _e)
         if auto_save:
             self._save_json("interception_rules.json", self._interceptions)
         return rule.id
@@ -532,6 +658,10 @@ class RuleEngine:
         rule = self.get_interception_by_id(rule_id)
         if not rule:
             return False
+        if "trigger_condition" in kwargs:
+            _issues = self._validate_trigger(kwargs["trigger_condition"])
+            for _iss in _issues:
+                self._mindol_warn(f"update_interception trigger-check [{rule_id}]", Exception(_iss))
         for key, value in kwargs.items():
             if hasattr(rule, key):
                 setattr(rule, key, value)
@@ -540,8 +670,8 @@ class RuleEngine:
         try:
             if self._mindol:
                 self._sync_one_rule_to_mindol(rule)
-        except Exception:
-            pass
+        except Exception as _e:
+            self._mindol_warn("update_interception", _e)
         return True
 
     def delete_interception(self, rule_id: str) -> bool:
@@ -556,15 +686,19 @@ class RuleEngine:
                         self._init_mindol()
                     if self._mindol:
                         self._mindol.remove_unit(f"rule_{rule_id}")
-                except Exception:
-                    pass
+                        if hasattr(self._mindol, "flush"):
+                            self._mindol.flush()
+                        else:
+                            self._mindol.save()
+                except Exception as _e:
+                    self._mindol_warn("delete_interception", _e)
                 return True
         return False
 
     # ─── 成功模式 CRUD ───
 
     def add_pattern(self, pattern: SuccessPattern) -> str:
-        """添加成功模式"""
+        """添加成功模式（同步写 Mindol 权威源，与 update_pattern 一致）"""
         if not pattern.id:
             pattern.id = f"pattern_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(pattern.pattern_name) % 10000:04d}"
         if not pattern.created_at:
@@ -573,8 +707,35 @@ class RuleEngine:
             pattern.last_triggered = datetime.now().isoformat()
         self._patterns.append(pattern)
         self._save_json("success_patterns.json", self._patterns)
+        # 同步 Mindol 权威单元（幂等 uid；失败必须可见，防再生）
+        try:
+            if self._mindol is None:
+                self._init_mindol()
+            if self._mindol:
+                import json as _j
+                _m = self._mindol
+                _uid = f"pat_{pattern.id}"
+                _text = _j.dumps({
+                    "id": pattern.id, "name": pattern.pattern_name, "scene": pattern.trigger_scenario,
+                    "confidence": pattern.confidence, "status": pattern.lifecycle_status,
+                    "source": pattern.source,
+                    "decision_logic": pattern.decision_logic or "",
+                    "micro_template": pattern.micro_template or "",
+                    "trigger_condition": pattern.trigger_condition or "",
+                    "logic_score": pattern.logic_score, "outcome_score": pattern.outcome_score,
+                    "triggered_count": pattern.triggered_count, "auto_promoted": pattern.auto_promoted,
+                    "created_at": pattern.created_at or "", "last_triggered": pattern.last_triggered or "",
+                    "valid_until": pattern.valid_until or ""
+                }, ensure_ascii=False)
+                _m.add_unit(text=_text, source="diegin_pattern", uid=_uid, space=_m.SPACE_PATTERN)
+                # 写后立即 commit，防止进程退出丢数据（与 _sync_one_rule_to_mindol 一致）
+                if hasattr(_m, "flush"):
+                    _m.flush()
+                else:
+                    _m.save()
+        except Exception as _e:
+            self._mindol_warn("add_pattern", _e)
         return pattern.id
-
     def get_patterns(self, active_only: bool = True) -> List[SuccessPattern]:
         """获取成功模式列表"""
         if active_only:
@@ -618,6 +779,11 @@ class RuleEngine:
                     "valid_until": pattern.valid_until or ""
                 }, ensure_ascii=False)
                 _m.add_unit(text=_text, source="diegin_pattern", uid=_uid, space=_m.SPACE_PATTERN)
+                # 写后立即 commit，防止进程退出丢数据
+                if hasattr(_m, "flush"):
+                    _m.flush()
+                else:
+                    _m.save()
         except Exception:
             pass
         return True

@@ -673,7 +673,7 @@ metadata:
 
 | **迭进预检** | engine/call_diegin.py check | 每次 AI 回复前规则匹配 |
 
-| **自动化引擎** | scripts/dgen_evolve.py | 自动观察→自动提议→写入规则 |
+| **自动化引擎** | engine/dgen_evolve.py | 自动观察→自动提议→写入规则 |
 
 | **健康度基线** | workspace/rule_health.json | 错误率、冲突率、超时率等指标 |
 
@@ -689,7 +689,7 @@ metadata:
 
 `
 
-用户确认提议 → dgen_evolve.py 写入规则 → trail 归档 → 下一轮预检生效
+用户确认提议 → engine/dgen_evolve.py 写入规则 → trail 归档 → 下一轮预检生效
 
 `
 
@@ -763,6 +763,7 @@ diegin/
 
 │   ├── call_diegin.py                  CLI 入口
 
+│   ├── dgen_evolve.py                  自动化引擎（健康度基线维护）
 │   ├── dgen_pre_check_runner.py        预检桥接
 
 │   └── evo/                            核心模块
@@ -787,12 +788,11 @@ diegin/
 
 │           └── domain_rules/            领域规则包（用户可扩展）
 
-├── scripts/                            自动化
 
-│   ├── dgen_evolve.py                  自动化引擎
+
+├── hooks/                              事件钩子（PreToolUse/PreReply 等）
 
 │   └── monitor_v3.py                   外部监控轮询（参考）
-
 ├── workspace/                          运行时模板
 
 │   ├── rule_health.json                健康度基线
@@ -827,15 +827,15 @@ Mindol 是迭进的**权威语义记忆引擎**，零外部依赖，纯本地运
 
 Mindol（内存优先·权威存储） ↔ RuleEngine（规则引擎）
 
-├─ rule      202 条规则（语义可检索）        JSON 副本（人类可读）
+├─ rule      263 条规则（语义可检索）        JSON 副本（写主·人类可读）
 
-├─ pattern    6 条成功模式
+├─ pattern    30 条成功模式
 
-├─ trade      2 条 strike + 30 条 Relation   hooks → mindol_bridge
+├─ trade      8 条（strike+Relation）         hooks → mindol_bridge
 
 ├─ state      1 条阶段状态                     pre_check 上下文注入
 
-└─ codex    582 条决策归档                     post_review 自动归档
+└─ codex    ~7,500 条决策归档                    post_review 自动归档
 
 `
 
@@ -865,11 +865,11 @@ Mindol（内存优先·权威存储） ↔ RuleEngine（规则引擎）
 
 `
 
-写入: API → Mindol(ACID事务) → JSON(人类可读副本)
+写入: 引擎 → JSON(写主·人类可读) → Mindol(检索镜像·加载时同步)
 
-读取: Mindol(权威) → 失败时回退 JSON → 失败时种子注入
+读取: JSON(写主) → 加载至 Mindol 内存检索 → 失败时种子注入
 
-恢复: Mindol↔JSON 互为备份，双向重建
+恢复: JSON↔Mindol 互为备份，单向重建（JSON→Mindol）
 
 `
 
@@ -901,7 +901,7 @@ cd engine && uv run python call_diegin.py activate
 
 ash
 
-python scripts/dgen_evolve.py   # 初始化健康度基线
+python engine/dgen_evolve.py   # 初始化健康度基线
 
 
 
@@ -993,7 +993,7 @@ pre_check() → mindol_context + display_line
 
 
 
-**来源:** dgen_rules.md · dgen_evolve.py · DGEN_GLOBAL_ACCESS.md · 引擎规则库
+**来源:** dgen_rules.md · engine/dgen_evolve.py · DGEN_GLOBAL_ACCESS.md · 引擎规则库
 
 ---
 

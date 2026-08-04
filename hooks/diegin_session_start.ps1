@@ -1,5 +1,29 @@
 ﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 
+function Write-AtomicFile {
+    param([string]$Path,[string]$Content)
+    # [C2] 原子写：tmp+Replace(真实备份) 防读半截；失败兜底 Delete+Move；任何情况清理 tmp 防残留
+    $tmp = $Path + ".tmp_" + [System.Guid]::NewGuid().ToString("N")
+    $bak = $Path + ".bak"
+    [System.IO.File]::WriteAllText($tmp, $Content, $script:utf8NoBOM)
+    $ok = $false
+    try {
+        if ([System.IO.File]::Exists($Path)) {
+            [System.IO.File]::Replace($tmp, $Path, $bak)
+            if ([System.IO.File]::Exists($bak)) { [System.IO.File]::Delete($bak) }
+        } else {
+            [System.IO.File]::Move($tmp, $Path)
+        }
+        $ok = $true
+    } catch {
+        # 兜底：非原子但保证不失败不残留
+        if ([System.IO.File]::Exists($Path)) { [System.IO.File]::Delete($Path) }
+        [System.IO.File]::Move($tmp, $Path)
+        $ok = $true
+    }
+    if ([System.IO.File]::Exists($tmp)) { [System.IO.File]::Delete($tmp) }
+}
+
 function Add-NoBOMLog {
     param([string]$Path,[string]$Message)
     $ts=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
@@ -28,7 +52,7 @@ function Write-PhaseState {
     $Data.Keys|ForEach-Object{$o|Add-Member NoteProperty $_ $Data[$_] -Force}
     $s.phases|Add-Member NoteProperty $Phase $o -Force
     $s.last_update=(Get-Date -Format "o")
-    [System.IO.File]::WriteAllText($g_sf,($s|ConvertTo-Json -Depth 5),$script:utf8NoBOM)
+    Write-AtomicFile -Path $g_sf -Content ($s|ConvertTo-Json -Depth 5)
 }
 
 $g_pr=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
@@ -75,4 +99,49 @@ try {
     [System.IO.File]::WriteAllText($ctxFile, $ctxJson, $script:utf8NoBOM)
 } catch { }
 
+
+# 会话图片清理：在模型请求前移除 image_url 等二进制内容（防止 keysync/DeepSeek 反序列化失败）
+try {
+    $imgClean = Join-Path $g_pr "hooks\diegin_session_image_clean.ps1"
+    if (Test-Path $imgClean) { & $imgClean }
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] IMAGE-CLEAN done"
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] IMAGE-CLEAN error: $($_.Exception.Message)"
+}
+
+
+# 迭进引擎自检（防复发 P4）：每次会话启动验证 Mindol 可加载/双存储一致/无恒真规则/关键规则/无图片残留
+try {
+    $selfCheck = Join-Path $g_pr "engine\diegin_self_check.py"
+    if (Test-Path $selfCheck) {
+        $pyExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"
+        if (-not (Test-Path $pyExe)) { $pyExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" }
+        if (Test-Path $pyExe) {
+            $scOut = & $pyExe $selfCheck 2>&1
+            $scExit = $LASTEXITCODE
+            $scStatus = "unknown"
+            try { $scJson = $scOut | ConvertFrom-Json; $scStatus = $scJson.status } catch {}
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] SELF-CHECK status=$scStatus exit=$scExit"
+            if ($scStatus -ne "ok") {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] SELF-CHECK WARN: $($scOut -join ' ' | Select-Object -First 1)"
+            }
+        } else {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] SELF-CHECK skip (no python)"
+        }
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] SELF-CHECK error: $($_.Exception.Message)"
+}
+
+
+# [防再生] 启动自愈：清理原子写遗留的 tmp 残留（Write-AtomicFile 异常终止时可能残留）
+$tmpFiles = @(Get-ChildItem -Path (Join-Path $g_pr "var\state") -Filter "*.tmp_*" -ErrorAction SilentlyContinue)
+if ($tmpFiles.Count -gt 0) {
+    foreach ($tf in $tmpFiles) {
+        try { [System.IO.File]::Delete($tf.FullName) } catch {}
+    }
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] TMP-CLEANUP removed=$($tmpFiles.Count)"
+} else {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] TMP-CLEANUP none"
+}
 exit 0

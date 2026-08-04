@@ -105,5 +105,40 @@ def record_decision(decision_type, summary):
         f.write(entry)
     print(f"[DGEN-EVOLVE] 决策已记录: {decision_type}")
 
+def maintenance_report(stats: dict):
+    """B2 最小接入：run_maintenance 将真实维护统计写入健康度基线（防孤儿脚本空转）"""
+    if not os.path.exists(HEALTH_FILE):
+        seed()
+    try:
+        with open(HEALTH_FILE, "r", encoding="utf-8") as f:
+            health = json.load(f)
+    except Exception:
+        return False
+    if "metrics" not in health:
+        health["metrics"] = {}
+    health["metrics"]["ruleCount"] = {"value": stats.get("rules", 0), "count": 1, "desc": "拦截规则总数"}
+    health["metrics"]["stagingCount"] = {"value": stats.get("staging", 0), "count": 1, "desc": "staging 待验证规则数"}
+    health["metrics"]["deprecationCount"] = {"value": stats.get("deprecated", 0), "count": 1, "desc": "本次弃用数"}
+    health["metrics"]["strikeTypeCount"] = {"value": stats.get("strikes", 0), "count": 1, "desc": "一二不过三 strike 类型数"}
+    health.setdefault("observations", []).append({
+        "ts": datetime.now().isoformat(),
+        "type": "maintenance_done",
+        "severity": "info",
+        "content": "维护完成: rules=%d staging=%d deprecated=%d strikes=%d" % (
+            stats.get("rules", 0), stats.get("staging", 0),
+            stats.get("deprecated", 0), stats.get("strikes", 0))
+    })
+    # 观察/提议防膨胀：只保留最近 100 条
+    for key in ("observations", "proposals"):
+        if len(health.get(key, [])) > 100:
+            health[key] = health[key][-100:]
+    health["lastUpdated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with open(HEALTH_FILE, "w", encoding="utf-8") as f:
+        json.dump(health, f, ensure_ascii=False, indent=2)
+    return True
+
 if __name__ == "__main__":
-    seed()
+    if not os.path.exists(HEALTH_FILE):
+        seed()
+    else:
+        print(f'[DGEN-EVOLVE] 健康度基线已存在: {HEALTH_FILE}，如需重建请先删除该文件')

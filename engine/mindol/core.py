@@ -188,12 +188,28 @@ class Mindol:
                     return True
             return False
 
+    
+    def flush(self):
+        """轻量提交：仅 commit 当前未提交事务（权威存储必须即时落盘，防止进程退出丢失）"""
+        if not self._db:
+            return
+        with self._lock:
+            try:
+                self._db.commit()
+            except Exception:
+                pass
+
     def save(self):
+        """提交未提交事务（增量持久化）。
+        所有单元/关系已在 add_unit/add_relation/remove_unit 时即时 INSERT/DELETE，
+        此处仅 commit 落盘——不再全量遍历重写（防每次对话 O(N) 重写 SQLite）。
+        """
         if not self._db: return
         with self._lock:
-            for sn, sp in self._spaces.items():
-                for u in sp.memory_units: self._persist_unit(u, sn)
-            self._db.commit()
+            try:
+                self._db.commit()
+            except Exception:
+                pass
 
     def _load(self):
         if not self._db: return

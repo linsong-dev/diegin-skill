@@ -19,6 +19,11 @@ class BehaviorTracker:
         self.rule_engine = rule_engine
         self.soft_elimination_threshold = 0.8
         self.decay_factor = 0.9
+        # C1 计数旁路：同进程合并 + 降频落盘（防 Mindol/JSON 全量重写）
+        self._counter_queue = {}
+        self._counter_events = 0
+        self._reconcile_counts_from_json()
+        self._apply_counter_sidecar()
 
     def _resolve_rule(self, rule_id: str):
         """查找规则（拦截规则优先，成功模式兜底）"""
@@ -41,6 +46,131 @@ class BehaviorTracker:
                 pass
         else:
             self.rule_engine.update_pattern(rule.id, **kwargs)
+
+    # ─── C1 计数旁路（脏标记增量写 + 同进程合并 + 降频双存储比对）───
+    C1_FLUSH_THRESHOLD = 20
+
+    def _counter_sidecar_path(self):
+        """旁路计数小文件（进程间计数连续性，崩溃不丢）"""
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                            "var", "state", "rule_counter_deltas.json")
+
+    def _load_counter_sidecar(self):
+        path = self._counter_sidecar_path()
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_counter_sidecar(self, data):
+        path = self._counter_sidecar_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".c1tmp" + str(os.getpid())
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
+        except Exception:
+            pass
+
+    _COUNTER_FIELDS = ("triggered_count", "ignored_count", "override_count",
+                       "last_triggered", "last_ignored", "confidence", "lifecycle_status")
+
+    def _reconcile_counts_from_json(self):
+        """降频双存储比对：Mindol 权威单元不携带计数，加载时用 JSON 计数补齐内存
+        （修复 v3.6 计数落盘 JSON 但加载走 Mindol 导致重启归零的问题）"""
+        try:
+            rd = self.rule_engine.rules_dir
+            for fname, rules in (("interception_rules.json", self.rule_engine._interceptions),
+                                 ("success_patterns.json", self.rule_engine._patterns)):
+                path = os.path.join(str(rd), fname)
+                if not os.path.exists(path):
+                    continue
+                with open(path, "r", encoding="utf-8") as f:
+                    jitems = json.load(f)
+                by_id = {it.get("id"): it for it in jitems if isinstance(it, dict)}
+                for r in rules:
+                    jr = by_id.get(r.id)
+                    if not jr:
+                        continue
+                    for k in ("triggered_count", "ignored_count", "override_count"):
+                        jv = jr.get(k) or 0
+                        if jv > (getattr(r, k, 0) or 0):
+                            setattr(r, k, jv)
+                    for k, jk in (("last_triggered", "last_triggered"), ("last_ignored", "last_ignored")):
+                        jv = jr.get(jk) or ""
+                        mv = getattr(r, k, "") or ""
+                        if jv and (not mv or jv > mv):
+                            setattr(r, k, jv)
+        except Exception:
+            pass
+
+    def _apply_counter_sidecar(self):
+        """加载旁路计数增量到内存（跨进程计数连续性；权威落盘由 flush 降频执行）"""
+        data = self._load_counter_sidecar()
+        if not data:
+            return
+        for rid, entry in data.items():
+            rule, _ = self._resolve_rule(rid)
+            if not rule:
+                continue
+            for dk, ck in (("triggered_delta", "triggered_count"),
+                           ("ignored_delta", "ignored_count"),
+                           ("override_delta", "override_count")):
+                d = entry.get(dk, 0) or 0
+                if d:
+                    setattr(rule, ck, (getattr(rule, ck, 0) or 0) + d)
+            for k in ("last_triggered", "last_ignored"):
+                if entry.get(k):
+                    setattr(rule, k, entry[k])
+        self._counter_queue = {k: dict(v) for k, v in data.items()}
+        self._counter_events = len(data)
+
+    def _queue_counter(self, rule_id, rule_type, **delta_fields):
+        """同进程合并计数增量；按阈值降频冲刷权威存储"""
+        entry = self._counter_queue.setdefault(rule_id, {"type": rule_type})
+        for k, v in delta_fields.items():
+            if k.endswith("_delta"):
+                entry[k] = (entry.get(k, 0) or 0) + v
+            else:
+                entry[k] = v
+        self._counter_events += 1
+        self._save_counter_sidecar(self._counter_queue)
+        if self._counter_events >= self.C1_FLUSH_THRESHOLD:
+            self.flush_counter_deltas()
+
+    def flush_counter_deltas(self):
+        """把旁路计数合并进权威 JSON（每类文件一次全量写），并清空旁路"""
+        if not self._counter_queue:
+            return 0
+        ids = list(self._counter_queue.keys())
+        try:
+            has_inter = has_pat = False
+            for rid in ids:
+                rule, rule_type = self._resolve_rule(rid)
+                if not rule:
+                    continue
+                if rule_type == "interception":
+                    has_inter = True
+                else:
+                    has_pat = True
+            # 内存已含全部增量（record 时 + 加载 sidecar 时），直接落盘当前值
+            if has_inter:
+                self.rule_engine._save_json("interception_rules.json", self.rule_engine._interceptions)
+            if has_pat:
+                self.rule_engine._save_json("success_patterns.json", self.rule_engine._patterns)
+            self._counter_queue = {}
+            self._counter_events = 0
+            self._save_counter_sidecar({})
+            print("[TRACKER] C1 计数合并落盘: %d 条" % len(ids))
+            return len(ids)
+        except Exception as _e:
+            print("[TRACKER] flush_counter_deltas failed: %s" % _e)
+            return 0
 
     def record_ignore(self, rule_id: str) -> Dict:
         """
@@ -77,10 +207,9 @@ class BehaviorTracker:
                     "ignore_rate": ignore_rate
                 }
 
-        self._save_rule(rule, rule_type,
-                        ignored_count=getattr(rule, 'ignored_count', 0),
-                        last_ignored=rule.last_ignored
-                        )
+        self._queue_counter(rule_id, rule_type,
+                            ignored_delta=1,
+                            last_ignored=rule.last_ignored)
         return {"action": "updated", "ignore_count": getattr(rule, 'ignored_count', 0)}
 
     def record_override(self, rule_id: str) -> Dict:
@@ -90,7 +219,7 @@ class BehaviorTracker:
             return {"action": "not_found"}
 
         rule.override_count += 1
-        self._save_rule(rule, rule_type, override_count=rule.override_count)
+        self._queue_counter(rule_id, rule_type, override_delta=1)
         return {"action": "updated", "override_count": rule.override_count}
 
     def record_triggered(self, rule_id: str) -> Dict:
@@ -102,10 +231,9 @@ class BehaviorTracker:
         rule.triggered_count += 1
         rule.last_triggered = datetime.now().isoformat()
 
-        self._save_rule(rule, rule_type,
-                        triggered_count=rule.triggered_count,
-                        last_triggered=rule.last_triggered
-                        )
+        self._queue_counter(rule_id, rule_type,
+                            triggered_delta=1,
+                            last_triggered=rule.last_triggered)
         return {"action": "updated", "triggered_count": rule.triggered_count}
 
     
@@ -211,7 +339,7 @@ class BehaviorTracker:
         在第2次strike阻断后自动触发守三复盘，生成一条预防性规则写入规则库。"""
         from rule_engine import InterceptionRule
         import datetime as _dt
-        now = _dt.datetime.now()
+        now = _dt.datetime.now().isoformat()
         
         # 止观门检查: 如果该error_type已被close，跳过守三复盘
         try:
@@ -238,7 +366,7 @@ class BehaviorTracker:
                 print(f"  [PACE] 缓急律: {ch} -> 守三跳过本轮")
                 return {"boosted": 0, "decayed": 0, "archived": 0, "skipped": ch}
         except Exception:
-            now = _dt.datetime.now()
+            now = _dt.datetime.now().isoformat()
         
         trigger_map = {
             'encoding_write_corruption': ('op == file_write AND NOT encoding_verified', 'verify_encoding_before_write; if_fail_fix_it'),
@@ -293,7 +421,7 @@ class BehaviorTracker:
         mode='verified_fix'：①立改"改毕验"通过后，固化修复成功经验（文档①语义落地）"""
         from rule_engine import SuccessPattern
         import datetime as _dt
-        now = _dt.datetime.now()
+        now = _dt.datetime.now().isoformat()
         
         # 止观门检查: 如果已封存，跳过攻七写入
         try:
@@ -320,7 +448,7 @@ class BehaviorTracker:
                 print(f"  [PACE] 缓急律: {ch} -> 守三跳过本轮")
                 return {"boosted": 0, "decayed": 0, "archived": 0, "skipped": ch}
         except Exception:
-            now = _dt.datetime.now()
+            now = _dt.datetime.now().isoformat()
         
         pattern_map = {
             'encoding_write_corruption': ('编码写入前验证', 'file_write前检查encoding，确认UTF-8 NoBOM再写入'),
@@ -419,6 +547,9 @@ class BehaviorTracker:
                     source='auto_self_error', lifecycle_status='alerting', created_at=now,
                     triggered_count=sn, ignored_count=0, override_count=0)
                 self.rule_engine.add_interception(nr)
+            else:
+                # 防再生 L1: 预置规则下第1次 strike 同步计数/时间（1警→2阻→3升级状态准确）
+                self.rule_engine.update_interception(rule.id, triggered_count=sn, last_triggered=now)
             # 写 warning 标记：告知 AI "这个错误已被记录，下次要警惕"
             op = self._strikes_db_path().replace('strikes_db.json','dgen_warning.json')
             od = {'warned_error_type':error_type,'strike_count':sn,
