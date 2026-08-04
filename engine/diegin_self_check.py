@@ -258,6 +258,74 @@ def main():
         result["dead_rule_count"] = -1
         result["issues"].append("死规则检测异常: %s" % e)
 
+
+    # 11) 基线对比（P4-15 L4 启动清理）：关键指标 vs 冻结基线，回归即报警
+    try:
+        base_file = os.path.join(STATE_DIR, "system_baseline.json")
+        baseline = {}
+        try:
+            with io.open(base_file, "r", encoding="utf-8") as f:
+                baseline = json.load(f)
+        except Exception:
+            baseline = {}
+        regressions = []
+        rj2 = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules.json")
+        cur_counts = {}
+        try:
+            with io.open(rj2, "r", encoding="utf-8") as f:
+                jr = json.load(f)
+            for r in jr:
+                st = r.get("lifecycle_status", "")
+                cur_counts[st] = cur_counts.get(st, 0) + 1
+            regen = [str(r.get("id", "")) for r in jr
+                     if str(r.get("id", "")).startswith("xdomain_merged_")
+                     or str(r.get("id", "")) == "pat_rule_pat_auto_auto_fix_command_failure_1"]
+            if regen and baseline.get("no_regenerated_rules", True):
+                regressions.append("泛化再生规则出现: %s" % ", ".join(regen[:3]))
+            if baseline.get("rules_active") is not None and abs(cur_counts.get("active", 0) - baseline["rules_active"]) > baseline.get("rules_active_tol", 2):
+                regressions.append("active 规则数偏离基线: cur=%d base=%d" % (cur_counts.get("active", 0), baseline["rules_active"]))
+            if baseline.get("rules_total") and abs(sum(cur_counts.values()) - baseline["rules_total"]) > baseline.get("rules_total_tol", 8):
+                regressions.append("规则总数偏离基线: cur=%d base=%d" % (sum(cur_counts.values()), baseline["rules_total"]))
+        except Exception as e:
+            regressions.append("规则库读取异常: %s" % e)
+        pj = os.path.join(ENGINE_DIR, "evo", "rules", "success_patterns.json")
+        try:
+            with io.open(pj, "r", encoding="utf-8") as f:
+                pats = json.load(f)
+            empty = sum(1 for x in pats if not str(x.get("decision_logic", "") or "").strip())
+            if baseline.get("empty_shell_max") is not None and empty > baseline["empty_shell_max"]:
+                regressions.append("空壳模式增长: cur=%d max=%d" % (empty, baseline["empty_shell_max"]))
+        except Exception as e:
+            regressions.append("模式库读取异常: %s" % e)
+        try:
+            with io.open(os.path.join(STATE_DIR, "strikes_db.json"), "r", encoding="utf-8") as f:
+                st2 = json.load(f)
+            n_strikes = len(st2) if isinstance(st2, (dict, list)) else 0
+            if baseline.get("strikes_max") and n_strikes > baseline["strikes_max"]:
+                regressions.append("strikes 超限: cur=%d max=%d" % (n_strikes, baseline["strikes_max"]))
+        except Exception:
+            pass
+        root = os.path.dirname(ENGINE_DIR)
+        if baseline.get("dgen_rules_md_exists") and not os.path.exists(os.path.join(root, "workspace", "dgen_rules.md")):
+            regressions.append("dgen_rules.md 缺失")
+        if baseline.get("hooks_dual_consistent"):
+            c1 = os.path.join(root, "config", "hooks.json")
+            c2 = os.path.join(root, "hooks", "hooks.json")
+            try:
+                same = os.path.exists(c1) and os.path.exists(c2) and open(c1, "rb").read() == open(c2, "rb").read()
+                if not same:
+                    regressions.append("hooks.json 双源不一致")
+            except Exception:
+                regressions.append("hooks.json 读取异常")
+        result["checks"]["baseline_no_regression"] = len(regressions) == 0
+        result["baseline_counts"] = cur_counts
+        result["baseline_regressions"] = regressions
+        if regressions:
+            result["issues"].append("基线回归 %d 项: %s" % (len(regressions), "; ".join(regressions)))
+    except Exception as e:
+        result["checks"]["baseline_no_regression"] = False
+        result["issues"].append("基线对比异常: %s" % e)
+
     # 汇总
     failed = [k for k, v in result["checks"].items() if v is False]
     result["status"] = "FAIL" if failed else "ok"

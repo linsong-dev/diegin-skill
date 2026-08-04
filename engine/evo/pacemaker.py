@@ -12,7 +12,6 @@ class PaceMaker:
 
     URGENT_KEYWORDS = [
         "紧急", "urgent", "立即", "immediately", "asap", "fix now",
-        "broken", "crash", "down", "失败", "error", "timeout"
     ]
 
     DEEP_KEYWORDS = [

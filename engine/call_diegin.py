@@ -35,6 +35,20 @@ from evo.main import (get_rules_for_task, arbitrate, full_review, record_behavio
 from evo.error_detector import ErrorDetector
 
 
+def _append_audit(msg: str) -> None:
+    """追加审计日志（与 hooks 共用 diegin_audit.log）"""
+    try:
+        _audit_log = os.path.join(os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
+        _d = os.path.dirname(_audit_log)
+        if _d and not os.path.exists(_d):
+            os.makedirs(_d, exist_ok=True)
+        _ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        with open(_audit_log, "a", encoding="utf-8") as _f:
+            _f.write(f"{_ts} {_ts} {msg}\n")
+    except Exception:
+        pass
+
+
 
 
 
@@ -301,7 +315,15 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
 
-    result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits)
+    # ========== 裁决律真实输入：P2 止观门状态 + P3 缓急律通道 ==========
+    closure_state = {"status": "open", "task_id": task_id}
+    try:
+        if task_id and closure_is_closed(task_id):
+            closure_state["status"] = "closed"
+    except Exception:
+        pass
+    result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
+                       closure_state=closure_state, pace_channel=pace_result)
 
     # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
     try:
@@ -389,16 +411,17 @@ def post_review(task_context: dict, task_result: dict) -> dict:
     except Exception:
         pass
 
-    # ========== v3.5: 输出实质验证（去伪存真·claim_checker） ==========
+    # ========== v3.5: 输出实质验证（去伪存真·claim_checker，去静默化: 记录审计日志） ==========
     try:
         from evo.claim_checker import get_checker
         _out_text = str(task_result.get("output", task_result.get("text", task_result.get("message", ""))))[:2000]
         if _out_text:
             _vc = get_checker().verify_output(_out_text, task_context)
+            _append_audit(f"[CLAIM-CHECK] verdict={_vc.get('verdict', '?')} claims={_vc.get('total_claims', 0)} contradicted={_vc.get('contradicted', 0)}")
             if _vc.get("verdict") == "FAIL":
-                print(f"[CLAIM-CHECK] 输出含 {_vc["contradicted"]} 条矛盾声明，已记录待修正")
-    except Exception:
-        pass
+                print(f"[CLAIM-CHECK] 输出含 {_vc.get('contradicted', 0)} 条矛盾声明，已记录待修正")
+    except Exception as _ce:
+        _append_audit(f"[CLAIM-CHECK] ERROR {_ce}")
 
     # 自动维护：检查距上次维护是否超过24h
     _maint_file = os.path.join(os.path.dirname(__file__), 'var', 'state', 'last_maintenance.txt')
@@ -683,7 +706,15 @@ if __name__ == "__main__":
 
         arbiter_obj = _get_arbiter()
 
-        arb_result = arbiter_obj.resolve(matched_inters, [])
+        # 裁决律真实输入：P2 止观门状态 + P3 缓急律通道
+        try:
+            from evo.main import pace_classify, closure_is_closed
+            _pace_c = pace_classify(context)
+            _tid = context.get("task_id", context.get("cmd", context.get("message", "")))
+            _cs = {"status": "closed" if (_tid and closure_is_closed(_tid)) else "open", "task_id": _tid}
+        except Exception:
+            _pace_c, _cs = None, None
+        arb_result = arbiter_obj.resolve(matched_inters, [], closure_state=_cs, pace_channel=_pace_c)
 
         is_blocked = arb_result.decision.value in ("BLOCK", "IRON_WALL_BLOCK", "ESCALATE")
 
@@ -817,7 +848,15 @@ if __name__ == "__main__":
         for rule in interceptions:
             if engine._match_condition(rule.trigger_condition, ctx):
                 matched_inters.append(rule)
-        arb_result = arbiter_obj.resolve(matched_inters, [])
+        # 裁决律真实输入：P2 止观门状态 + P3 缓急律通道
+        try:
+            from evo.main import pace_classify, closure_is_closed
+            _pace_c = pace_classify(ctx)
+            _tid = ctx.get("task_id", ctx.get("cmd", ctx.get("message", "")))
+            _cs = {"status": "closed" if (_tid and closure_is_closed(_tid)) else "open", "task_id": _tid}
+        except Exception:
+            _pace_c, _cs = None, None
+        arb_result = arbiter_obj.resolve(matched_inters, [], closure_state=_cs, pace_channel=_pace_c)
         is_blocked = getattr(arb_result, 'decision', None)
         is_blocked_val = is_blocked.value if is_blocked else "ALLOW"
         guard_blocked = is_blocked_val in ("BLOCK", "IRON_WALL_BLOCK", "ESCALATE")
@@ -1018,9 +1057,17 @@ if __name__ == "__main__":
         第2次：加固规则
         第3次：写 override.json 强制阻断
         """
-        error_type = sys.argv[2] if len(sys.argv) > 2 else "unknown"
-        detail = sys.argv[3] if len(sys.argv) > 3 else ""
-        severity = sys.argv[4] if len(sys.argv) > 4 else "high"
+        if len(sys.argv) > 2:
+            error_type = sys.argv[2]
+            detail = sys.argv[3] if len(sys.argv) > 3 else ""
+            severity = sys.argv[4] if len(sys.argv) > 4 else "high"
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            _in = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            error_type = _in.get("error_type", _in.get("type", "unknown"))
+            detail = _in.get("detail", _in.get("error", ""))
+            severity = _in.get("severity", "high")
         result = ensure_three_strikes(error_type, detail, severity)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     elif mode == "arbitrate_detail":
@@ -1244,11 +1291,20 @@ if __name__ == "__main__":
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif mode == "closure_close":
-        """止观门：封存一个事项"""
-        item_id = sys.argv[2]
-        summary = sys.argv[3] if len(sys.argv) > 3 else ""
+        """止观门：封存一个事项（v3.7 支持 stdin JSON 传 learnings）"""
+        learnings = None
+        if len(sys.argv) > 2:
+            item_id = sys.argv[2]
+            summary = sys.argv[3] if len(sys.argv) > 3 else ""
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            _in = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            item_id = _in.get("item_id", _in.get("id", "unknown"))
+            summary = _in.get("summary", _in.get("description", ""))
+            learnings = _in.get("learnings", None)
         cg = get_closure()
-        result = cg.close(item_id, summary)
+        result = cg.close(item_id, summary, learnings=learnings)
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif mode == "closure_status":

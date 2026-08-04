@@ -60,7 +60,8 @@ $g_sf=Join-Path $g_pr "var\state\phase_state.json"
 $auditLog=Join-Path $g_pr "var\logs\diegin_audit.log"
 $time=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
-$pythonExe="$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"
+if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" }
 $enginePy=Join-Path $g_pr "engine\call_diegin.py"
 $engineOk=$false;$ruleCount=0
 if(Test-Path $pythonExe){
@@ -122,6 +123,9 @@ try {
             $scStatus = "unknown"
             try { $scJson = $scOut | ConvertFrom-Json; $scStatus = $scJson.status } catch {}
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] SELF-CHECK status=$scStatus exit=$scExit"
+            if ($scJson.baseline_regressions) {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] BASELINE regression_count=$($scJson.baseline_regressions.Count)"
+            }
             if ($scStatus -ne "ok") {
                 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:SessionStart] SELF-CHECK WARN: $($scOut -join ' ' | Select-Object -First 1)"
             }

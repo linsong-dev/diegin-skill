@@ -22,6 +22,74 @@ FAIL_CMD = ["command not found","is not recognized","access is denied",
             "permission denied","cannot find","timed out","timeout"]
 
 
+
+def build_success_baseline(success_log_path=None, patterns_path=None, evidence_path=None):
+    """P3-11 守三期望行为来源：从 success_log / success_patterns / evidence_trail 提取成功基线。
+    返回 {key: {"source","count","expectation","confidence"}}，key=op/tool/scenario"""
+    import json as _json
+    from collections import Counter as _Counter
+    _base = os.path.dirname(os.path.abspath(__file__))
+    baseline = {}
+    # 源1: success_log.json（成功操作签名：op -> 成功理由）
+    _sl = success_log_path or os.path.join(_base, "..", "workspace", "success_log.json")
+    try:
+        with open(_sl, "r", encoding="utf-8") as _f:
+            _logs = _json.load(_f)
+        _op_cnt = _Counter()
+        _op_notes = {}
+        for _x in _logs:
+            if not isinstance(_x, dict):
+                continue
+            _op = str(_x.get("op", "") or "")
+            if not _op:
+                continue
+            _op_cnt[_op] += 1
+            _rs = _x.get("reasons") or []
+            _note = ";".join(str(r) for r in _rs[:3])
+            _op_notes[_op] = _note or _op_notes.get(_op, "")
+        for _op, _c in _op_cnt.items():
+            baseline[_op] = {"source": "success_log", "count": _c,
+                             "expectation": _op_notes.get(_op, "") or "success",
+                             "confidence": min(5.0, 3.0 + _c * 0.5)}
+    except Exception:
+        pass
+    # 源2: success_patterns.json 非空 decision_logic（期望行为=决策逻辑）
+    _sp = patterns_path or os.path.join(_base, "rules", "success_patterns.json")
+    try:
+        with open(_sp, "r", encoding="utf-8") as _f:
+            _pats = _json.load(_f)
+        for _p in _pats:
+            _logic = str(_p.get("decision_logic", "") or "").strip()
+            if not _logic:
+                continue
+            _scene = str(_p.get("trigger_scenario", "") or "")
+            _key = _scene if _scene else str(_p.get("pattern_name", "") or "")
+            if _key:
+                baseline[_key] = {"source": "pattern", "count": _p.get("triggered_count", 0) or 0,
+                                  "expectation": _logic, "confidence": _p.get("confidence", 0) or 0}
+    except Exception:
+        pass
+    # 源3: evidence_trail pass 记录（工具级已验证成功基线）
+    _ev = evidence_path or os.path.join(_base, "..", "var", "state", "evidence_trail.json")
+    try:
+        with open(_ev, "r", encoding="utf-8") as _f:
+            _evs = _json.load(_f)
+        _tool_cnt = _Counter()
+        for _x in _evs:
+            if isinstance(_x, dict) and _x.get("verdict") == "pass":
+                _ctx = _x.get("context", {}) or {}
+                _tool = _ctx.get("tool") or _x.get("rule_id") or ""
+                if _tool and _tool not in ("r1", "r2", "test_active", "test_staging"):
+                    _tool_cnt[_tool] += 1
+        for _tool, _c in _tool_cnt.items():
+            if _c >= 3 and _tool not in baseline:
+                baseline[_tool] = {"source": "evidence", "count": _c,
+                                   "expectation": "exit_0", "confidence": 5.0}
+    except Exception:
+        pass
+    return baseline
+
+
 class ErrorDetector:
     """全局操作监控器。"""
     
@@ -95,7 +163,32 @@ class ErrorDetector:
                     "detail":"timeout=" + str(dur) + "ms cmd=" + cmd[:40],"matched":"timeout"}
         return None
     
-    def detect_and_record(self, ctx):
+    def _check_success_deviation(self, ctx, baseline):
+        """守三·期望行为偏离：成功基线强的可靠操作突发失败 → 标记 baseline_regression + 附期望行为"""
+        op = ctx.get("op", "")
+        if int(ctx.get("exit", 0) or 0) == 0 or op not in ("cmd", "git_push", "file_write"):
+            return None
+        entry = baseline.get(op)
+        if not entry:
+            tool = ctx.get("tool_name", ctx.get("tool", ""))
+            entry = baseline.get(tool) if tool else None
+        if not entry:
+            return None
+        count = int(entry.get("count", 0) or 0)
+        source = str(entry.get("source", "") or "")
+        # 基线强度门槛：pattern 任意 / success_log>=2 / evidence>=10
+        strong = (source == "pattern") or (source == "success_log" and count >= 2) or (source == "evidence" and count >= 10)
+        if not strong:
+            return None
+        return {
+            "deviation": "baseline_regression",
+            "expected_behavior": str(entry.get("expectation", "") or "")[:120],
+            "baseline_source": source,
+            "baseline_count": count,
+        }
+
+    def detect_and_record(self, ctx, baseline=None):
+        """P3-11 守三检测：失败检测 + 成功基线偏离增强（期望行为喂给守三 strike 记录）"""
         op = ctx.get("op","")
         result = None
         # 如果有 force_error，直接触发一二不过三
@@ -106,7 +199,6 @@ class ErrorDetector:
                 "severity": ctx.get("force_severity", "high"),
                 "detail": ctx.get("force_detail", "")
             }
-            self._trigger(result)
         # 正常检测（修复：移到 return 之前）
         if result is None:
             if op == "file_write":
@@ -116,9 +208,22 @@ class ErrorDetector:
                                        ctx.get("out",""), ctx.get("err",""), ctx.get("dur",0))
                 if result and op == "git_push":
                     result["error"] = "git_push_failure"
-            if result:
-                self._trigger(result)
-                self._log.append({"t":datetime.datetime.now().isoformat(),"r":result})
+        # P3-11 成功基线偏离增强（触发前附加期望行为，喂给守三）
+        if result is not None and not force_error:
+            try:
+                if baseline is None:
+                    baseline = build_success_baseline()
+                _dev = self._check_success_deviation(ctx, baseline)
+                if _dev:
+                    result["deviation"] = _dev["deviation"]
+                    result["expected_behavior"] = _dev["expected_behavior"]
+                    result["baseline_source"] = _dev["baseline_source"]
+                    result["baseline_count"] = _dev["baseline_count"]
+            except Exception:
+                pass
+        if result:
+            self._trigger(result)
+            self._log.append({"t":datetime.datetime.now().isoformat(),"r":result})
         # 沉默失败检测：未匹配任何规则的调用也追踪
         if result is None and op:
             self._silent_fallback(op, ctx)
@@ -129,10 +234,14 @@ class ErrorDetector:
         if tracker is None:
             return
         try:
+            _task_ctx = {"auto_detected": True, "severity": detection.get("severity", "")}
+            if detection.get("expected_behavior"):
+                _task_ctx["expected_behavior"] = detection.get("expected_behavior")
+                _task_ctx["baseline_deviation"] = detection.get("deviation", "")
             r = tracker.record_self_error(
                 error_type=detection["error"],
                 detail=detection.get("detail",""),
-                task_context={"auto_detected":True,"severity":detection.get("severity","")}
+                task_context=_task_ctx
             )
             a = r.get("action","")
             tag = ""

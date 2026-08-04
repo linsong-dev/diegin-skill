@@ -80,6 +80,37 @@ $enginePy=Join-Path $g_pr "engine\call_diegin.py"
 $stateDir=Join-Path $g_pr "var\state"
 
 Write-PhaseState -Phase "post_tool" -Status "completed"
+# [P1.2] 统一读取 hook 输入（stdin 只读一次，供 detect/record_error/closure 复用）
+$stdin = ""
+$hookInput = $null
+$toolName = ""
+$toolCmd = ""
+$toolExitCode = $null
+$toolError = ""
+$snapshotExit = $LASTEXITCODE
+try {
+    $stdin = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput()).ReadToEnd()
+    if ($stdin) {
+        $hookInput = $stdin | ConvertFrom-Json
+        $toolName = $hookInput.tool_name
+        if ($hookInput.tool_input) { if ($hookInput.tool_input.command) { $toolCmd = $hookInput.tool_input.command } }
+        if ($hookInput.command) { $toolCmd = $hookInput.command }
+        if ($hookInput.cmd) { $toolCmd = $hookInput.cmd }
+        if ($null -ne $hookInput.exit_code) { $toolExitCode = $hookInput.exit_code }
+        if ($hookInput.error) { $toolError = $hookInput.error }
+        if ($hookInput.stderr) { $toolError = $hookInput.stderr }
+        if ($hookInput.tool_response) {
+            $resp = [string]$hookInput.tool_response
+            if ($resp -match 'Cannot find drive|DriveNotFound|not recognized|command not found|Access is denied|Permission denied|Cannot find path|is not recognized|不是内部或外部命令|找不到路径|拒绝访问|未能找到') {
+                if (-not $toolError) { $toolError = $resp; if ($toolError.Length -gt 400) { $toolError = $toolError.Substring(0, 400) } }
+                if ($null -eq $toolExitCode) { $toolExitCode = 1 }
+            }
+        }
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [DETECT] hook_input_parse_error=$($_.Exception.Message)"
+}
+
 
 # DGEN 标志状态升级：allowed -> verified
 $markerFile = Join-Path $stateDir "dgen_marker_pending.json"
@@ -114,23 +145,14 @@ if (Test-Path $markerFile) {
 
 # 攻七：记录工具调用成功（v3.6.1 传递命令文本，实质化模式库）
 try {
-    $stdin = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput()).ReadToEnd()
-    if ($stdin) {
-        $hookInput = $stdin | ConvertFrom-Json
-        $toolName = $hookInput.tool_name
-        $toolCmd = ""
-        if ($hookInput.tool_input) { if ($hookInput.tool_input.command) { $toolCmd = $hookInput.tool_input.command } }
-        if ($hookInput.command) { $toolCmd = $hookInput.command }
-        if ($hookInput.cmd) { $toolCmd = $hookInput.cmd }
-        if ($toolName -and (Test-Path $pythonExe)) {
-            # v3.6.6 修复：PowerShell argv 会拆分含引号/分号的命令 → 改 stdin JSON 传递（无损）
-            $rsJson = @{tool_name=$toolName; method=$toolCmd} | ConvertTo-Json -Compress
-            $recResult = $rsJson | & $pythonExe $enginePy record_success 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"
-            }
-            Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName sandwich=ok"
+    if ($toolName -and (Test-Path $pythonExe)) {
+        # v3.6.6 修复：PowerShell argv 会拆分含引号/分号的命令 → 改 stdin JSON 传递（无损）
+        $rsJson = @{tool_name=$toolName; method=$toolCmd} | ConvertTo-Json -Compress
+        $recResult = $rsJson | & $pythonExe $enginePy record_success 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"
         }
+        Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName sandwich=ok"
     }
 } catch {
     Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool record_error=$($_.Exception.Message)"
@@ -158,9 +180,7 @@ if ($genCount -ge 5) {
 
 # 一二不过三：错误检测（读取工具执行结果，如有错误则记录strike）
 try {
-    $toolExitCode = $LASTEXITCODE
-    $toolError = ""
-    $toolCmd = ""
+    if ($null -eq $toolExitCode) { $toolExitCode = $snapshotExit }
     
     # 从 stdin 读取更多上下文
     if ($stdin) {
@@ -169,6 +189,13 @@ try {
             if ($hookInput.exit_code -or $hookInput.exit_code -eq 0) { $toolExitCode = $hookInput.exit_code }
             if ($hookInput.error) { $toolError = $hookInput.error }
             if ($hookInput.stderr) { $toolError = $hookInput.stderr }
+        if ($hookInput.tool_response) {
+            $resp = [string]$hookInput.tool_response
+            if ($resp -match 'Cannot find drive|DriveNotFound|not recognized|command not found|Access is denied|Permission denied|Cannot find path|is not recognized|不是内部或外部命令|找不到路径|拒绝访问|未能找到') {
+                if (-not $toolError) { $toolError = $resp; if ($toolError.Length -gt 400) { $toolError = $toolError.Substring(0, 400) } }
+                if ($null -eq $toolExitCode) { $toolExitCode = 1 }
+            }
+        }
             if ($hookInput.command) { $toolCmd = $hookInput.command }
             if ($hookInput.cmd) { $toolCmd = $hookInput.cmd }
         } catch {}
@@ -187,8 +214,22 @@ try {
             cmd = $toolCmd
         } | ConvertTo-Json -Compress
         $analyzeResult = $analyzeCtx | & $pythonExe $enginePy analyze 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze done exit=$toolExitCode result=$($analyzeResult -replace "`n",' ' -replace "`r",'')"
+        $analyzeText = ($analyzeResult | Out-String).Trim()
+        $flat = $analyzeText.Replace("`n", " ").Replace("`r", "")
+        Add-NoBOMLog -Path $auditLog -Message "$time [DETECT] tool=$toolName exit=$toolExitCode result=$flat"
+        if ($analyzeText -notmatch '"error"') {
+            $errType = "tool_error_" + $toolName
+            $errDetail = "exit=" + $toolExitCode
+            if ($toolError) { $errDetail = $toolError }
+            if ($errDetail.Length -gt 200) { $errDetail = $errDetail.Substring(0, 200) }
+            $recErrCtx = @{
+                error_type = $errType
+                detail = $errDetail
+                severity = "high"
+            } | ConvertTo-Json -Compress
+            $recErrResult = $recErrCtx | & $pythonExe $enginePy record_error 2>&1
+            $flatRec = $recErrResult.Replace("`n", " ").Replace("`r", "")
+            Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] record_error type=$errType result=$flatRec"
         }
         # 即时重检：analyze 后立即检查 strike 状态，如已达第2次则确保 override 已写入
         $strikesFile = Join-Path $g_pr "var\state\strikes_db.json"
@@ -208,7 +249,32 @@ try {
     Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze error=$($_.Exception.Message)"
 }
 
-# v3.6: post_review 节流接入（每5次成功工具调用触发一次复盘：置信度回流 + 24h维护）
+# 止观门：post_tool 封存本次工具调用（[CLOSURE] 配对 + archive 增长 + learnings 打包）
+try {
+    if (Test-Path $pythonExe) {
+        $closureId = "post_tool_" + $toolName + "_" + (Get-Date -Format "yyyyMMddHHmmssfff")
+        $closeSummary = "tool=" + $toolName + " exit=" + $toolExitCode
+        $learnings = @()
+        $learnings += ("tool=" + $toolName)
+        $learnings += ("exit=" + $toolExitCode)
+        if ($toolError) {
+            $lkErr = $toolError
+            if ($lkErr.Length -gt 150) { $lkErr = $lkErr.Substring(0, 150) }
+            $learnings += ("error: " + $lkErr)
+        }
+        if ($detectJson.error) { $learnings += ("detect: " + $detectJson.error) }
+        $closureCtx = @{
+            item_id = $closureId
+            summary = $closeSummary
+            learnings = $learnings
+        } | ConvertTo-Json -Compress
+        $closeResult = $closureCtx | & $pythonExe $enginePy closure_close 2>&1
+        $flatClose = $closeResult.Replace("`n", " ").Replace("`r", "")
+        Add-NoBOMLog -Path $auditLog -Message "$time [CLOSURE] post_tool close id=$closureId learnings=$($learnings.Count) result=$flatClose"
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [CLOSURE] post_tool error=$($_.Exception.Message)"
+}
 try {
     $reviewCounterFile = Join-Path $stateDir "post_review_counter.txt"
     $reviewCount = 0

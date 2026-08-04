@@ -54,7 +54,7 @@ class ClosureGate:
         self._open_items.append(entry)
         return entry
 
-    def close(self, item_id, summary="", result="completed"):
+    def close(self, item_id, summary="", result="completed", learnings=None):
         now = datetime.datetime.now().isoformat()
         item = None
         self._open_items = [i for i in self._open_items if i["id"] != item_id]
@@ -68,6 +68,11 @@ class ClosureGate:
         item["status"] = "closed"
         item["result"] = result
         item["summary"] = summary[:200] if summary else ""
+        # v3.7 封存打包 key learnings（止观门完形：事毕提炼可复用经验）
+        _lk = learnings or []
+        if isinstance(_lk, str):
+            _lk = [_lk]
+        item["learnings"] = [str(x)[:200] for x in _lk][:5] if _lk else []
         self._closed_items = [i for i in self._closed_items if i["id"] != item_id]
         self._closed_items.append(item)
         self._save_archive()

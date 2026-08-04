@@ -85,10 +85,9 @@ class Reviewer:
         # 阶段6：写入规则库
         for output in fused_outputs:
             if output["type"] == "interception_rule":
-                rule = InterceptionRule(**output)
-                self.rule_engine.add_interception(rule)
+                rule = InterceptionRule(**{k: v for k, v in output.items() if k != "type"})
             elif output["type"] == "success_pattern":
-                pattern = SuccessPattern(**output)
+                pattern = SuccessPattern(**{k: v for k, v in output.items() if k != "type"})
                 self.rule_engine.add_pattern(pattern)
 
         for f in filter_result["filtered_signals"]:
@@ -110,16 +109,50 @@ class Reviewer:
     # ─── 各阶段实现 ───
 
     def _positive_light_review(self, result: Dict) -> List[ReviewSignal]:
-        """
-        正向轻回顾
-        注意：实际信号提取由 AI 在 Prompt 中完成
-        """
-        return []
+        """正向轻回顾：从任务结果提取可复用成功信号（v3.7 实装，替代空实现）"""
+        signals = []
+        if not result:
+            return signals
+        status = str(result.get("status", "")).lower()
+        exit_code = result.get("exit_code", result.get("exit", 0))
+        text = str(result.get("output", result.get("text", result.get("message", ""))))[:1000]
+        success_state = status in ("completed", "success", "ok", "done", "passed") or (status != "failed" and exit_code == 0)
+        if not success_state:
+            return signals
+        if not text or len(text.strip()) < 5:
+            return signals  # 无实质输出，不产生可复用信号（攻七质量门槛）
+        tool = str(result.get("tool", result.get("tool_name", "")))[:40]
+        desc = f"工具 {tool} 成功完成: {text.strip()[:80]}"
+        signals.append(ReviewSignal(
+            type="positive",
+            linked_rules=[],
+            attribution={"source": "post_review", "confidence": "low"}
+        ))
+        return signals
 
     def _negative_deep_review(self, result: Dict) -> List[ReviewSignal]:
-        """负向深挖"""
-        return []
-
+        """负向深挖：从任务结果提取失败信号（v3.7 实装，替代空实现）"""
+        signals = []
+        if not result:
+            return signals
+        status = str(result.get("status", "")).lower()
+        exit_code = result.get("exit_code", result.get("exit", 0))
+        text = str(result.get("output", result.get("text", result.get("message", result.get("error", "")))))[:1000]
+        err = str(result.get("error", ""))[:200]
+        fail_keywords = ("失败", "错误", "异常", "error", "exception", "traceback", "failed", "fatal", "denied", "not found", "cannot", "timeout")
+        failed = status in ("failed", "fail", "error") or (exit_code not in (None, 0)) or any(k in text.lower() for k in fail_keywords) or any(k in err.lower() for k in fail_keywords)
+        if not failed:
+            return signals
+        tool = str(result.get("tool", result.get("tool_name", "")))[:40]
+        detail = (err or text)[:120]
+        desc = f"工具 {tool} 失败: {detail or (chr(39)+chr(39)+str(exit_code))}"
+        signals.append(ReviewSignal(
+            description=desc.strip(),
+            type="negative",
+            linked_rules=[],
+            attribution={"source": "post_review", "confidence": "low"}
+        ))
+        return signals
     def _attribution_filter(self, positive_signals: List[ReviewSignal],
                              negative_signals: List[ReviewSignal],
                              historical_rules: List[InterceptionRule]) -> Dict:
@@ -212,7 +245,11 @@ class Reviewer:
         """
         outputs = []
 
+        existing_patterns = self.rule_engine.get_patterns(active_only=False)
+        existing_logic = set(str(getattr(p, "decision_logic", "")) for p in existing_patterns)
         for signal in clean_signals:
+            if not Reviewer._is_meaningful(signal.description):
+                continue
             pattern = {
                 "id": "",
                 "pattern_name": f"从任务 {task_context.get('task_id', 'unknown')} 提炼",
@@ -233,9 +270,25 @@ class Reviewer:
                 "lifecycle_status": "active",
                 "triggered_count": 0
             }
+            if signal.description in existing_logic:
+                continue
             outputs.append({"type": "success_pattern", **pattern})
 
         return outputs
+
+    @staticmethod
+    def _is_meaningful(text: str) -> bool:
+        """攻七质量门槛：decision_logic 非空壳（v3.7 实装）"""
+        t = (text or "").strip()
+        if len(t) < 8:
+            return False
+        stripped = re.sub("[\\s\u3000（()）:：,，。;；/\\-]", "", t).lower()
+        if len(stripped) < 6:
+            return False
+        for h in ("成功完成exit=0", "completedexit=0", "工具成功完成", "tool成功完成"):
+            if h in stripped:
+                return False
+        return True
 
     def _extract_capability(self, text: str) -> str:
         """提取核心能力关键词"""

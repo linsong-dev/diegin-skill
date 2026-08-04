@@ -797,7 +797,7 @@ diegin/
 
 │   ├── rule_health.json                健康度基线
 
-│   └── dgen_rules.md                   规则唯一源
+│   └── dgen_rules.md                   规则文档索引
 
 ├── plugin/                             OpenClaw 插件
 
@@ -993,7 +993,7 @@ pre_check() → mindol_context + display_line
 
 
 
-**来源:** dgen_rules.md · engine/dgen_evolve.py · DGEN_GLOBAL_ACCESS.md · 引擎规则库
+**来源:** 引擎规则库(engine/evo/rules/interception_rules.json) · engine/dgen_evolve.py · DGEN_GLOBAL_ACCESS.md · workspace/dgen_rules.md(索引)
 
 ---
 

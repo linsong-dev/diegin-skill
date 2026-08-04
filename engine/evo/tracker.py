@@ -497,6 +497,31 @@ class BehaviorTracker:
         self.rule_engine.add_pattern(new_pattern)
         print(f'[GONGQI] 攻七强化: 已写入成功模式 {pattern_id} - {pname}')
         return {'pattern_id': pattern_id, 'pattern_name': pname, 'logic': logic}
+    @staticmethod
+    def _normalize_type(t: str) -> str:
+        return "".join(ch for ch in (t or "").lower() if ch.isalnum())
+
+    @staticmethod
+    def _types_similar(a: str, b: str) -> bool:
+        """语义相似判定：词元重叠 >= 50% 视为同类错误（v3.7）"""
+        na = BehaviorTracker._normalize_type(a)
+        nb = BehaviorTracker._normalize_type(b)
+        if not na or not nb:
+            return False
+        if na == nb:
+            return True
+        shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+        if shorter in longer and len(shorter) >= 3:
+            return True
+        ta = set(x for x in (a or "").lower().replace("-", "_").split("_") if x)
+        tb = set(x for x in (b or "").lower().replace("-", "_").split("_") if x)
+        if ta and tb:
+            inter = len(ta & tb)
+            if inter >= 1 and (inter / min(len(ta), len(tb))) >= 0.5:
+                return True
+        return False
+
+
     def record_self_error(self, error_type, detail='', task_context=None):
         """
         一二不过三·三错阀（v3.4.1 增强）
@@ -509,15 +534,21 @@ class BehaviorTracker:
         import datetime as _dt
         if task_context is None:
             task_context = {}
-        key = 'self_error_' + error_type
         now = _dt.datetime.now().isoformat()
 
         db = self._load_strikes_db()
+        # v3.7 语义相似判定：同类错误归并（error_type 词元重叠 >= 50% 视为同类）
+        if error_type not in db:
+            for _et in list(db.keys()):
+                if _et != error_type and self._types_similar(error_type, _et):
+                    error_type = _et
+                    break
         if error_type not in db:
             db[error_type] = {'count': 0, 'first_seen': now, 'last_seen': now,
                               'last_detail': detail,
                               'severity': task_context.get('severity', 'high'),
                               'details': []}
+        key = 'self_error_' + error_type
         entry = db[error_type]
         # 一二不过三·封顶：超过3次不再继续累加（1改→2验→3升级，之后停止）
         if entry['count'] >= 3:
@@ -656,6 +687,21 @@ class BehaviorTracker:
         else:
             overrides.append(escalated_entry)
         self._save_overrides(overrides)
+        # v3.7 升级熔断：连续同类错误第3次 → 熔断状态 open（pre_tool 读到 escalated+circuit 强制阻断）
+        try:
+            _cb_path = os.path.join(os.path.dirname(self._strikes_db_path()), "dgen_circuit_breaker.json")
+            _cb = {
+                "error_type": error_type,
+                "strike_count": sn,
+                "circuit": "open",
+                "triggered_at": now,
+                "escalated": True,
+                "note": "一二不过三升级熔断：连续同类错误达到3次，强制 audit_only + 最高优先级阻断"
+            }
+            with open(_cb_path, "w", encoding="utf-8") as _f:
+                json.dump(_cb, _f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
         # 记录阻断失效日志（供工作台和审计追踪）
         op = self._strikes_db_path().replace("strikes_db.json", "dgen_warning.json")
         op = self._strikes_db_path().replace("strikes_db.json", "dgen_warning.json")

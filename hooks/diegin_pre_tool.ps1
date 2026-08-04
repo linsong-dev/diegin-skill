@@ -343,9 +343,16 @@ try {
             hook_event_name="PreToolUse"
         }
         $ctxJson = $ctx | ConvertTo-Json -Compress -Depth 3
-        $rawOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
         $checkResult = $null
-        try { $checkResult = $rawOutput | ConvertFrom-Json } catch { $checkResult = $null }
+        for ($_attempt = 1; $_attempt -le 3; $_attempt++) {
+            $rawOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
+            try { $checkResult = $rawOutput | ConvertFrom-Json } catch { $checkResult = $null }
+            if ($null -ne $checkResult -and -not [string]::IsNullOrEmpty($checkResult.decision)) { break }
+            if ($_attempt -lt 3) {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-RETRY] check attempt=$_attempt"
+                Start-Sleep -Milliseconds 300
+            }
+        }
         if ($null -eq $checkResult -or [string]::IsNullOrEmpty($checkResult.decision)) {
             $engineError = $true
         } else {

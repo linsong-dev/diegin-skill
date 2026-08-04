@@ -463,10 +463,40 @@ def get_strike_status(error_type: str = None) -> dict:
 _last_generalization_check = None
 
 
+def _dgen_manifest_path() -> str:
+    """泛化源清单路径（var/state/dgen_generalized.json）"""
+    return os.path.join(os.path.dirname(__file__), "..", "..", "var", "state", "dgen_generalized.json")
+
+
+def _load_dgen_manifest() -> dict:
+    """读取泛化源清单：{src_name: [rule_id, ...]}"""
+    import json as _json
+    try:
+        with open(_dgen_manifest_path(), "r", encoding="utf-8") as _f:
+            _m = _json.load(_f)
+            return _m if isinstance(_m, dict) else {}
+    except Exception:
+        return {}
+
+
+def _mark_dgen_generalized(src_name: str, rule_id: str) -> None:
+    """记录已泛化源（防删除后再生）"""
+    import json as _json
+    try:
+        _m = _load_dgen_manifest()
+        _m.setdefault(src_name, [])
+        if rule_id not in _m[src_name]:
+            _m[src_name].append(rule_id)
+        with open(_dgen_manifest_path(), "w", encoding="utf-8") as _f:
+            _json.dump(_m, _f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def generalize_cross_domain() -> list:
-    """举一反三：跨域泛化
-    将一个领域的 domain_rule 自适应制其他领域
-    例: code_dev的"提交前语法检查" → data_analysis的"提交前格式检查"
+    """举一反三：跨域泛化（v3.7 多领域合并 + 迁移性证明）
+    将一个领域的 domain_rule 合并泛化到其余全部领域
+    置信度 3.0 → 7.0；created 带迁移理由（src→targets + 适配说明）
     """
     import json
     domain_dir = os.path.join(os.path.dirname(__file__), "rules", "domain_rules")
@@ -489,45 +519,60 @@ def generalize_cross_domain() -> list:
         return []
     domain_names = list(all_domains.keys())
     engine = _get_engine()
+    _all_rule_ids = [r.id for r in engine.get_interceptions(active_only=False)]
+    manifest = _load_dgen_manifest()
     created = []
     for src_name in domain_names:
         src_rules = all_domains[src_name]
+        src_manifest = manifest.get(src_name, [])
+        tgts = [t for t in domain_names if t != src_name]
+        if not tgts:
+            continue
+        tgt_labels = [t.replace("domain_", "").replace("_", " ") for t in tgts]
         for src_rule in src_rules:
             name = src_rule.get("name", "")
+            _src_id = src_rule.get("id", name)
+            if _src_id in src_manifest:
+                continue
+            # P4-13 泛化源兜底：任何状态已有规则 ID 含该领域规则 id（如 L4 归档 xdomain_*）→ 视为已泛化，防新环境无 manifest 时再生
+            if any(_src_id in _rid or _rid.endswith(_src_id[:20]) for _rid in _all_rule_ids):
+                _mark_dgen_generalized(src_name, _src_id)
+                continue
             desc = src_rule.get("description", "")
-            # 对每个目标域生成适配版
-            for tgt_name in domain_names:
-                if tgt_name == src_name:
-                    continue
-                tgt_label = tgt_name.replace("domain_", "").replace("_", " ")
-                adapted_desc = desc.replace("code", tgt_label).replace("data", tgt_label).replace("writing", tgt_label)
-                if adapted_desc == desc:
-                    adapted_desc = tgt_label + ": " + desc
-                rid = "xdomain_" + src_name.replace("domain_", "") + "_to_" + tgt_name.replace("domain_", "") + "_" + src_rule.get("id", name)[:20]
-                existing = engine.get_interception_by_id(rid)
-                if existing:
-                    continue
-                trig = "domain == " + repr(tgt_name.replace("domain_", ""))
-                import datetime as dt
-                from rule_engine import InterceptionRule
-                new_rule = InterceptionRule(
-                    id=rid,
-                    trigger_condition=trig,
-                    action="suggest_cross_domain; " + adapted_desc[:80],
-                    severity="low",
-                    tags=["attack", "举一反三", "cross_domain", tgt_name],
-                    logic_score=3.0, outcome_score=3.0, confidence=3.0,
-                    source="learned",
-                    source_review="generalize_cross_domain: " + src_name + " -> " + tgt_name,
-                    lifecycle_status="staging",
-                    created_at=dt.datetime.now().isoformat(),
-                    valid_until="", last_triggered="",
-                    boundary_conditions=[adapted_desc],
-                    invalid_conditions=[], triggered_count=0, ignored_count=0, override_count=0,
-                    last_ignored="", block_count=0, blocked_rules=[]
-                )
-                engine.add_interception(new_rule)
-                created.append(rid)
+            adapted_desc = desc
+            for _t in tgts:
+                _tl = _t.replace("domain_", "").replace("_", " ")
+                adapted_desc = adapted_desc.replace("code", _tl).replace("data", _tl).replace("writing", _tl)
+            if adapted_desc == desc:
+                adapted_desc = "跨域: " + desc
+            rid = "xdomain_merged_" + src_name.replace("domain_", "") + "_" + _src_id[:20]
+            existing = engine.get_interception_by_id(rid)
+            if existing:
+                _mark_dgen_generalized(src_name, _src_id)
+                continue
+            trig = "domain in " + repr(tgts)
+            import datetime as dt
+            from rule_engine import InterceptionRule
+            reason = "从 " + src_name.replace("domain_", "") + " 泛化到 " + str(len(tgts)) + " 个领域: " + ", ".join(tgt_labels)
+            new_rule = InterceptionRule(
+                id=rid,
+                trigger_condition=trig,
+                action="suggest_cross_domain; " + adapted_desc[:80],
+                severity="low",
+                tags=["attack", "举一反三", "cross_domain", "merged"] + tgts,
+                logic_score=7.0, outcome_score=7.0, confidence=7.0,
+                source="learned",
+                source_review=reason,
+                lifecycle_status="staging",
+                created_at=dt.datetime.now().isoformat(),
+                valid_until="", last_triggered="",
+                boundary_conditions=[adapted_desc[:120]],
+                invalid_conditions=[], triggered_count=0, ignored_count=0, override_count=0,
+                last_ignored="", block_count=0, blocked_rules=[]
+            )
+            engine.add_interception(new_rule)
+            created.append({"id": rid, "src": src_name, "targets": list(tgts), "reason": reason})
+            _mark_dgen_generalized(src_name, _src_id)
     if created:
         engine.save_all()
     return created
@@ -544,6 +589,12 @@ def generalize_from_patterns() -> list:
     patterns = engine.get_patterns(active_only=True)
     created = []
     for p in patterns:
+        # P4-13 泛化源拦截①：空壳模式（decision_logic 为空）不泛化，避免复制无实质决策逻辑的空壳规则
+        if not (getattr(p, "decision_logic", "") or "").strip():
+            continue
+        # P4-13 泛化源拦截②：已泛化过的模式（auto_promoted）不重复泛化，防删除后再生
+        if getattr(p, "auto_promoted", False):
+            continue
         tc = getattr(p, "triggered_count", 0) or 0
         conf = getattr(p, "confidence", 0) or 0
         os_val = getattr(p, "outcome_score", 0) or 0
@@ -1161,10 +1212,10 @@ def get_rules_for_task(task_context: Dict[str, Any]) -> Dict[str, List]:
 
 
 def arbitrate(interceptions: List[InterceptionRule],
-
-
               patterns: List[SuccessPattern],
-              mindol_hits: Optional[List[Dict]] = None) -> Dict[str, Any]:
+              mindol_hits: Optional[List[Dict]] = None,
+              closure_state: Optional[Dict] = None,
+              pace_channel: Optional[Dict] = None) -> Dict[str, Any]:
 
 
     """冲突仲裁 — 使用 arbiter.to_display() 对齐 AGENTS.md 裁决格式"""
@@ -1176,7 +1227,8 @@ def arbitrate(interceptions: List[InterceptionRule],
     arbiter_obj = _get_arbiter()
 
 
-    result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits)
+    result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits,
+                                closure_state=closure_state, pace_channel=pace_channel)
 
 
     display = arbiter_obj.to_display(result)
@@ -1513,6 +1565,16 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
             from rule_engine import SuccessPattern
 
 
+            # v3.7 攻七质量门槛：仅实质方法文本入库（工具名/状态词不算决策逻辑）
+            if not method or len(method.strip()) < 8:
+                report_lines.append(f"   ⚠️ 跳过空壳模式（无实质决策逻辑）\n")
+                continue
+            _dl_hollow = method.strip().replace(" ", "").replace(chr(0x3000), "").lower()
+            if len(_dl_hollow) < 6 or any(_h in _dl_hollow for _h in ("成功完成exit=0", "completedexit=0", "工具成功完成")):
+                report_lines.append(f"   ⚠️ 跳过空壳模式（决策逻辑无学习价值）\n")
+                continue
+                report_lines.append(f"   ⚠️ 跳过空壳模式（决策逻辑无学习价值）\n")
+                continue
             _dl = method[:200] if method else p
 
 
@@ -1934,6 +1996,140 @@ def maintenance_staging_ttl(engine):
     return _dep
 
 
+def maintenance_failure_ttl(engine):
+    """A2 守三·失败模式 TTL：self_error 规则 30 天未复现 → 阶梯降级（blocking/critical→alerting，alerting→deprecating）"""
+    from datetime import datetime as _dt
+    _cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.toml')
+    _ttl = 30
+    try:
+        if os.path.isfile(_cfg_path):
+            import tomllib
+            with open(_cfg_path, 'r', encoding='utf-8-sig') as _f:
+                _cfg = tomllib.loads(_f.read())
+            _ttl = int(_cfg.get('maintenance', {}).get('failure_ttl_days', 30) or 30)
+    except Exception:
+        _ttl = 30
+    _now = _dt.now()
+    _down = 0
+    for rule in engine.get_interceptions(active_only=False):
+        if rule.lifecycle_status not in ('blocking', 'critical', 'alerting'):
+            continue
+        _src = str(getattr(rule, 'source', '') or '')
+        _tags = ' '.join(getattr(rule, 'tags', []) or [])
+        if 'self_error' not in _src and 'self_error' not in _tags:
+            continue
+        if any('failure_ttl' in str(b) for b in (getattr(rule, 'boundary_conditions', None) or [])):
+            continue
+        _ref = rule.last_triggered or rule.created_at
+        if not _ref:
+            continue
+        try:
+            _base = _dt.fromisoformat(_ref)
+            if _base.tzinfo is not None:
+                _base = _base.replace(tzinfo=None)
+        except Exception:
+            continue
+        _age = (_now - _base).days
+        if _age < _ttl:
+            continue
+        _bc = list(getattr(rule, 'boundary_conditions', None) or [])
+        _bc.append('failure_ttl: %d天未复现降级 @ %s' % (_age, _now.isoformat()))
+        _old_lc = rule.lifecycle_status
+        _target = 'deprecating' if _old_lc == 'alerting' else 'alerting'
+        engine.update_interception(rule.id, lifecycle_status=_target, boundary_conditions=_bc)
+        print(f"  [FAILURE-TTL] {rule.id}: {_old_lc}→{_target} ({_age}天未复现)")
+        _down += 1
+    if _down > 0:
+        print(f"  [FAILURE-TTL] {_down} 条失败模式规则因 {_ttl} 天未复现降级")
+    return _down
+
+
+def maintenance_archived_purge(engine):
+    """P3-10 archived 清理策略：超期(默认90天)且零触发的 archived 规则物理删除（Mindol 语义记忆保留）"""
+    from datetime import datetime as _dt
+    _cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.toml')
+    _retention = 90
+    try:
+        if os.path.isfile(_cfg_path):
+            import tomllib
+            with open(_cfg_path, 'r', encoding='utf-8-sig') as _f:
+                _cfg = tomllib.loads(_f.read())
+            _retention = int(_cfg.get('maintenance', {}).get('archived_retention_days', 90) or 90)
+    except Exception:
+        _retention = 90
+    _now = _dt.now()
+    _del = 0
+    for rule in engine.get_interceptions(active_only=False):
+        if rule.lifecycle_status != 'archived':
+            continue
+        if (rule.triggered_count or 0) > 0 or (rule.ignored_count or 0) > 0 or (rule.block_count or 0) > 0:
+            continue  # 有历史触发的保留
+        _ref = rule.created_at or rule.last_triggered
+        if not _ref:
+            continue
+        try:
+            _base = _dt.fromisoformat(_ref)
+            if _base.tzinfo is not None:
+                _base = _base.replace(tzinfo=None)
+        except Exception:
+            continue
+        _age = (_now - _base).days
+        if _age >= _retention:
+            print(f"  [ARCHIVE-PURGE] 物理删除零触发 archived: {rule.id} (归档{_age}天)")
+            engine.delete_interception(rule.id)
+            _del += 1
+    if _del > 0:
+        print(f"  [ARCHIVE-PURGE] {_del} 条零触发 archived 规则超 {_retention} 天已物理清理（Mindol 语义记忆保留）")
+    return _del
+
+
+def maintenance_staging_queue(engine):
+    """P3-10 staging 校验队列：汇总待验证 staging 规则 + 写 var/state/staging_queue.json 供复审"""
+    from datetime import datetime as _dt
+    from collections import Counter as _Counter
+    _now = _dt.now()
+    queue = []
+    for rule in engine.get_interceptions(active_only=False):
+        if rule.lifecycle_status != 'staging':
+            continue
+        total = (rule.triggered_count or 0) + (rule.ignored_count or 0) + (rule.block_count or 0)
+        age = None
+        if rule.created_at:
+            try:
+                _base = _dt.fromisoformat(rule.created_at)
+                if _base.tzinfo is not None:
+                    _base = _base.replace(tzinfo=None)
+                age = (_now - _base).days
+            except Exception:
+                pass
+        status = 'hold'
+        if total >= 3:
+            rate = ((rule.triggered_count or 0) + (rule.block_count or 0)) / total
+            status = 'promote' if rate >= 0.667 else 'archive'
+        queue.append({
+            "id": rule.id, "created_at": rule.created_at, "age_days": age,
+            "triggered_count": rule.triggered_count or 0,
+            "ignored_count": rule.ignored_count or 0,
+            "block_count": rule.block_count or 0,
+            "eval_total": total, "status": status,
+            "confidence": rule.confidence, "source": rule.source,
+        })
+    queue.sort(key=lambda x: (-(x['age_days'] or 0), x['id']))
+    _qpath = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'var', 'state', 'staging_queue.json')
+    try:
+        os.makedirs(os.path.dirname(_qpath), exist_ok=True)
+        with open(_qpath, 'w', encoding='utf-8') as _f:
+            import json as _json
+            _json.dump(queue, _f, ensure_ascii=False, indent=1)
+    except Exception as _e:
+        print(f"  [STAGING-QUEUE] 写队列文件失败: {_e}")
+    _cnt = _Counter(q['status'] for q in queue)
+    _n = len(queue)
+    if _n > 0:
+        print(f"  [STAGING-QUEUE] 待校验 {_n} 条: hold={_cnt.get('hold',0)} promote={_cnt.get('promote',0)} archive={_cnt.get('archive',0)}")
+    return _n
+
+
 def run_maintenance():
 
 
@@ -2149,6 +2345,21 @@ def run_maintenance():
         maintenance_staging_ttl(engine)
     except Exception as _e:
         print(f"  [STAGING-TTL] 跳过: {_e}")
+    # P3-10: 失败模式 TTL（30天未复现降级）
+    try:
+        maintenance_failure_ttl(engine)
+    except Exception as _e:
+        print(f"  [FAILURE-TTL] 跳过: {_e}")
+    # P3-10: archived 超期零触发清理策略
+    try:
+        maintenance_archived_purge(engine)
+    except Exception as _e:
+        print(f"  [ARCHIVE-PURGE] 跳过: {_e}")
+    # P3-10: staging 校验队列（复审报告）
+    try:
+        maintenance_staging_queue(engine)
+    except Exception as _e:
+        print(f"  [STAGING-QUEUE] 跳过: {_e}")
     # 守三循环闭环: 检查shousan规则触发效果
     tracker.cycle_shousan_rules()
     tracker.cycle_gongqi_patterns()
