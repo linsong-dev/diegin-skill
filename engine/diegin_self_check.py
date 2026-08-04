@@ -220,6 +220,44 @@ def main():
         result["checks"]["stdin_bom_guard"] = False
         result["issues"].append("stdin BOM 防御检查异常: %s" % e)
 
+    # 10) 死规则检测（去伪存真）：active 且创建超 7 天且从未触发 → 显性暴露
+    # 说明：仅报告不置 failed，避免存量死规则每次自检触发 strike 误伤正常流程。
+    try:
+        rj = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules.json")
+        dead = []
+        with io.open(rj, "r", encoding="utf-8") as f:
+            jrules = json.load(f)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for r in jrules:
+            if r.get("lifecycle_status") != "active":
+                continue
+            if (r.get("triggered_count") or 0) > 0:
+                continue
+            ca = r.get("created_at", "")
+            if not ca:
+                continue
+            try:
+                if ca.endswith("Z"):
+                    ca = ca[:-1] + "+00:00"
+                dt = datetime.datetime.fromisoformat(ca)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                age_days = (now - dt).total_seconds() / 86400
+            except Exception:
+                continue
+            if age_days > 7:
+                dead.append({"id": r.get("id"), "created": ca, "triggered": 0,
+                             "trigger": (r.get("trigger_condition") or "")[:80]})
+        result["dead_rules"] = dead
+        result["dead_rule_count"] = len(dead)
+        if dead:
+            result["issues"].append("死规则 %d 条（active 超7天从未触发）: %s"
+                                    % (len(dead), ", ".join(d["id"] for d in dead[:10])))
+    except Exception as e:
+        result["dead_rules"] = []
+        result["dead_rule_count"] = -1
+        result["issues"].append("死规则检测异常: %s" % e)
+
     # 汇总
     failed = [k for k, v in result["checks"].items() if v is False]
     result["status"] = "FAIL" if failed else "ok"

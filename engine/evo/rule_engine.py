@@ -208,6 +208,89 @@ class RuleEngine:
             issues.append(f"trigger 校验异常: {_e}")
         return issues
 
+    # ─── 触发验证门（防死规则 P0）：真实钩子上下文模板 + 字段引用审计 ───
+    # 钩子真实传入的上下文字段（与 diegin_pre_tool.ps1 / call_diegin.py pre_reply 一致）
+    HOOK_CONTEXT_TEMPLATES = [
+        {"task_type": "pre_tool", "tool_name": "Bash", "blocked_error_type": "",
+         "marker_missing": False, "command": "Set-Content -Path a.py -Value x -NoNewline",
+         "text": "Set-Content -Path a.py -Value x -NoNewline", "hook_event_name": "PreToolUse"},
+        {"task_type": "user_prompt", "text": "用 WriteAllText 写文件", "prompt": "用 WriteAllText 写文件",
+         "hook_event_name": "UserPromptSubmit"},
+    ]
+    # 内置/引擎级字段（安全求值器提供默认值或上下文映射）
+    _BUILTIN_FIELDS = {"context", "True", "False", "None", "has_diegin_rule", "reply_unaffected",
+                       "domain", "error_type"}
+
+    def _trigger_known_fields(self) -> set:
+        fields = set(self._BUILTIN_FIELDS)
+        for tpl in self.HOOK_CONTEXT_TEMPLATES:
+            fields.update(tpl.keys())
+        return fields
+
+    def _analyze_trigger_fields(self, trigger: str) -> tuple:
+        """静态提取 trigger 引用的裸字段名（Name 节点），排除关键字/方法调用。
+        返回 (引用字段集合, 未知字段集合)"""
+        import ast as _ast
+        import re as _re
+        if not trigger or not trigger.strip():
+            return set(), set()
+        expr = trigger.strip()
+        expr = _re.sub(r'\bAND\b', 'and', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bOR\b', 'or', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bNOT\s+IN\b', 'not in', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bIN\b', 'in', expr, flags=_re.IGNORECASE)
+        try:
+            tree = _ast.parse(expr, mode="eval")
+        except SyntaxError:
+            return set(), set()
+        names = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Name):
+                names.add(node.id)
+        known = self._trigger_known_fields()
+        return names, names - known
+
+    def validate_trigger_live(self, trigger: str) -> list:
+        """真实触发验证：字段引用审计 + 钩子模板命中测试
+        返回 issues（P0=确定性死规则应拒绝；P1=仅语义字段；P2=模板未命中告警）
+        空 trigger / 纯关键词 = 合法（子串匹配），跳过。"""
+        issues = list(self._validate_trigger(trigger))
+        if not trigger or not trigger.strip():
+            return issues
+        t = trigger.strip()
+        ops = ['==', '!=', '>', '<', '>=', '<=', ' and ', ' or ', ' AND ', ' OR ',
+               '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ']
+        if not any(op in t for op in ops):
+            return issues  # 纯关键词（子串匹配）跳过
+        names, unknown = self._analyze_trigger_fields(t)
+        for f in sorted(unknown):
+            issues.append(f"[P0] trigger 引用上下文不存在的字段 '{f}'（钩子真实字段: task_type/tool_name/command/text/prompt/hook_event_name/marker_missing/blocked_error_type），该规则永远无法命中")
+        if "domain" in names:
+            issues.append("[P1] trigger 引用 'domain' 字段（钩子上下文无此字段，仅能靠 Mindol 语义检索召回，表达式匹配永不命中）")
+        if not any(i.startswith("[P0]") for i in issues) and "context" not in names:
+            hit_any = False
+            for tpl in self.HOOK_CONTEXT_TEMPLATES:
+                try:
+                    if self._match_condition(t, tpl):
+                        hit_any = True
+                        break
+                except Exception:
+                    continue
+            if not hit_any:
+                issues.append("[P2] trigger 在全部真实钩子上下文模板下均未命中（写入了但可能永不触发，请用 command/text 关键词或 task_type 组合）")
+        return issues
+
+    def _guard_trigger(self, rule_id: str, trigger: str, kind: str) -> list:
+        """写入/更新门：P0 抛错拒绝；P1/P2 打印告警。返回问题列表。"""
+        issues = self.validate_trigger_live(trigger)
+        p0 = [i for i in issues if i.startswith("[P0]")]
+        if p0:
+            raise ValueError("触发验证门拒绝写入 %s %s: %s" % (kind, rule_id, "; ".join(p0)))
+        for i in issues:
+            if i.startswith("[P1]") or i.startswith("[P2]"):
+                print("[RULE-GUARD] %s %s: %s" % (kind, rule_id, i))
+        return issues
+
     def _init_mindol(self):
         """懒加载 Mindol 实例"""
         if self._mindol is None:
@@ -623,6 +706,8 @@ class RuleEngine:
         _issues = self._validate_trigger(rule.trigger_condition)
         for _iss in _issues:
             self._mindol_warn(f"add_interception trigger-check [{rule.id}]", Exception(_iss))
+        # 触发验证门：P0 拒绝（引用不存在字段=确定性死规则），P1/P2 告警
+        self._guard_trigger(rule.id, rule.trigger_condition, "interception")
         if not rule.id:
             rule.id = f"rule_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(rule.trigger_condition) % 10000:04d}"
         if not rule.created_at:
@@ -662,6 +747,7 @@ class RuleEngine:
             _issues = self._validate_trigger(kwargs["trigger_condition"])
             for _iss in _issues:
                 self._mindol_warn(f"update_interception trigger-check [{rule_id}]", Exception(_iss))
+            self._guard_trigger(rule_id, kwargs["trigger_condition"], "interception")
         for key, value in kwargs.items():
             if hasattr(rule, key):
                 setattr(rule, key, value)
@@ -699,6 +785,8 @@ class RuleEngine:
 
     def add_pattern(self, pattern: SuccessPattern) -> str:
         """添加成功模式（同步写 Mindol 权威源，与 update_pattern 一致）"""
+        if getattr(pattern, "trigger_condition", ""):
+            self._guard_trigger(pattern.id, pattern.trigger_condition, "pattern")
         if not pattern.id:
             pattern.id = f"pattern_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(pattern.pattern_name) % 10000:04d}"
         if not pattern.created_at:
@@ -751,6 +839,8 @@ class RuleEngine:
 
     def update_pattern(self, pattern_id: str, **kwargs) -> bool:
         """更新成功模式（v3.6.1 同步写 Mindol 权威源）"""
+        if kwargs.get("trigger_condition"):
+            self._guard_trigger(pattern_id, kwargs["trigger_condition"], "pattern")
         pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return False
