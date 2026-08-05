@@ -228,9 +228,8 @@ def evidence_filter(interceptions: list, context: dict) -> list:
         lifecycle = getattr(rule, 'lifecycle_status', '')
 
         if lifecycle == 'active':
+            # v3.8 去假阳性：active 规则放行不写证据（存在≠验证，避免证据库被假 pass 灌满）
             filtered.append(rule)
-            if evidence_record:
-                evidence_record(rid, 'pass', 'active规则已通过验证', source='evidence_filter')
             continue
 
         if lifecycle == 'staging':
@@ -272,11 +271,23 @@ def pre_check(context: dict) -> dict:
     from evo.main import pace_classify, should_skip_deep_review
     pace_result = pace_classify(context)
     skip_deep = should_skip_deep_review(context)
+    # v3.8 缓急律可观测：分流结果落审计日志 [PACE]
+    try:
+        _append_audit("[PACE] channel=%s action=%s reason=%s"
+                      % (pace_result.get("channel", "?"), pace_result.get("action", "?"),
+                         str(pace_result.get("reason", ""))[:60]))
+    except Exception:
+        pass
 
     # ========== P2: 止观门·去重封存 ==========
     from evo.main import closure_is_closed
     task_id = context.get("task_id", context.get("cmd", context.get("message", "")))
     if task_id and closure_is_closed(task_id):
+        # v3.8 止观门可观测：封存命中落审计日志 [PHASE_LOCK]
+        try:
+            _append_audit("[PHASE_LOCK] skip_closed task_id=%s" % str(task_id)[:80])
+        except Exception:
+            pass
         return {
             "matched_interceptions": 0,
             "matched_patterns": 0,
@@ -323,7 +334,7 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
     result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
-                       closure_state=closure_state, pace_channel=pace_result)
+                       closure_state=closure_state, pace_channel=pace_result, context=context)
 
     # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
     try:
@@ -361,25 +372,52 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
 
-    return {
-        "matched_interceptions": len(rules["interceptions"]),
-        "matched_patterns": len(rules["patterns"]),
-        "decision": result["decision"],
-        "display_line": result.get("display_line", ""),
-        "reason": result["reason"],
-        "winning_rule_id": result.get("winning_rule_id"),
-        "pace_result": pace_result,
-        "mindol_context": mindol_context if mindol_context else "",
-        "mindol_hits": len(mindol_hits),
-        "suggestions": [
-            {
+    # ========== 攻七强化 Q1: 及时使用 - 高置信度模式优先推荐 ==========
+    _suggestions = []
+    try:
+        _priority_sug = []
+        _normal_sug = []
+        for p in rules["patterns"]:
+            _s = {
                 "id": getattr(p, "id", ""),
                 "scenario": getattr(p, "trigger_scenario", ""),
                 "decision": getattr(p, "decision_logic", ""),
                 "confidence": getattr(p, "confidence", 0),
             }
-            for p in rules["patterns"]
-        ][:5],
+            _logic = str(getattr(p, "decision_logic", "") or "").strip()
+            _conf = float(getattr(p, "confidence", 0) or 0)
+            # 高置信度 + 实质决策逻辑 → 优先采用（复用验证过的正确做法）
+            _is_priority = _conf >= 4.5 and len(_logic) >= 6
+            _s["priority"] = _is_priority
+            if _is_priority:
+                _priority_sug.append(_s)
+            else:
+                _normal_sug.append(_s)
+        # 按置信度降序
+        _priority_sug.sort(key=lambda x: -float(x["confidence"]))
+        _normal_sug.sort(key=lambda x: -float(x["confidence"]))
+        _suggestions = (_priority_sug + _normal_sug)[:5]
+    except Exception:
+        _suggestions = []
+    # display_line 升级：放行且有高置信度模式 → 显式推荐优先采用
+    _display_line = result.get("display_line", "")
+    if result.get("decision") == "allow" and _suggestions and _suggestions[0].get("priority"):
+        _top = _suggestions[0]
+        _rec = str(_top.get("decision", ""))[:80]
+        if _rec and "攻七" not in _display_line:
+            _display_line = (_display_line + " | ✅ 攻七优先采用: " + _rec).strip()
+
+    return {
+        "matched_interceptions": len(rules["interceptions"]),
+        "matched_patterns": len(rules["patterns"]),
+        "decision": result["decision"],
+        "display_line": _display_line,
+        "reason": result["reason"],
+        "winning_rule_id": result.get("winning_rule_id"),
+        "pace_result": pace_result,
+        "mindol_context": mindol_context if mindol_context else "",
+        "mindol_hits": len(mindol_hits),
+        "suggestions": _suggestions,
         "strike_context": strike_context,
     }
 
@@ -1050,6 +1088,218 @@ if __name__ == "__main__":
         from evo.main import auto_sandwich_trigger
         result = auto_sandwich_trigger("tool_" + tool_name.replace(".", "_"), positive=[tool_name], negative=[], method=method)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    elif mode == "audit_patterns":
+        """攻七质量审计（防再生）：扫描成功模式，空壳自动归档
+        用法: python call_diegin.py audit_patterns
+        空壳判定（与 record_success v3.7 门槛一致）：
+          - decision_logic 为空 / 去空白后 <6 字符 / 含无学习价值词
+          - 或 trigger_condition 与 trigger_scenario 均为空（无触发能力）
+        归档为 archived 而非删除，保留可追溯；幂等，二次运行不重复归档。
+        """
+        try:
+            from evo.main import _get_engine
+            engine = _get_engine()
+            _sp = os.path.join(os.path.dirname(__file__), "evo", "rules", "success_patterns.json")
+            with open(_sp, "r", encoding="utf-8") as _f:
+                patterns = json.load(_f)
+        except Exception as _e:
+            _r = {"action": "error", "error": str(_e)}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+
+        _hollow_words = ("成功完成exit=0", "completedexit=0", "工具成功完成", "unknown")
+        archived_ids = []
+        kept_ids = []
+        for _p in patterns:
+            _pid = _p.get("id", "")
+            _logic = str(_p.get("decision_logic", "") or "").strip()
+            _scene = str(_p.get("trigger_scenario", "") or "").strip()
+            _cond = str(_p.get("trigger_condition", "") or "").strip()
+            _life = _p.get("lifecycle_status", "")
+            _dl_compact = _logic.replace(" ", "").replace("\u3000", "").lower()
+            is_hollow = (len(_dl_compact) < 6) or any(_w in _dl_compact for _w in _hollow_words)
+            if not is_hollow and not _cond and not _scene:
+                is_hollow = True
+            if not is_hollow:
+                kept_ids.append(_pid)
+                continue
+            if _life == "archived":
+                continue  # 幂等：已归档跳过
+            try:
+                engine.update_pattern(
+                    _pid,
+                    lifecycle_status="archived",
+                    archive_reason="quality_gate_hollow",
+                    archived_at=datetime.now().isoformat(),
+                )
+                archived_ids.append(_pid)
+            except Exception as _e:
+                _append_audit(f"[AUDIT-PATTERNS] 归档失败 {_pid}: {_e}")
+
+        _total = len(patterns)
+        _r = {
+            "action": "audit_patterns",
+            "total": _total,
+            "archived": len(archived_ids),
+            "kept": len(kept_ids),
+            "archived_ids": archived_ids,
+        }
+        print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+        if archived_ids:
+            _append_audit(f"[AUDIT-PATTERNS] 空壳模式归档 archived={len(archived_ids)} total={_total} ids={','.join(archived_ids[:20])}")
+    elif mode == "audit_staging":
+        """举一反三 staging 积压清理（防再生）
+        死亡判定：
+          - 源模式（pat_auto_tool_*）已归档或不存在 → 归档
+          - 创建超 14 天且从未触发 → 归档
+          - 测试残留（TestTool 等）→ 归档
+        有效判定：triggered_count >= 2 → 转 active（回归校验通过）
+        """
+        try:
+            from evo.main import _get_engine
+            import datetime as _dt
+            engine = _get_engine()
+            rules = engine.get_interceptions(active_only=False)
+            staging = [r for r in rules if getattr(r, "lifecycle_status", "") == "staging"]
+            pats = engine.get_patterns(active_only=False)
+            pat_map = {getattr(p, "id", ""): p for p in pats}
+            now = _dt.datetime.now(_dt.timezone.utc)
+            archived = []
+            promoted = []
+            kept = []
+            for r in staging:
+                rid = getattr(r, "id", "")
+                if "testtool" in rid.lower():
+                    engine.update_interception(rid, lifecycle_status="archived",
+                                               archive_reason="staging_test_residue",
+                                               archived_at=now.isoformat())
+                    archived.append(rid)
+                    continue
+                if rid.startswith("pat_rule_pat_auto_tool_"):
+                    src_id = rid[len("pat_rule_"):]
+                    src_pat = pat_map.get(src_id)
+                    if src_pat is None or getattr(src_pat, "lifecycle_status", "") == "archived":
+                        engine.update_interception(rid, lifecycle_status="archived",
+                                                   archive_reason="source_pattern_archived",
+                                                   archived_at=now.isoformat())
+                        archived.append(rid)
+                        continue
+                ca = str(getattr(r, "created_at", "") or "")
+                try:
+                    if ca.endswith("Z"):
+                        ca = ca[:-1] + "+00:00"
+                    created_dt = _dt.datetime.fromisoformat(ca)
+                    if created_dt.tzinfo is None:
+                        created_dt = created_dt.replace(tzinfo=_dt.timezone.utc)
+                    age_days = (now - created_dt).total_seconds() / 86400
+                except Exception:
+                    age_days = 999
+                tc = getattr(r, "triggered_count", 0) or 0
+                if tc >= 2:
+                    engine.update_interception(rid, lifecycle_status="active",
+                                               verified_at=now.isoformat())
+                    promoted.append(rid)
+                elif age_days > 14:
+                    engine.update_interception(rid, lifecycle_status="archived",
+                                               archive_reason="staging_never_triggered_14d",
+                                               archived_at=now.isoformat())
+                    archived.append(rid)
+                else:
+                    kept.append(rid)
+            engine.save_all()
+            try:
+                sq_path = os.path.join(os.path.dirname(__file__), "..", "var", "state", "staging_queue.json")
+                with open(sq_path, "r", encoding="utf-8") as _f:
+                    sq = json.load(_f)
+                if isinstance(sq, list):
+                    sq = [q for q in sq if q.get("id") not in archived]
+                    with open(sq_path, "w", encoding="utf-8") as _f:
+                        json.dump(sq, _f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            _r = {
+                "action": "audit_staging",
+                "total": len(staging),
+                "archived": len(archived),
+                "promoted": len(promoted),
+                "kept": len(kept),
+                "archived_ids": archived[:30],
+                "promoted_ids": promoted,
+            }
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            if archived:
+                _append_audit("[AUDIT-STAGING] 死亡staging清理 archived=%d promoted=%d kept=%d ids=%s"
+                              % (len(archived), len(promoted), len(kept), ",".join(archived[:20])))
+        except Exception as _e:
+            print(json.dumps({"action": "audit_staging", "error": str(_e)}, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+    elif mode == "audit_evidence":
+        """去伪存真：证据库去假阳性（防再生）
+        将 evidence_filter 批量产生的假 pass（存在≠验证）标记为 skip，
+        保留可追溯（reason 前缀 [伪]），不删除记录。
+        """
+        try:
+            _trail_path = os.path.join(os.path.dirname(__file__), "var", "state", "evidence_trail.json")
+            with open(_trail_path, "r", encoding="utf-8") as _f:
+                trail = json.load(_f)
+            if not isinstance(trail, list):
+                trail = []
+            cleaned = 0
+            for _e in trail:
+                _src = str(_e.get("source", "") or "")
+                _verdict = str(_e.get("verdict", "") or "")
+                _reason = str(_e.get("reason", "") or "")
+                if _src == "evidence_filter" and _verdict == "pass" and "active规则已通过验证" in _reason:
+                    _e["verdict"] = "skip"
+                    _e["reason"] = "[伪] 非验证动作（evidence_filter 批量产生），2026-08-05 清理: " + _reason[:120]
+                    cleaned += 1
+            with open(_trail_path, "w", encoding="utf-8") as _f:
+                json.dump(trail, _f, ensure_ascii=False, indent=2)
+            _pass = sum(1 for e in trail if e.get("verdict") == "pass")
+            _skip = sum(1 for e in trail if e.get("verdict") == "skip")
+            _r = {"action": "audit_evidence", "total": len(trail), "cleaned": cleaned,
+                  "pass": _pass, "skip": _skip, "fail": sum(1 for e in trail if e.get("verdict") == "fail")}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            if cleaned:
+                _append_audit("[AUDIT-EVIDENCE] 假证据清理 cleaned=%d total=%d pass=%d"
+                              % (cleaned, len(trail), _pass))
+        except Exception as _e:
+            print(json.dumps({"action": "audit_evidence", "error": str(_e)}, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+    elif mode == "feedback_adopt":
+        """攻七反馈闭环（Q4）：AI/用户对攻七建议的采纳或否决
+        用法: python call_diegin.py feedback_adopt
+        stdin JSON: {"pattern_id": "...", "adopted": true|false, "reason": "..."}
+          adopted=true  → record_user_feedback(agree)  置信度+0.5
+          adopted=false → record_user_feedback(veto)   置信度×0.7 + override_count
+        由 post_tool 在工具成功时自动调用（推荐→采用→强化闭环）
+        """
+        try:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            _in = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            _pid = _in.get("pattern_id", "")
+            _adopted = bool(_in.get("adopted", True))
+            _reason = str(_in.get("reason", "") or "")[:120]
+            if not _pid:
+                print(json.dumps({"action": "feedback_adopt", "error": "pattern_id 缺失"}, ensure_ascii=False, indent=2))
+                sys.exit(1)
+            from evo.main import record_user_feedback
+            _res = record_user_feedback(_pid, "agree" if _adopted else "veto")
+            _r = {
+                "action": "feedback_adopt",
+                "pattern_id": _pid,
+                "adopted": _adopted,
+                "feedback_result": _res,
+                "reason": _reason,
+            }
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            _append_audit("[FEEDBACK-ADOPT] %s pattern=%s result=%s %s"
+                          % ("adopted" if _adopted else "vetoed", _pid,
+                             str(_res.get("action", "?")), _reason))
+        except Exception as _e:
+            print(json.dumps({"action": "feedback_adopt", "error": str(_e)}, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
     elif mode == "record_error":
         """一二不过三：记录并追踪一次错误
         用法: python call_diegin.py record_error <error_type> [detail] [severity]

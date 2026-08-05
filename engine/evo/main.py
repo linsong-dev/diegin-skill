@@ -598,7 +598,9 @@ def generalize_from_patterns() -> list:
         tc = getattr(p, "triggered_count", 0) or 0
         conf = getattr(p, "confidence", 0) or 0
         os_val = getattr(p, "outcome_score", 0) or 0
-        if tc < 3 and conf < 3.0 and os_val < 3.0:
+        # 攻七强化 Q3: 泛化提速 - 同场景复用≥2次 或 高置信度(≥4.5) 即触发泛化
+        # 复用本身即验证信号（人类跨域迁移也是先快后验证）
+        if tc < 2 and conf < 4.5:
             continue
         cond = getattr(p, "trigger_condition", "") or p.trigger_scenario
         rid = "pat_rule_" + p.id
@@ -1215,7 +1217,8 @@ def arbitrate(interceptions: List[InterceptionRule],
               patterns: List[SuccessPattern],
               mindol_hits: Optional[List[Dict]] = None,
               closure_state: Optional[Dict] = None,
-              pace_channel: Optional[Dict] = None) -> Dict[str, Any]:
+              pace_channel: Optional[Dict] = None,
+              context: Optional[Dict] = None) -> Dict[str, Any]:
 
 
     """冲突仲裁 — 使用 arbiter.to_display() 对齐 AGENTS.md 裁决格式"""
@@ -1228,7 +1231,8 @@ def arbitrate(interceptions: List[InterceptionRule],
 
 
     result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits,
-                                closure_state=closure_state, pace_channel=pace_channel)
+                                closure_state=closure_state, pace_channel=pace_channel,
+                                context=context)
 
 
     display = arbiter_obj.to_display(result)
@@ -1532,6 +1536,10 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
                     _upd["trigger_condition"] = "tool_name == " + repr(p)
 
 
+                # v3.8 归档复活：空壳被补全为实质内容后，重新进入 staging 验证门
+                if getattr(existing, "lifecycle_status", "") == "archived":
+                    _upd["lifecycle_status"] = "staging"
+                    _upd.pop("archive_reason", None)
             engine.update_pattern(pat_id, **_upd)
 
 

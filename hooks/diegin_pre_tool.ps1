@@ -379,8 +379,10 @@ try {
             try { $h = & $pythonExe $enginePy health 2>&1 | ConvertFrom-Json; $activeRules = $h.active_rules } catch {}
             
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ALLOW] decision=$finalDecision matched=$finalMatched"
-            # v3.6: 攻七建议注入（成功模式匹配时输出推荐，供 AI 工具调用前参考）
+            # v3.8 攻七强化 Q1: 建议注入（高置信度模式优先推荐采用）
             $sugText = ""
+            $priorityText = ""
+            $priorityPatternId = ""
             try {
                 if ($checkResult.suggestions -and $checkResult.suggestions.Count -gt 0) {
                     $sugLines = @()
@@ -393,6 +395,20 @@ try {
                             $sugLine += " 做法: " + $dText
                         }
                         $sugLines += $sugLine
+                        # 高置信度 + 实质决策逻辑 → 优先采用（独立醒目行）
+                        $sConf = 0.0
+                        try { $sConf = [double]$s.confidence } catch { $sConf = 0.0 }
+                        $sDec = ""
+                        if ($s.decision) { $sDec = [string]$s.decision }
+                        if ($sConf -ge 4.5 -and $sDec.Length -ge 6) {
+                            $pText = $sDec
+                            if ($pText.Length -gt 100) { $pText = $pText.Substring(0, 100) + "…" }
+                            if (-not $priorityText) { $priorityText = $pText }
+                            # 攻七反馈闭环 Q4: 记录推荐 pattern_id（post_tool 成功后自动采纳）
+                            if (-not $priorityPatternId -and $s.id) {
+                                $priorityPatternId = [string]$s.id
+                            }
+                        }
                     }
                     if ($sugLines.Count -gt 0) {
                         $sugText = "`n攻七·推荐:" + ($sugLines -join "`n")
@@ -403,6 +419,21 @@ try {
                 Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行" + $sugText)
             } elseif ($sugText) {
                 Write-Output ("ℹ️ [迭进] 预检放行" + $sugText)
+            }
+            if ($priorityText) {
+                Write-Output ("")
+                Write-Output ("✅ [迭进] 攻七·推荐优先采用: " + $priorityText)
+                Write-Output ("")
+                # 攻七反馈闭环 Q4: 记录推荐 pattern_id（post_tool 工具成功时自动采纳）
+                if ($priorityPatternId) {
+                    try {
+                        $prioRec = @{pattern_id=$priorityPatternId; ts=(Get-Date -Format "o")}
+                        [System.IO.File]::WriteAllText((Join-Path $stateDir "dgen_priority_pattern.json"), ($prioRec | ConvertTo-Json -Compress), $script:utf8NoBOM)
+                        Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] recommend pattern=$priorityPatternId"
+                    } catch {
+                        Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] write_error=$($_.Exception.Message)"
+                    }
+                }
             }
         }
     } else {

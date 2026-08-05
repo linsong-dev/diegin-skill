@@ -143,6 +143,24 @@ if (Test-Path $markerFile) {
     }
 }
 
+# 攻七反馈闭环 Q4: 工具成功 + 有 priority 推荐 → 自动采纳（置信度+0.5）
+try {
+    $prioFile = Join-Path $stateDir "dgen_priority_pattern.json"
+    if (Test-Path $prioFile -and $toolExitCode -eq 0) {
+        $prioRec = Get-Content $prioFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($prioRec.pattern_id) {
+            $adoptJson = @{pattern_id=$prioRec.pattern_id; adopted=$true; reason="tool_success_auto_adopt"} | ConvertTo-Json -Compress
+            $adoptRes = $adoptJson | & $pythonExe $enginePy feedback_adopt 2>&1
+            $adoptFlat = ($adoptRes | Out-String).Trim().Replace("`n", " ").Replace("`r", "")
+            if ($adoptFlat.Length -gt 150) { $adoptFlat = $adoptFlat.Substring(0, 150) }
+            Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] auto_adopt pattern=$($prioRec.pattern_id) result=$adoptFlat"
+        }
+        [System.IO.File]::Delete($prioFile)
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] auto_adopt_error=$($_.Exception.Message)"
+}
+
 # 攻七：记录工具调用成功（v3.6.1 传递命令文本，实质化模式库）
 try {
     if ($toolName -and (Test-Path $pythonExe)) {
@@ -217,7 +235,9 @@ try {
         $analyzeText = ($analyzeResult | Out-String).Trim()
         $flat = $analyzeText.Replace("`n", " ").Replace("`r", "")
         Add-NoBOMLog -Path $auditLog -Message "$time [DETECT] tool=$toolName exit=$toolExitCode result=$flat"
-        if ($analyzeText -notmatch '"error"') {
+        if ($analyzeText -match '"error"') {
+            # v3.8 修复：条件倒挂（原 -notmatch 导致检测到错误反而跳过记录）
+            # 现在：analyze 检测到错误（含 "error" 字段）→ 立即记录一二不过三 strike
             $errType = "tool_error_" + $toolName
             $errDetail = "exit=" + $toolExitCode
             if ($toolError) { $errDetail = $toolError }
@@ -230,6 +250,8 @@ try {
             $recErrResult = $recErrCtx | & $pythonExe $enginePy record_error 2>&1
             $flatRec = $recErrResult.Replace("`n", " ").Replace("`r", "")
             Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] record_error type=$errType result=$flatRec"
+        } else {
+            Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze no_error skip_record"
         }
         # 即时重检：analyze 后立即检查 strike 状态，如已达第2次则确保 override 已写入
         $strikesFile = Join-Path $g_pr "var\state\strikes_db.json"

@@ -43,7 +43,10 @@ class HealthDashboard:
         all_rules = interceptions + patterns
 
         conflict_count = self._count_conflicts()
-        entropy = round((len(all_rules) + conflict_count) / max(len(set(r.id for r in all_rules)), 1), 3)
+        # v3.8 去结构性满分：熵=不稳定率（staging+deprecating+alerting+冲突）/总数，不再恒等于 1.0
+        _unstable = sum(1 for r in all_rules
+                        if getattr(r, "lifecycle_status", "") in ("staging", "deprecating", "alerting"))
+        entropy = round((_unstable + conflict_count) / max(len(all_rules), 1), 3)
 
         snr = self._calculate_snr(interceptions)
         capacity = self._count_scenarios(all_rules)
@@ -82,7 +85,7 @@ class HealthDashboard:
         """计算决策信噪比"""
         total_triggers = sum(r.triggered_count for r in interceptions)
         if total_triggers == 0:
-            return 1.0
+            return -1.0  # 无数据（v3.8 不再伪装满分）
         effective = sum(r.triggered_count - r.ignored_count - r.override_count
                         for r in interceptions)
         return max(0, effective / total_triggers)
@@ -103,28 +106,32 @@ class HealthDashboard:
         total_ignored = sum(getattr(r, 'ignored_count', 0) for r in rules)
         total_triggered = sum(getattr(r, 'triggered_count', 0) for r in rules)
         if total_triggered == 0:
-            return 1.0
+            return -1.0  # 无数据（v3.8 不再伪装满分）
         return 1 - (total_ignored / total_triggered)
 
     def _calculate_redundancy(self, rules: list) -> float:
         """计算规则库冗余度（仅统计拦截规则，成功模式无ignored_count）"""
         if not rules:
-            return 0
+            return -1.0
         interceptions = [r for r in rules if hasattr(r, 'ignored_count')]
         if not interceptions:
-            return 0
+            return -1.0
         ignored_rules = [r for r in interceptions if r.ignored_count > 0]
         return len(ignored_rules) / len(interceptions)
 
     def _status_entropy(self, entropy: float) -> str:
-        if entropy > 10:
-            return "[WARN] 过高（规则冲突频繁，建议剪枝）"
-        elif entropy > 5:
+        if entropy < 0:
+            return "[N/A] 无规则数据"
+        elif entropy > 0.8:
+            return "[WARN] 过高（规则不稳定，建议剪枝）"
+        elif entropy > 0.5:
             return "[WARN] 偏高（建议关注规则质量）"
         return "[OK] 健康"
 
     def _status_snr(self, snr: float) -> str:
-        if snr < 0.3:
+        if snr < 0:
+            return "[N/A] 无触发数据（规则尚未被调用，无法评估信噪比）"
+        elif snr < 0.3:
             return "[WARN] 过低（大量规则未被采纳，建议审查）"
         elif snr < 0.5:
             return "[WARN] 偏低（建议优化规则质量）"
@@ -138,7 +145,9 @@ class HealthDashboard:
         return "[OK] 充足"
 
     def _status_satisfaction(self, satisfaction: float) -> str:
-        if satisfaction < 0.2:
+        if satisfaction < 0:
+            return "[N/A] 无采纳数据（规则尚未被调用，无法评估满意度）"
+        elif satisfaction < 0.2:
             return "[WARN] 极低（用户基本不采纳规则，建议全量审查）"
         elif satisfaction < 0.5:
             return "[WARN] 偏低（用户采纳率不足一半）"
@@ -226,18 +235,21 @@ class HealthDashboard:
                                    capacity: int, satisfaction: float,
                                    redundancy: float) -> List[str]:
         recommendations = []
-        if entropy > 5:
+        if entropy >= 0 and entropy > 0.8:
             recommendations.append("[TOOL] 认知熵值偏高，建议执行全局规则剪枝")
-        if snr < 0.3:
+        if snr >= 0 and snr < 0.3:
             recommendations.append("[TOOL] 决策信噪比过低，建议审查被频繁无视的规则")
         if capacity < 3:
             recommendations.append("[CHART] 策略容量不足，建议通过沙盘推演生成更多场景模板")
-        if satisfaction < 0.2:
+        if satisfaction >= 0 and satisfaction < 0.2:
             recommendations.append("[TOOL] 隐性偏好满意度极低，建议重置或全量审查规则库")
-        if redundancy > 0.3:
+        if redundancy >= 0 and redundancy > 0.3:
             recommendations.append("[TOOL] 规则库冗余度偏高，建议合并相似规则")
         if not recommendations:
-            recommendations.append("[OK] 所有指标正常，系统健康运行")
+            if entropy < 0 and snr < 0 and satisfaction < 0 and redundancy < 0:
+                recommendations.append("[N/A] 系统尚无运行数据，健康指标暂不可评估（有触发后自动生效）")
+            else:
+                recommendations.append("[OK] 所有指标正常，系统健康运行")
         return recommendations
 
 

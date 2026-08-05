@@ -258,6 +258,96 @@ def main():
         result["dead_rule_count"] = -1
         result["issues"].append("死规则检测异常: %s" % e)
 
+    # 11b) 攻七空壳模式检查（防再生）：decision_logic 空/无价值 → 报出
+    try:
+        spj = os.path.join(ENGINE_DIR, "evo", "rules", "success_patterns.json")
+        with io.open(spj, "r", encoding="utf-8") as f:
+            spatterns = json.load(f)
+        hollow = []
+        hollow_words = ("成功完成exit=0", "completedexit=0", "工具成功完成", "unknown")
+        for _p in spatterns:
+            if _p.get("lifecycle_status") == "archived":
+                continue
+            _logic = str(_p.get("decision_logic", "") or "").strip()
+            _compact = _logic.replace(" ", "").replace("　", "").lower()
+            _scene = str(_p.get("trigger_scenario", "") or "").strip()
+            _cond = str(_p.get("trigger_condition", "") or "").strip()
+            if (len(_compact) < 6) or any(_w in _compact for _w in hollow_words):
+                hollow.append(_p.get("id", "?"))
+            elif not _cond and not _scene:
+                hollow.append(_p.get("id", "?"))
+        result["hollow_pattern_count"] = len(hollow)
+        result["hollow_patterns"] = hollow
+        if hollow:
+            result["checks"]["no_hollow_patterns"] = False
+            result["issues"].append("空壳成功模式 %d 条（未归档，建议 audit_patterns 清理）: %s"
+                                    % (len(hollow), ", ".join(hollow[:10])))
+        else:
+            result["checks"]["no_hollow_patterns"] = True
+    except Exception as e:
+        result["hollow_pattern_count"] = -1
+        result["checks"]["no_hollow_patterns"] = False
+        result["issues"].append("空壳模式检查异常: %s" % e)
+
+    # 11c) staging 积压预警（防再生）：超14天未触发或数量超标 → 建议 audit_staging
+    try:
+        rj2 = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules.json")
+        with io.open(rj2, "r", encoding="utf-8") as f:
+            jrules2 = json.load(f)
+        staging_all = [r for r in jrules2 if r.get("lifecycle_status") == "staging"]
+        now2 = datetime.datetime.now(datetime.timezone.utc)
+        stale_staging = []
+        for r in staging_all:
+            if (r.get("triggered_count") or 0) > 0:
+                continue
+            ca2 = r.get("created_at", "")
+            if not ca2:
+                continue
+            try:
+                if ca2.endswith("Z"):
+                    ca2 = ca2[:-1] + "+00:00"
+                dt2 = datetime.datetime.fromisoformat(ca2)
+                if dt2.tzinfo is None:
+                    dt2 = dt2.replace(tzinfo=datetime.timezone.utc)
+                age_days = (now2 - dt2).total_seconds() / 86400
+            except Exception:
+                continue
+            if age_days > 14:
+                stale_staging.append({"id": r.get("id"), "age_days": round(age_days, 1)})
+        result["staging_count"] = len(staging_all)
+        result["stale_staging_count"] = len(stale_staging)
+        result["stale_staging"] = stale_staging
+        if stale_staging:
+            result["checks"]["no_stale_staging"] = False
+            result["issues"].append("staging 积压 %d 条（超14天未触发，建议 audit_staging 清理）: %s"
+                                    % (len(stale_staging), ", ".join(s["id"] for s in stale_staging[:10])))
+        else:
+            result["checks"]["no_stale_staging"] = True
+    except Exception as e:
+        result["staging_count"] = -1
+        result["stale_staging_count"] = -1
+        result["checks"]["no_stale_staging"] = False
+        result["issues"].append("staging 积压检查异常: %s" % e)
+
+    # 11d) 假证据检查（防再生）：evidence_filter 来源的 pass 记录应为 0
+    try:
+        et_path = os.path.join(ENGINE_DIR, "var", "state", "evidence_trail.json")
+        with io.open(et_path, "r", encoding="utf-8") as f:
+            etrail = json.load(f)
+        fake_pass = [e for e in etrail
+                     if e.get("source") == "evidence_filter" and e.get("verdict") == "pass"]
+        result["fake_evidence_count"] = len(fake_pass)
+        if fake_pass:
+            result["checks"]["no_fake_evidence"] = False
+            result["issues"].append("假证据 %d 条（evidence_filter 批量 pass，建议 audit_evidence 清理）"
+                                    % len(fake_pass))
+        else:
+            result["checks"]["no_fake_evidence"] = True
+    except Exception as e:
+        result["fake_evidence_count"] = -1
+        result["checks"]["no_fake_evidence"] = False
+        result["issues"].append("假证据检查异常: %s" % e)
+
 
     # 11) 基线对比（P4-15 L4 启动清理）：关键指标 vs 冻结基线，回归即报警
     try:

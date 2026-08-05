@@ -158,7 +158,7 @@ class ConflictArbiter:
     # ──────────────────────────────────────────────────
 
     def resolve(self, interceptions, patterns, mindol_hits=None,
-                closure_state=None, pace_channel=None):
+                closure_state=None, pace_channel=None, context=None):
         """
         八元原则网络仲裁 · 按裁决律P0-P5优先级
 
@@ -341,6 +341,28 @@ class ConflictArbiter:
             best_pattern = max(active_patterns, key=lambda x: self._conf(x))
             int_conf = self._conf(best_interception)
             pat_conf = self._conf(best_pattern)
+            # 攻七强化 Q2: 同场景优先 - 模式与当前工具/操作同场景 → 置信度 +0.5
+            _scene_bonus = ""
+            if context and isinstance(context, dict):
+                _ctx_vals = []
+                for _k in ("tool_name", "tool", "op"):
+                    _v = context.get(_k)
+                    if _v:
+                        _ctx_vals.append(str(_v).lower())
+                _ctx_text = " ".join(_ctx_vals).replace("_", "").replace("-", "")
+                _p_scene = str(getattr(best_pattern, "trigger_scenario", "") or "").lower()
+                _p_cond = str(getattr(best_pattern, "trigger_condition", "") or "").lower()
+                _p_text = (_p_scene + " " + _p_cond).replace("_", "").replace("-", "")
+                _same_scene = False
+                if _p_text and _ctx_vals:
+                    for _cv in _ctx_vals:
+                        _cv_n = _cv.replace("_", "").replace("-", "")
+                        if _cv_n and (_cv_n in _p_text or _p_text in _cv_n):
+                            _same_scene = True
+                            break
+                if _same_scene:
+                    pat_conf = min(10.0, pat_conf + 0.5)
+                    _scene_bonus = f" | 同场景加成+0.5"
             confidence_delta = abs(int_conf - pat_conf)
             if confidence_delta <= 0.1:
                 # [裁决律P4] delta≤0.1 不构成真实冲突：守三负向纠错优先，确定性裁决，不误报升级
@@ -348,6 +370,7 @@ class ConflictArbiter:
                     decision=ResolutionType.BLOCK,
                     winning_rule=best_interception,
                     reason=f"[裁决律P4] 守三vs攻七置信度持平（delta={confidence_delta:.3f}≤0.1），守三负向纠错优先"
+                           + _scene_bonus
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             if confidence_delta < 0.5:
@@ -365,6 +388,7 @@ class ConflictArbiter:
                     decision=ResolutionType.ESCALATE,
                     conflict_set=[best_interception, best_pattern],
                     reason=f"[裁决律P4] 守三vs攻七置信度接近（delta={confidence_delta:.3f}），需用户确认"
+                           + _scene_bonus
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             elif pat_conf > int_conf:
@@ -372,6 +396,7 @@ class ConflictArbiter:
                     decision=ResolutionType.ALLOW,
                     winning_rule=best_pattern,
                     reason=f"[裁决律P4] 攻七模式 {best_pattern.id} 置信度({pat_conf})高于守三规则，放行"
+                           + _scene_bonus
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             else:
@@ -379,6 +404,7 @@ class ConflictArbiter:
                     decision=ResolutionType.BLOCK,
                     winning_rule=best_interception,
                     reason=f"[裁决律P4] 守三规则 {best_interception.id} 置信度({int_conf})高于攻七模式，拦截"
+                           + _scene_bonus
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
 

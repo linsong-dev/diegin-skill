@@ -823,7 +823,7 @@ class BehaviorTracker:
             # 一次否决即生效
             old_conf = rule.confidence
             rule.confidence = rule.confidence * 0.7
-            rule.override_count += 1
+            rule.override_count = getattr(rule, "override_count", 0) + 1  # 修复：SuccessPattern 无 override_count 字段
             rule.last_triggered = datetime.now().isoformat()
             self._save_rule(rule, rule_type,
                 confidence=rule.confidence,
