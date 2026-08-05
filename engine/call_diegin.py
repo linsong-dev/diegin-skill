@@ -238,7 +238,7 @@ def evidence_filter(interceptions: list, context: dict) -> list:
             if triggered >= 2 or confidence >= 4.5:
                 filtered.append(rule)
                 if evidence_record:
-                    evidence_record(rid, 'pass', f'staging规则通过验证(触发={triggered},置信度={confidence})', source='evidence_filter')
+                    evidence_record(rid, 'skip', f'staging阈值达标(触发={triggered},置信度={confidence}), evidence_filter批量非验证', source='evidence_filter')
                 continue
             if evidence_record:
                 evidence_record(rid, 'skip', f'staging规则证据不足(触发={triggered},置信度={confidence})', source='evidence_filter')
@@ -1258,7 +1258,7 @@ if __name__ == "__main__":
                 _src = str(_e.get("source", "") or "")
                 _verdict = str(_e.get("verdict", "") or "")
                 _reason = str(_e.get("reason", "") or "")
-                if _src == "evidence_filter" and _verdict == "pass" and "active规则已通过验证" in _reason:
+                if _src == "evidence_filter" and _verdict == "pass":
                     _e["verdict"] = "skip"
                     _e["reason"] = "[伪] 非验证动作（evidence_filter 批量产生），2026-08-05 清理: " + _reason[:120]
                     cleaned += 1

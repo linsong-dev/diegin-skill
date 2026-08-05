@@ -26,10 +26,13 @@ def check(name, condition, detail=""):
 def test_pacemaker():
     from evo.main import get_pacemaker
     pm = get_pacemaker()
+    _orig_dt = pm._check_downtime
+    pm._check_downtime = lambda: False  # 时间无关：避开宕机时段(23:00-06:00)导致的 flaky
     r1 = pm.classify({"task": "紧急修复bug"})
     c1 = check("缓急律·紧急分流", r1["channel"] == "fast_path")
     r2 = pm.classify({"task": "日常提交"})
     c2 = check("缓急律·常规分流", r2["channel"] == "normal")
+    pm._check_downtime = _orig_dt
     return c1 and c2
 
 def test_closure():

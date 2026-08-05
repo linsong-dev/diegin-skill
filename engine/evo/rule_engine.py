@@ -15,6 +15,7 @@ diegin-evo 规则引擎
 迭进自主生成和维护
 """
 
+import io
 import json
 import os
 import re
@@ -165,7 +166,7 @@ class RuleEngine:
             import sys as _sys
             print(f"[RULE_ENGINE][WARN] Mindol {ctx} failed: {exc}", file=_sys.stderr)
             try:
-                _logp = os.path.join(os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
+                _logp = os.path.join(os.path.dirname(__file__), "..", "..", "var", "logs", "diegin_audit.log")
                 _logp = os.path.abspath(_logp)
                 if os.path.isdir(os.path.dirname(_logp)):
                     _line = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + f" [RULE_ENGINE][WARN] Mindol {ctx} failed: {exc}\n"
@@ -179,6 +180,26 @@ class RuleEngine:
                         _f.write(_line + _old)
             except Exception:
                 pass
+        except Exception:
+            pass
+
+
+    def _audit_reopen(self, pattern_id: str, from_status: str, to_status: str):
+        """人工裁决审计：_force_reopen 复活 archived 模式必须留痕（防再生可追溯）"""
+        try:
+            _logp = os.path.join(os.path.dirname(__file__), "..", "..", "var", "logs", "diegin_audit.log")
+            _logp = os.path.abspath(_logp)
+            if os.path.isdir(os.path.dirname(_logp)):
+                _line = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + \
+                    f" [RULE_ENGINE][AUDIT] _force_reopen pattern={pattern_id} {from_status}->{to_status}\n"
+                _old = ""
+                try:
+                    with io.open(_logp, "r", encoding="utf-8", errors="replace") as _f:
+                        _old = _f.read()
+                except Exception:
+                    pass
+                with io.open(_logp, "w", encoding="utf-8") as _f:
+                    _f.write(_line + _old)
         except Exception:
             pass
 
@@ -887,12 +908,14 @@ class RuleEngine:
         _cur_status = getattr(pattern, "lifecycle_status", "") or ""
         _new_status = kwargs.get("lifecycle_status")
         if _new_status and _new_status in ("active", "staging") and _cur_status == "archived":
-            if not kwargs.pop("_force_reopen", False):
+            _force = kwargs.pop("_force_reopen", False)
+            if not _force:
                 self._mindol_warn(
                     "update_pattern-reopen-guard",
                     Exception(f"拒绝复活 archived 模式 {pattern_id} -> {_new_status}（需显式 _force_reopen=True）")
                 )
                 return False
+            self._audit_reopen(pattern_id, _cur_status, _new_status)
         # [L4-防再生] 旧进程内存覆盖防护：kwargs 未显式改状态时，
         # 以 Mindol(SQLite) 权威状态纠正内存陈旧值，防止 active 旧缓存写回 JSON/Mindol
         if not kwargs.get("lifecycle_status"):
