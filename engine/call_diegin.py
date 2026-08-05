@@ -386,8 +386,12 @@ def pre_check(context: dict) -> dict:
             }
             _logic = str(getattr(p, "decision_logic", "") or "").strip()
             _conf = float(getattr(p, "confidence", 0) or 0)
-            # 高置信度 + 实质决策逻辑 → 优先采用（复用验证过的正确做法）
-            _is_priority = _conf >= 4.5 and len(_logic) >= 6
+            _trig = str(getattr(p, "trigger_condition", "") or "").strip()
+            # 工具名级噪音过滤（P2a 防伪模式污染）：trigger 为 tool_name=='X' 的模式
+            # 任何工具调用都触发，无场景区分，推荐无信息量 → 不进 priority 推荐
+            _tool_lvl_noise = _trig.startswith("tool_name ==")
+            # 高置信度 + 实质决策逻辑 + 非工具名级噪音 → 优先采用（复用验证过的正确做法）
+            _is_priority = _conf >= 4.5 and len(_logic) >= 6 and not _tool_lvl_noise
             _s["priority"] = _is_priority
             if _is_priority:
                 _priority_sug.append(_s)
@@ -1120,6 +1124,11 @@ if __name__ == "__main__":
             is_hollow = (len(_dl_compact) < 6) or any(_w in _dl_compact for _w in _hollow_words)
             if not is_hollow and not _cond and not _scene:
                 is_hollow = True
+            # [L4-防再生] 工具名级伪模式：decision_logic 为纯工具名/标识符且无触发条件 → 视为空壳归档
+            if not is_hollow and not _cond:
+                import re as _are
+                if _logic and len(_logic) <= 40 and not _are.search(r"[\s=;|&>^$()\[\]\{\}:]", _logic) and _logic.replace("_", "").isalnum():
+                    is_hollow = True
             if not is_hollow:
                 kept_ids.append(_pid)
                 continue

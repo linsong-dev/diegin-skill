@@ -820,6 +820,14 @@ class RuleEngine:
             self._guard_trigger(pattern.id, pattern.trigger_condition, "pattern")
         if not pattern.id:
             pattern.id = f"pattern_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(pattern.pattern_name) % 10000:04d}"
+        # [L4-防再生] 幂等去重：同 id 已存在 → 不重复入库，返回现有 id（防重复模式堆积）
+        _dup = self.get_pattern_by_id(pattern.id)
+        if _dup is not None:
+            self._mindol_warn(
+                "add_pattern-dup-guard",
+                Exception(f"模式 {pattern.id} 已存在，跳过重复添加（保留现有状态={_dup.lifecycle_status}）")
+            )
+            return _dup.id
         if not pattern.created_at:
             pattern.created_at = datetime.now().isoformat()
         if not pattern.last_triggered and pattern.triggered_count and pattern.triggered_count > 0:
@@ -875,6 +883,36 @@ class RuleEngine:
         pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return False
+        # [L4-防再生] 状态转换护栏：archived 是终态，仅显式 _force_reopen=True 才可复活
+        _cur_status = getattr(pattern, "lifecycle_status", "") or ""
+        _new_status = kwargs.get("lifecycle_status")
+        if _new_status and _new_status in ("active", "staging") and _cur_status == "archived":
+            if not kwargs.pop("_force_reopen", False):
+                self._mindol_warn(
+                    "update_pattern-reopen-guard",
+                    Exception(f"拒绝复活 archived 模式 {pattern_id} -> {_new_status}（需显式 _force_reopen=True）")
+                )
+                return False
+        # [L4-防再生] 旧进程内存覆盖防护：kwargs 未显式改状态时，
+        # 以 Mindol(SQLite) 权威状态纠正内存陈旧值，防止 active 旧缓存写回 JSON/Mindol
+        if not kwargs.get("lifecycle_status"):
+            _auth_status = None
+            try:
+                if self._mindol is None:
+                    self._init_mindol()
+                if self._mindol is not None:
+                    _db = getattr(self._mindol, "_db", None)
+                    if _db is not None:
+                        _uid = f"pat_{pattern_id}"
+                        _row = _db.execute("SELECT text FROM memory_units WHERE uid=?", (_uid,)).fetchone()
+                        if _row:
+                            import json as _aj
+                            _auth_status = _aj.loads(_row[0]).get("status")
+            except Exception:
+                _auth_status = None
+            if _auth_status and _auth_status != _cur_status:
+                # 内存陈旧（旧进程缓存 active）→ 以权威 archived 纠正，防止全量覆盖复活
+                pattern.lifecycle_status = _auth_status
         for key, value in kwargs.items():
             if hasattr(pattern, key):
                 setattr(pattern, key, value)
@@ -887,9 +925,20 @@ class RuleEngine:
                 import json as _j
                 _m = self._mindol
                 _uid = f"pat_{pattern.id}"
+                _status_out = kwargs.get("lifecycle_status")
+                if not _status_out:
+                    # 权威状态保护：未显式改状态 → 保留 Mindol 现有权威状态（防旧进程内存覆盖）
+                    try:
+                        _db = getattr(_m, "_db", None)
+                        if _db is not None:
+                            _row = _db.execute("SELECT text FROM memory_units WHERE uid=?", (_uid,)).fetchone()
+                            if _row:
+                                _status_out = _j.loads(_row[0]).get("status", pattern.lifecycle_status)
+                    except Exception:
+                        _status_out = pattern.lifecycle_status
                 _text = _j.dumps({
                     "id": pattern.id, "name": pattern.pattern_name, "scene": pattern.trigger_scenario,
-                    "confidence": pattern.confidence, "status": pattern.lifecycle_status,
+                    "confidence": pattern.confidence, "status": _status_out or pattern.lifecycle_status,
                     "source": pattern.source,
                     "decision_logic": pattern.decision_logic or "",
                     "micro_template": pattern.micro_template or "",

@@ -1495,6 +1495,10 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
 
 
         if existing:
+            # [L4-防再生] archived 为终态：跳过一切强化/补全/promote，防自动复活
+            if getattr(existing, "lifecycle_status", "") == "archived":
+                report_lines.append(f"   ⛔ 已归档模式，跳过强化（archived 终态）\n")
+                continue
 
 
             # 已存在 → 置信度+0.3
