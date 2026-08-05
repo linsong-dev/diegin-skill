@@ -146,7 +146,7 @@ if (Test-Path $markerFile) {
 # 攻七反馈闭环 Q4: 工具成功 + 有 priority 推荐 → 自动采纳（置信度+0.5）
 try {
     $prioFile = Join-Path $stateDir "dgen_priority_pattern.json"
-    if (Test-Path $prioFile -and $toolExitCode -eq 0) {
+    if ((Test-Path $prioFile) -and -not $toolError -and ($null -eq $toolExitCode -or $toolExitCode -eq 0)) {
         $prioRec = Get-Content $prioFile -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($prioRec.pattern_id) {
             $adoptJson = @{pattern_id=$prioRec.pattern_id; adopted=$true; reason="tool_success_auto_adopt"} | ConvertTo-Json -Compress
