@@ -50,3 +50,25 @@
 | R1 | 运行版（.codex\diegin）为唯一权威落点；源码库（本地源码库\Diegin）从运行版同步 |
 | R2 | 不在 hooks.json/config.toml 信任哈希之外改配置；改 hooks.json 需同步 config.toml 哈希 |
 | R3 | 每步骤修改-测试-检查-验证-清理，清理含 TEMP 补丁脚本与测试目录 |
+
+## 7. 攻七强化与质量审计（v3.8）
+
+| # | 规则 |
+|---|---|
+| G1 | 攻七模式写入门槛：decision_logic 必须 ≥6 实质字符（无工具名/状态词填充），否则不入库 |
+| G2 | 每次规则库/模式库变更后运行 `python engine\call_diegin.py audit_patterns`（空壳自动归档，幂等） |
+| G3 | staging 积压检查：`python engine\call_diegin.py audit_staging`（死亡→归档 / 触发≥2→active） |
+| G4 | 证据库去假：`python engine\call_diegin.py audit_evidence`（evidence_filter 批量 pass 标记 skip） |
+| G5 | 攻七反馈闭环：post_tool 自动调用 `feedback_adopt`（工具成功+priority 推荐 → 置信度+0.5）；测试用 `adopted=false` 验证 veto 路径后必须清理 |
+| G6 | 修改攻七相关代码后：验证 4 场景——同场景加权 allow / 异场景守三不误伤 / 持平守三优先 / 空 context 默认放行 |
+| G7 | 自检必须含 `no_hollow_patterns` / `no_stale_staging` / `no_fake_evidence` 三项为 true（防再生） |
+| G8 | ps1 改动用 UTF-8 带 BOM 写回（`UTF8Encoding($true)`）；若误用 NoBOM 写回，自检 `hooks_ps1_bom` 会 FAIL 并记 strike，需恢复 BOM 后清理 strike |
+
+## 8. 文档同步铁律
+
+| # | 规则 |
+|---|---|
+| D1 | 引擎/钩子行为变更后必须同步更新：SKILL.md（协议+指令表）、README.md（版本+特性）、workspace\dgen_rules.md（重新生成）、dev_ops_sop.md（SOP）、AGENTS.md（规则数） |
+| D2 | workspace\dgen_rules.md 为自动生成索引，用脚本从 interception_rules.json 重新生成，禁止手改 |
+| D3 | 每次工作轮次新建 workspace\trail_<日期>.md 记录变更与验证实证 |
+| D4 | 文档更新后运行 checkpush pre-check，通过后再 push |

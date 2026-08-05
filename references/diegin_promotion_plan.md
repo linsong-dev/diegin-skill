@@ -174,6 +174,31 @@
 
 **推广的关键不是讲原理，而是展示结果：让 AI 犯过的错，真的不再犯。**
 
+**推广的关键不是讲原理，而是展示结果：让 AI 犯过的错，真的不再犯。**
+
+---
+
+## 九、攻七强化与系统净化（2026-08-05 实施）
+
+### 攻七强化（v3.8，四条链路）
+- **及时使用**：pre_check 高置信度模式（conf≥4.5）标 priority，display_line 升级 `✅ 攻七优先采用`
+- **优先选用**：仲裁器 P4 同场景加权 +0.5（同工具复用验证过的方法优先于负向纠错；不凌驾 P0-P3）
+- **泛化提速**：generalize_from_patterns 门槛放宽为「复用≥2 次 或 conf≥4.5」（复用即验证信号）
+- **反馈闭环**：feedback_adopt（adopt +0.5 / veto ×0.7）+ post_tool 自动采纳
+
+### 系统净化（质量护栏，防再生）
+- 攻七：28 条空壳模式归档（audit_patterns），保留 6 条实质模式；空壳补全后自动复活入 staging 验证门
+- 举一反三：23 条死亡 staging 归档（audit_staging），staging_queue 26→3
+- 去伪存真：evidence_filter 不再写假 pass；429 条存量假证据标记 skip（audit_evidence）
+- health：熵=不稳定率真实计算；无数据指标显式 [N/A]（不再伪满分）
+- 一二不过三：修复 post_tool 条件倒挂（原 `-notmatch '"error"'` 导致检测到错误反而跳过记录）
+- 可观测性：PACE / PHASE_LOCK 落盘审计日志
+
+### 回归实证
+- 引擎自检 13 项全绿（含 no_hollow_patterns / no_stale_staging / no_fake_evidence）
+- test_all.py 16/16；双库一致（Mindol/JSON 255=255）
+- 攻七闭环实测：Bash 场景优先推荐 → 同场景仲裁加权 → 泛化产出 → adopt 4.0→4.5 / veto 4.5→3.15
+
 ---
 
 *本文档由 Codex 实战会话生成，数据均来自引擎实测。*

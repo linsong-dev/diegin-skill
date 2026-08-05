@@ -213,6 +213,17 @@ metadata:
 
 | 约束 | 与守三深度复盘时间隔离 |
 
+**攻七强化（v3.8）**——正向经验优先复用，四条强化链路：
+
+| 强化 | 机制 | 实证 |
+|:---|:---|:---|
+| 及时使用 | pre_check 高置信度（conf≥4.5 且有实质决策逻辑）模式标 `priority`，display_line 升级 `✅ 攻七优先采用` | Bash 场景实测触发 |
+| 优先选用 | 仲裁器 P4 同场景加权：模式与当前工具同场景 → 置信度 +0.5（不凌驾 P0-P3） | 同场景攻七胜出、异场景不误伤 |
+| 泛化提速 | generalize_from_patterns 门槛放宽为「复用≥2 次 或 conf≥4.5」（复用即验证信号） | 单步泛化验证通过 |
+| 反馈闭环 | pre_tool 记录推荐 → post_tool 工具成功自动采纳（`feedback_adopt`）：adopt 置信度+0.5 / veto ×0.7 | adopt 4.0→4.5、veto 4.5→3.15 |
+
+质量门槛（v3.7/3.8）：空壳模式（decision_logic 空/无学习价值）不入库；存量空壳由 `audit_patterns` 归档（28 条已清）。
+
 
 
 ---
@@ -737,6 +748,10 @@ ule_conflict | 规则数不一致 | 启用优先级自动裁决 |
 
 | dgen feedback <ID> <agree/veto/silent> | 对规则给出反馈，引擎自动调整置信度 |
 
+| `python call_diegin.py audit_patterns` | 攻七质量审计：空壳模式自动归档（幂等） |
+| `python call_diegin.py audit_staging` | 举一反三 staging 清理：死亡→归档 / 触发≥2→active |
+| `python call_diegin.py audit_evidence` | 去伪存真：证据库去假阳性（evidence_filter 批量 pass 标记 skip） |
+| `python call_diegin.py feedback_adopt` | 攻七反馈闭环：adopted=true→置信度+0.5 / false→×0.7（post_tool 自动调用） |
 | dgen domain list | 列出所有领域规则包 |
 
 | dgen domain activate <domain> | 激活指定领域 |

@@ -13,7 +13,7 @@
   <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.6.6-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.7.0-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>
@@ -47,7 +47,7 @@
 | 文件 | 作用 |
 |:-----|:------|
 | engine/evo/main.py | 统一入口 + 定期维护 |
-| engine/evo/rule_engine.py | 规则引擎（261 条规则，CRUD + 匹配） |
+| engine/evo/rule_engine.py | 规则引擎（255 条规则，CRUD + 匹配 + RULE-GUARD 触发写入门） |
 | engine/evo/tracker.py | 行为追踪（一二不过三连锁、守三攻七循环） |
 | engine/evo/arbiter.py | 仲裁器（P0-P5 优先级裁决） |
 | engine/evo/pacemaker.py | 缓急律调度（宕机时段） |
@@ -63,12 +63,22 @@
 |:-:|:----|:---:|:-----|
 | 0 | 裁决律 | 宪法 | 真伪至上 → 生存优先 → 完形封存 |
 | 1 | 守三 | 防守 | 观不足 → 省其因 → 正其行 |
-| 2 | 攻七 | 进攻 | 识长处 → 炼精华 → 固其用 |
+| 2 | 攻七 | 进攻 | 识长处 → 炼精华 → 固其用（v3.8：优先复用验证过的正确做法） |
 | 3 | 一二不过三 | 安全阀 | 立改 → 加固 → 升级（三错封顶）|
 | 4 | 举一反三 | 扩展 | 举一 → 反三 → 通百 → 回归校验 |
 | 5 | 去伪存真 | 硬地板 | 言必有证 → 证必可验 → 验证为真 + 季度证伪 |
 | 6 | 缓急律 | 节奏 | 急务求效 → 缓务求真 → 张弛有度 |
 | 7 | 止观门 | 封存 | 事毕封存 → 投入清零 → 不恋战 |
+
+## 攻七强化（v3.8）
+
+验证过的正确做法 → **及时推荐 → 优先选用 → 快速泛化 → 采纳反馈**：
+
+- **及时使用**：`pre_check` 高置信度模式标 priority，工具调用前直接推荐采用
+- **优先选用**：仲裁器 P4 同场景加权 +0.5（同工具复用验证过的方法优先于负向纠错）
+- **泛化提速**：复用≥2 次或 conf≥4.5 即触发跨域泛化
+- **反馈闭环**：工具成功自动采纳（置信度+0.5）；否决 ×0.7
+- **质量护栏**：`audit_patterns` / `audit_staging` / `audit_evidence` 防空壳与假数据再生
 
 ## 快速开始
 
