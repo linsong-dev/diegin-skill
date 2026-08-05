@@ -1,6 +1,6 @@
 # DGEN 规则文档（规则库索引）
 
-> 生成时间：2026-08-05 15:50:52
+> 生成时间：2026-08-05 16:16:11
 > 生成方式：扫描引擎规则库自动生成（读取 `engine/evo/rules/interception_rules.json`）
 > 权威源：`engine/evo/rules/interception_rules.json`（运行时同步 Mindol 语义记忆）。
 > 本文件是规则库的可读索引/文档，供人工审阅与 SKILL 引用；规则的增删改以引擎维护流程（`run_maintenance` / 各原则模块）为准，不要直接编辑本文件。
@@ -14,8 +14,8 @@
 | critical | 2 |
 | blocking | 3 |
 | alerting | 7 |
-| active | 32 |
-| archived | 203 |
+| active | 31 |
+| archived | 204 |
 | **合计** | **260** |
 
 ## §规则（生效规则明细）
@@ -35,7 +35,7 @@
 | `self_error_protocol_b_marker` | high | `error_type=='protocol_b_marker'` | self_check_and_avoid | 4.5 | 0 |
 | `self_error_verify_test_b2ad68eb` | high | `error_type=='verify_test_b2ad68eb'` | self_check_and_avoid | 4.5 | 0 |
 
-### active（32 条）
+### active（31 条）
 
 | 规则ID | 严重度 | 触发条件 | 动作 | 置信度 | 触发 |
 |:---|:---|:---|:---|:---:|:---:|
@@ -66,7 +66,6 @@
 | `rule_session_image_protection` | medium | `tool_name == 'view_image'` | suggest; 当前模型 deepseek-v4-flash 不支持图片输入，view_image 会把 image_… | 5.0 | 0 |
 | `rule_state_expire_60s` | medium | `'state_file' in context or 'dgen_last_reply' in context or '…` | check_timestamp_before_relay; expire_after_60s | 3.8 | 8 |
 | `rule_test_no_pollution` | medium | `'测试' in context and 'strikes' in context` | suggest; 测试不得污染生产状态文件(strikes_db/evidence_trail)，测试前后必须清理或隔离 | 4.0 | 0 |
-| `rule_verification_gate_hard_floor` | critical | `phase == 'stop_verification' OR 'stop_verification' in str(c…` | verify_phase_state; report_if_stalled | 5 | 0 |
 | `rule_windows_bom_audit` | high | `('bom' in command or 'BOM' in command or 'encoding' in comma…` | block; check_first_3_bytes_for_bom_before_deploy | 4.3 | 576 |
 | `shousan_review_command_failure_20260805_145423` | high | `op == cmd AND NOT cmd_prechecked` | dry_run_before_exec; verify_exit_code | 4.0 | 0 |
 | `shousan_review_hooks_ps1_bom_20260805_124836` | high | `op_contains(hooks_ps1_bom) AND NOT prechecked` | pre_check_before_hooks_ps1_bom; verify_result | 4.0 | 0 |
@@ -96,7 +95,7 @@
 | `rule_no_binary_hack_001` | high | `task_type == 'binary_modify' AND target == 'app.asar'` | block_execution; suggest_plugin_alternative | 5.0 | 0 |
 | `rule_subagent_marker_001` | medium | `task_type == 'subagent' and 'diegin' not in context` | block_reply; inject_diegin_task | 4.5 | 0 |
 
-### archived（203 条）
+### archived（204 条）
 
 已归档规则保留 Mindol 语义记忆，退出表达式匹配。归档明细见规则库 JSON。
 
