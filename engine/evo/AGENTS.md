@@ -26,6 +26,11 @@
 - 删除/归档规则必须保留证据轨迹（pre_ 备份文件或归档记录），禁止静默删除后无痕。
 - 死规则（active 超期零触发）应归档而非删除，归档后重生成索引并同步 Mindol。
 
+## 4.5 自动提取质量门（ACC-QRY-005）
+
+- `_noise_reason`（rule_engine.py）在 auto_sandwich 建模式 / generalize_from_patterns 派生规则 / promote_pattern 提升 三处强制生效：乱码路径、疑似测试样本、只读查询命令一律拒绝自动固化。
+- 误伤个案按「人工复核」处理：人工确认后转 source=manual 并更新判定，不静默放行。
+
 ## 5. 变更流程
 
 - 修改 `engine/evo/` 任何文件后：`test_all.py`（23 项）→ `diegin_self_check.py`（13 项）→ 全绿后才算完成。

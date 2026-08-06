@@ -46,6 +46,7 @@
 - 非目标：不禁止自动提取本身（攻七正向强化保留）；不改人工评审路径。
 - 实现任务：rule_engine.py 新增 `_noise_reason`（共享质量门）并接入 3 处：auto_sandwich 建模式、generalize_from_patterns 派生规则、promote_pattern 提升；归档 2 条已入库噪音（pat_auto_tool_shell_command_1 模式 + pat_rule_pat_auto_tool_shell_command_1 规则）。
 - 验证证据：质量门 11/11 正反向测试通过；噪音模式/规则已归档（lifecycle_status=archived，Mindol 同步）；规则库 265 条（含归档）。
+- 边界与人工复核路径（去伪存真·个案复核）：黑名单为启发式，若真实成功经验被误伤（如真实部署脚本恰含 `x.txt`/`test`），按「人工复核」流程处理——人工确认后显式降级该模式/规则为人工来源（source=manual / lifecycle_status=active），并更新 `_noise_reason` 白名单或精确化判定；不静默放行，不静默归档。
 
 ### ACC-QRY-006 — 发布门禁联动（2026-08-06 done）
 - 意图：无验证变更不得流入发布——同步/推送前检查 dgen_change_log.json 无 failed/error 验证记录。
