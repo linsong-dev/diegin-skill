@@ -324,7 +324,7 @@ class RuleEngine:
             except Exception as _e:
                 self._mindol = None
 
-    def _mindol_sync_all(self):
+    def _mindol_sync_all(self, force_status: bool = False):
         """将所有迭进数据同步到 Mindol 语义记忆引擎"""
         if self._mindol is None:
             self._init_mindol()
@@ -333,6 +333,22 @@ class RuleEngine:
         import json, datetime
         now = datetime.datetime.now().isoformat()
         m = self._mindol
+        # [L4-防再生] 权威状态快照：全量同步不得用内存陈旧状态覆盖 Mindol 权威 archived（旧进程覆盖防护）
+        _auth_status = {}
+        if not force_status:
+            try:
+                for _spn in (m.SPACE_RULE, m.SPACE_PATTERN):
+                    _sp = m.get_space(_spn)
+                    if _sp is None:
+                        continue
+                    for _u in _sp.memory_units:
+                        try:
+                            _d = json.loads(_u.text)
+                            _auth_status[_u.uid] = _d.get("status", "")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
         # 1. 规则 → SPACE_RULE
         for r in self._interceptions:
@@ -340,7 +356,7 @@ class RuleEngine:
             text = json.dumps({
                 "id": r.id, "trigger": r.trigger_condition,
                 "action": r.action, "severity": r.severity,
-                "confidence": r.confidence, "status": r.lifecycle_status,
+                "confidence": r.confidence, "status": ("archived" if _auth_status.get("rule_" + r.id) == "archived" and r.lifecycle_status in ("active", "staging") else r.lifecycle_status),
                 "source": r.source, "created": r.created_at,
                 "tags": getattr(r, "tags", []),
                 "boundary_conditions": getattr(r, "boundary_conditions", []) or []
@@ -357,7 +373,7 @@ class RuleEngine:
             uid = f"pat_{p.id}"
             text = json.dumps({
                 "id": p.id, "name": p.pattern_name, "scene": p.trigger_scenario,
-                "confidence": p.confidence, "status": p.lifecycle_status,
+                "confidence": p.confidence, "status": ("archived" if _auth_status.get("pat_" + p.id) == "archived" and p.lifecycle_status in ("active", "staging") else p.lifecycle_status),
                 "source": p.source,
                 "decision_logic": p.decision_logic or "",
                 "micro_template": p.micro_template or "",
