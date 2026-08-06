@@ -808,6 +808,14 @@ ule_conflict | 规则数不一致 | 启用优先级自动裁决 |
 | `python call_diegin.py audit_staging` | 举一反三 staging 清理：死亡→归档 / 触发≥2→active |
 | `python call_diegin.py audit_evidence` | 去伪存真：证据库去假阳性（evidence_filter 批量 pass 标记 skip） |
 | `python call_diegin.py feedback_adopt` | 攻七反馈闭环：adopted=true→置信度+0.5 / false→×0.7（post_tool 自动调用） |
+
+## 防再生机制（L4，2026-08 加固）
+
+- **归档即终态**：`lifecycle_status=archived` 的模式/规则不会被任何自动路径复活（auto_sandwich 跳过强化、promote 失效、update 需显式 `_force_reopen=True` 且留审计）。
+- **权威状态保护**：Mindol(SQLite) 为权威源；`update_pattern` 与 `_mindol_sync_all` 在未显式改状态时以权威 archived 为准，防止旧进程内存陈旧缓存覆盖写回导致复活（多进程内存竞争防护）。
+- **幂等写入**：`add_pattern` 同 id 去重；Mindol `add_unit` 以 uid 为主键 `INSERT OR REPLACE`，无整库重建。
+- **质量门槛**：工具名级伪模式（decision_logic 为纯工具名且无触发条件）由 `audit_patterns` 自动归档；staging 衍生规则源模式已归档时由 `audit_staging` 清理。
+- **人工裁决**：确需复活 archived 项，走 `_force_reopen=True`（代码层），系统自动写入审计日志留痕。
 | dgen domain list | 列出所有领域规则包 |
 
 | dgen domain activate <domain> | 激活指定领域 |
