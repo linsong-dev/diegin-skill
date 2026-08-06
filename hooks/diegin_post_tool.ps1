@@ -177,6 +177,61 @@ try {
 }
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PostToolUse] ACTIVE"
+# [B1-20260806] 变更-验证绑定（ACC-QRY-004）：检测源码变更 → 最小验证 → 可审计记录
+function Test-DieginChangeEvent {
+    param([string]$ToolName,[string]$Cmd,[int]$ExitCode)
+    if ($ToolName -match 'apply_patch|edit|write') { return $true }
+    if ($ToolName -ne 'shell_command') { return $false }
+    if ($null -ne $ExitCode -and $ExitCode -ne 0) { return $false }
+    if (-not $Cmd) { return $false }
+    # 只认写文件语义（排除只读/查询 → 防 better-harness 式误判）
+    if ($Cmd -match '(>>|Set-Content|WriteAllText|Add-Content|Out-File|Move-Item|Remove-Item|New-Item|Copy-Item|apply_patch|git\s+add|git\s+commit)') { return $true }
+    return $false
+}
+
+function Write-DieginChangeRecord {
+    param([string]$ToolName,[string]$Cmd,[int]$ExitCode)
+    try {
+        $logFile = Join-Path $stateDir "dgen_change_log.json"
+        $records = @()
+        if (Test-Path $logFile) {
+            try { $records = @(Get-Content $logFile -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { $records = @() }
+        }
+        # 最小验证：self_check（只读无副作用）
+        $vStatus = "unverified"; $vErr = ""
+        try {
+            $sc = & $pythonExe (Join-Path $g_pr "engine\diegin_self_check.py") 2>&1 | Out-String
+            if ($sc -match '"status":\s*"ok"') { $vStatus = "passed" } else { $vStatus = "failed"; $vErr = $sc.Substring(0, [Math]::Min(200, $sc.Length)) }
+        } catch { $vStatus = "error"; $vErr = $_.Exception.Message }
+        $preview = $Cmd
+        if ($preview.Length -gt 200) { $preview = $preview.Substring(0, 200) }
+        $hashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Cmd))
+        $cmdHash = ([System.BitConverter]::ToString($hashBytes)).Replace("-", "").Substring(0, 16)
+        $rec = @{
+            ts=(Get-Date -Format "o")
+            tool=$ToolName
+            exit_code=$ExitCode
+            command_preview=$preview
+            command_hash=$cmdHash
+            verification=@{check="diegin_self_check"; status=$vStatus; err=$vErr; ts=(Get-Date -Format "o")}
+        }
+        $records = @($rec) + $records
+        if ($records.Count -gt 200) { $records = $records[0..199] }
+        [System.IO.File]::WriteAllText($logFile, ($records | ConvertTo-Json -Depth 5), $script:utf8NoBOM)
+        Add-NoBOMLog -Path $auditLog -Message "$time [B1-CHANGE] recorded tool=$ToolName verify=$vStatus"
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [B1-CHANGE] record_error=$($_.Exception.Message)"
+    }
+}
+
+try {
+    if (Test-DieginChangeEvent -ToolName $toolName -Cmd $toolCmd -ExitCode $toolExitCode) {
+        Write-DieginChangeRecord -ToolName $toolName -Cmd $toolCmd -ExitCode $toolExitCode
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [B1-CHANGE] detect_error=$($_.Exception.Message)"
+}
+
 
 # 会话图片清理
 $cleanScript = Join-Path $g_pr "hooks\diegin_session_image_clean.ps1"

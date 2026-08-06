@@ -203,3 +203,10 @@
 ---
 
 *本文档由 Codex 实战会话生成，数据均来自引擎实测。*
+
+---
+
+## 十、验收注册表（2026-08-06）
+
+- 规划/验收已编号化：见 [ACCEPTANCE_REGISTER.md](ACCEPTANCE_REGISTER.md)（ACC-SYS-001 P0 闭环、ACC-QRY-002 就近指令、ACC-QRY-003 注册表本身、ACC-QRY-004 B-1 立项）。
+- 规则：实现任务开始前打开对应 ACC 条目并引用至少一个验收编号。

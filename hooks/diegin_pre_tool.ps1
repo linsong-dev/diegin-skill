@@ -117,7 +117,18 @@ function Test-DieginOverride {
         try {
             $data = Get-Content $overridesPath -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($data -is [array]) {
-                $entries = $data | Where-Object {
+                # [P0-20260806] 闭环: 对应错误类型在 strikes_db 中 fix_status=verified → 跳过该 override（修复已验证不再 72h 残留阻断）
+                $strikes = $null
+                try { $strikes = Get-Content (Join-Path $script:stateDir "strikes_db.json") -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+                $entries = @($data | Where-Object {
+                    # [P0-20260806] verified 跳过前置：避免 blocked_at 无时区 ParseExact 异常导致跳过失效（TTL 自愈也因此失效）
+                    try {
+                        $errType = [string]$_.blocked_error_type
+                        if ($errType -and $strikes -and $strikes.$errType -and $strikes.$errType.fix_status -eq "verified") {
+                            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:OVERRIDE] SKIP verified type=$errType"
+                            return $false
+                        }
+                    } catch {}
                     if ($_.blocked_at) {
                         try {
                             $blockedAt = [DateTime]::ParseExact($_.blocked_at, 'o', $null)
@@ -126,6 +137,12 @@ function Test-DieginOverride {
                         } catch { return $true }
                     }
                     return $true
+                })
+                if ($entries.Count -eq 0 -and @($data).Count -gt 0) {
+                    try {
+                        [System.IO.File]::WriteAllText($overridesPath, (@() | ConvertTo-Json -Compress), $script:utf8NoBOM)
+                        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:OVERRIDE] CLEANED all_verified"
+                    } catch {}
                 }
             } elseif ($data -is [pscustomobject]) { $entries = @($data) }
         } catch {}
