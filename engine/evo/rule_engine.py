@@ -29,7 +29,36 @@ from pathlib import Path
 # 数据结构定义
 # ============================================================
 
+def _noise_reason(text: str) -> str:
+    """[P4-20260806] 自动提取质量门（去伪存真·证必可验）：
+    自动提炼成功模式/派生规则前必须通过本门；返回空字符串=通过，非空=拒绝原因。
+    """
+    if not text or not text.strip():
+        return "空决策逻辑"
+    if "\ufffd" in text:
+        return "含替换字符 U+FFFD"
+    # 乱码路径特征: E:\??\ 或任意段 \??\（用 chr(63) 构造问号，避免检测代码本身触发连续问号启发式）
+    _q2 = chr(63) * 2
+    if re.search(r"[\\/]" + _q2 + r"[\\/]", text) or "\\" + _q2 + "\\" in text or _q2 + "\\" in text:
+        return "含乱码路径 " + _q2 + "（证据不可验证）"
+    low = text.lower()
+    # 疑似测试/临时样本（非真实成功经验）
+    for h in ("x.txt", "test.txt", "_p0_", "_b1_", "_test", "test_", "\\temp\\", "\\tmp\\", "_bh_review", "_probe", "_verify", "probe.txt", "tmp.txt"):
+        if h in low:
+            return "疑似测试/临时样本: " + h
+    # 只读查询命令（无写语义、无决策可学）作首行判定
+    first = low.strip().splitlines()[0][:120] if low.strip().splitlines() else ""
+    for c in ("get-content", "get-childitem", "select-string", "get-item", "test-path", "test-netconnection", "get-filehash", "dir ", "ls ", "cat ", "type "):
+        if first.startswith(c):
+            return "只读查询命令不作为攻七模式: " + c.strip()
+    # git 只读子命令（-C 参数后仍判只读）
+    if first.startswith("git ") and any(_s in first for _s in (" status", " log", " diff", " ls-files", " remote", " branch", " rev-parse", " config", " show", " blame")):
+        return "git 只读查询不作为攻七模式"
+    return ""
+
+
 @dataclass
+
 class InterceptionRule:
     """拦截规则（守）"""
     id: str
@@ -1170,6 +1199,14 @@ class RuleEngine:
         pattern = self.get_pattern_by_id(pattern_id)
         if not pattern:
             return False
+        # [P4-20260806] 自动提取质量门：噪音模式不得提升（去伪存真·证必可验）
+        try:
+            _why = _noise_reason(getattr(pattern, "decision_logic", "") or "")
+            if _why:
+                self._mindol_warn("promote_pattern-quality-gate", Exception(f"{pattern_id} 拒绝提升: {_why}"))
+                return False
+        except Exception:
+            pass
         import datetime
         now = datetime.datetime.now().isoformat()
         tc = getattr(pattern, 'triggered_count', 0) or 0

@@ -595,6 +595,14 @@ def generalize_from_patterns() -> list:
         # P4-13 泛化源拦截②：已泛化过的模式（auto_promoted）不重复泛化，防删除后再生
         if getattr(p, "auto_promoted", False):
             continue
+        # [P4-20260806] 自动提取质量门：噪音模式不派生规则（去伪存真·证必可验）
+        try:
+            from rule_engine import _noise_reason as _nr
+            _why = _nr(getattr(p, "decision_logic", "") or "")
+            if _why:
+                continue
+        except Exception:
+            pass
         tc = getattr(p, "triggered_count", 0) or 0
         conf = getattr(p, "confidence", 0) or 0
         os_val = getattr(p, "outcome_score", 0) or 0
@@ -1588,6 +1596,17 @@ def auto_sandwich(positive: List[str], negative: List[str], task_type: str = "ge
                 report_lines.append(f"   ⚠️ 跳过空壳模式（决策逻辑无学习价值）\n")
                 continue
             _dl = method[:200] if method else p
+
+
+            # [P4-20260806] 自动提取质量门：噪音内容不建模式（乱码/测试样本/只读查询）
+            try:
+                from rule_engine import _noise_reason as _nr2
+                _why2 = _nr2(_dl)
+                if _why2:
+                    report_lines.append(f"   \u26a0\ufe0f 跳过噪音模式（{_why2}）\n")
+                    continue
+            except Exception:
+                pass
 
 
             _mt = method[:80] if method else p[:80]

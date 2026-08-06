@@ -1,4 +1,4 @@
-# DGEN sync v3 - full bidirectional sync with merge
+﻿# DGEN sync v3 - full bidirectional sync with merge
 param($Action = "check")
 
 function OK { param([string]$m) Write-Host ("  [OK] " + $m) -ForegroundColor Green }
@@ -181,6 +181,32 @@ function SH-Sync {
     if ($copied -gt 0) { Write-Host ("  synced " + $copied + " files to src") -ForegroundColor Green }
 }
 
+
+# [P4-20260806] 发布门禁：变更-验证绑定（ACC-QRY-004/005）
+# 变更日志存在且含 verification=failed/error → 中止同步（无验证变更不得流入发布）
+function Test-PublishGate {
+    param([string]$StateDir)
+    $cl = Join-Path $StateDir "dgen_change_log.json"
+    if (-not (Test-Path $cl)) { return $true }
+    try {
+        $records = Get-Content $cl -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $records) { return $true }
+        foreach ($r in @($records)) {
+            $v = $r.verification
+            if ($v -and $v.status -in @("failed","error")) {
+                Write-Host ("  [GATE] 未验证变更: " + $r.ts + " tool=" + $r.tool + " verify=" + $v.status) -ForegroundColor Red
+                Write-Host "  [GATE] 发布中止：请先修复验证失败，或用 verify_fix 确认后重试。" -ForegroundColor Red
+                return $false
+            }
+        }
+        Write-Host "  [GATE] 变更-验证门通过（无 failed/error 记录）" -ForegroundColor Green
+        return $true
+    } catch {
+        Write-Host ("  [GATE] 检查异常(放行): " + $_.Exception.Message) -ForegroundColor Yellow
+        return $true
+    }
+}
+
 # ===== Main =====
 Write-Host "=== DGEN Sync v3 ===" -ForegroundColor Cyan
 Write-Host ("  Action: " + $Action)
@@ -190,9 +216,9 @@ Write-Host ""
 
 switch ($Action) {
     "check"       { SR-Check; Write-Host ""; SH-Check }
-    "sync-rules"  { SR-Sync }
+    "sync-rules"  { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync }
     "sync-hooks"  { SH-Sync }
-    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; SR-Sync; SH-Sync }
+    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync }
     default {
         Write-Host "Usage: .\sync.ps1 <action>" -ForegroundColor Yellow
         Write-Host "  check       — 仅检查差异（默认）" -ForegroundColor Cyan

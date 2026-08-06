@@ -34,9 +34,22 @@
 
 ## 后续立项（B-1 变更-验证绑定）
 
-### ACC-QRY-004 — 编辑后最小验证绑定（2026-08-06 in-progress）
+### ACC-QRY-004 — 编辑后最小验证绑定（2026-08-06 done）
 - 意图：任一源码变更后运行与变更最小对应的验证（self_check 13 / test_all 23），命令+修订+结果写入可审计记录。
 - 验收标准：变更事件可关联到同一目标的最小验证结果；无验证变更不流入发布。
 - 非目标：不扩大变更范围；不重写既有验证命令。
-- 实现任务（已实施）：post_tool.ps1 新增 B1 块 —— Test-DieginChangeEvent（apply_patch/edit/写文件语义，排除只读查询）+ Write-DieginChangeRecord（self_check 最小验证 + dgen_change_log.json 追加审计，cap 200）。
-- 验证证据：三场景测试通过（apply_patch 记录✓ / 写 shell 记录✓ / 只读排除✓，self_check=passed）；待办：发布门禁联动（checkpush 前查未验证变更）。
+- 实现任务（已实施）：post_tool.ps1 新增 B1 块 —— Test-DieginChangeEvent（apply_patch/edit/写文件语义，排除只读查询）+ Write-DieginChangeRecord（self_check 最小验证 + dgen_change_log.json 追加审计，cap 200）；发布门禁联动 sync.ps1（见 ACC-QRY-006）。
+- 验证证据：三场景测试通过（apply_patch 记录✓ / 写 shell 记录✓ / 只读排除✓，self_check=passed）；sync.ps1 门禁三场景（无日志放行/全 passed 放行/含 failed 拦截）。
+### ACC-QRY-005 — 自动提取质量门（2026-08-06 done）
+- 意图：解决「自动提取无质量门」——攻七 record_success / 举一反三 generalize / 自动提升 promote 链路不得把乱码、测试样本、只读查询噪音自动固化为模式或规则。
+- 验收标准：`_noise_reason` 质量门拒绝：乱码路径 ??/U+FFFD、疑似测试样本（x.txt/test/_p0_/_b1_/tmp 等）、只读查询命令（Get-Content/git status 等）；真实部署/构建命令通过。
+- 非目标：不禁止自动提取本身（攻七正向强化保留）；不改人工评审路径。
+- 实现任务：rule_engine.py 新增 `_noise_reason`（共享质量门）并接入 3 处：auto_sandwich 建模式、generalize_from_patterns 派生规则、promote_pattern 提升；归档 2 条已入库噪音（pat_auto_tool_shell_command_1 模式 + pat_rule_pat_auto_tool_shell_command_1 规则）。
+- 验证证据：质量门 11/11 正反向测试通过；噪音模式/规则已归档（lifecycle_status=archived，Mindol 同步）；规则库 265 条（含归档）。
+
+### ACC-QRY-006 — 发布门禁联动（2026-08-06 done）
+- 意图：无验证变更不得流入发布——同步/推送前检查 dgen_change_log.json 无 failed/error 验证记录。
+- 验收标准：sync.ps1 sync-rules/sync-all 执行前调用 Test-PublishGate；含 failed 记录时中止（exit 1）；无日志或全 passed 放行。
+- 非目标：不侵入 checkpush 本体（独立工具）；不改既有验证命令。
+- 实现任务：sync.ps1 新增 Test-PublishGate 函数并接入 sync-rules/sync-all；修复 PS 5.1 无 BOM UTF-8 中文解码坑（给 sync.ps1 加 UTF-8 BOM，与 hooks/*.ps1 约定一致）。
+- 验证证据：门禁三场景测试通过（无日志→true / 全 passed→true / 含 failed→false）；sync.ps1 语法 0 错误。
