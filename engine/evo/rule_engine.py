@@ -235,12 +235,15 @@ class RuleEngine:
         {"task_type": "pre_tool", "tool_name": "Bash", "blocked_error_type": "",
          "marker_missing": False, "command": "Set-Content -Path a.py -Value x -NoNewline",
          "text": "Set-Content -Path a.py -Value x -NoNewline", "hook_event_name": "PreToolUse"},
+        {"task_type": "pre_tool", "tool_name": "Bash", "blocked_error_type": "tool_error_Bash",
+         "marker_missing": False, "command": "Get-ChildItem 不存在的路径", "text": "Get-ChildItem 不存在的路径",
+         "hook_event_name": "PreToolUse"},
         {"task_type": "user_prompt", "text": "用 WriteAllText 写文件", "prompt": "用 WriteAllText 写文件",
          "hook_event_name": "UserPromptSubmit"},
     ]
     # 内置/引擎级字段（安全求值器提供默认值或上下文映射）
     _BUILTIN_FIELDS = {"context", "True", "False", "None", "has_diegin_rule", "reply_unaffected",
-                       "domain", "error_type"}
+                       "domain", "error_type", "op_contains", "prechecked"}
 
     def _trigger_known_fields(self) -> set:
         fields = set(self._BUILTIN_FIELDS)
@@ -259,14 +262,23 @@ class RuleEngine:
         expr = _re.sub(r'\bAND\b', 'and', expr, flags=_re.IGNORECASE)
         expr = _re.sub(r'\bOR\b', 'or', expr, flags=_re.IGNORECASE)
         expr = _re.sub(r'\bNOT\s+IN\b', 'not in', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bNOT\b', 'not', expr, flags=_re.IGNORECASE)
         expr = _re.sub(r'\bIN\b', 'in', expr, flags=_re.IGNORECASE)
         try:
             tree = _ast.parse(expr, mode="eval")
         except SyntaxError:
             return set(), set()
+        # op_contains 的参数是字面 token（BareWordToConstant 会转字符串常量），非字段引用，排除
+        _opc_arg_ids = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) \
+                    and node.func.id == "op_contains":
+                for _a in node.args:
+                    if isinstance(_a, _ast.Name):
+                        _opc_arg_ids.add(id(_a))
         names = set()
         for node in _ast.walk(tree):
-            if isinstance(node, _ast.Name):
+            if isinstance(node, _ast.Name) and id(node) not in _opc_arg_ids:
                 names.add(node.id)
         known = self._trigger_known_fields()
         return names, names - known
@@ -280,7 +292,7 @@ class RuleEngine:
             return issues
         t = trigger.strip()
         ops = ['==', '!=', '>', '<', '>=', '<=', ' and ', ' or ', ' AND ', ' OR ',
-               '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ']
+               '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ', 'op_contains(']
         if not any(op in t for op in ops):
             return issues  # 纯关键词（子串匹配）跳过
         names, unknown = self._analyze_trigger_fields(t)
@@ -1222,7 +1234,7 @@ class RuleEngine:
 
         # ── 快速路径：纯关键词（无运算符、方法调用、逻辑连接词）──
         ops = ['==', '!=', '>', '<', '>=', '<=', ' and ', ' or ', ' AND ', ' OR ',
-               '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ']
+               '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ', 'op_contains(']
         if not any(op in cond for op in ops):
             ctx_str = str(context).lower()
             kw = cond.lower().strip("'\"")
@@ -1272,6 +1284,7 @@ class RuleEngine:
         expr = _re.sub(r'\bAND\b', 'and', expr, flags=_re.IGNORECASE)
         expr = _re.sub(r'\bOR\b', 'or', expr, flags=_re.IGNORECASE)
         expr = _re.sub(r'\bNOT\s+IN\b', 'not in', expr, flags=_re.IGNORECASE)
+        expr = _re.sub(r'\bNOT\b', 'not', expr, flags=_re.IGNORECASE)
         expr = _re.sub(r'\bIN\b', 'in', expr, flags=_re.IGNORECASE)
 
         # 构建变量作用域
@@ -1294,6 +1307,21 @@ class RuleEngine:
 
         # 映射 context 到字符串表示，支持 'x' in context 模式
         scope['context'] = str(context)
+
+        # op_contains 谓词（去伪存真约束：字段白名单 + 字符串常量参数，禁止任意表达式）
+        _op_fields = ("blocked_error_type", "op", "error_type", "type", "cmd", "text")
+        def _op_contains(_token) -> bool:
+            if not isinstance(_token, str) or len(_token.strip()) < 3:
+                return False
+            _t = _token.strip().lower()
+            for _f in _op_fields:
+                _v = str(context.get(_f, "") or "").lower()
+                if _v and _t in _v:
+                    return True
+            return False
+        scope['op_contains'] = _op_contains
+        # tracker 生成规则标志：prechecked（已预检）默认 False（未预检 → NOT prechecked 为真）
+        scope.setdefault('prechecked', False)
 
         # 解析 AST
         try:
@@ -1354,6 +1382,12 @@ class RuleEngine:
                 return False
 
             if isinstance(node, ast.Call):
+                # op_contains('token') / op_contains(token)：单字符串常量参数白名单
+                if isinstance(node.func, ast.Name) and node.func.id == "op_contains":
+                    if len(node.args) != 1 or not isinstance(node.args[0], ast.Constant) \
+                            or not isinstance(node.args[0].value, str):
+                        return False
+                    continue
                 if not isinstance(node.func, ast.Attribute):
                     return False
                 if node.func.attr not in {'startswith', 'endswith', 'contains',

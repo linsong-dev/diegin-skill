@@ -123,6 +123,27 @@ def test_evidence_filter():
     return c1 and c2
 
 
+def test_op_contains():
+    """去伪存真·op_contains 谓词（P2方案A）：字段白名单精确命中 + AND NOT prechecked"""
+    from evo.rule_engine import RuleEngine
+    eng = RuleEngine()
+    ok1 = eng._match_condition("op_contains(tool_error_Bash)", {"blocked_error_type": "tool_error_Bash"})
+    ok2 = eng._match_condition("op_contains(command_failure)", {"op": "command_failure"})
+    ok3 = not eng._match_condition("op_contains(tool_error_Bash)", {"task": "普通任务"})
+    ok4 = eng._match_condition("op_contains(hooks_ps1_bom) AND NOT prechecked", {"blocked_error_type": "hooks_ps1_bom"})
+    ok5 = not eng._match_condition("op_contains(x)", {"blocked_error_type": "tool_error_Bash"})
+    ok6 = not eng._match_condition("op_contains()", {"blocked_error_type": "x"})
+    ok7 = not eng._match_condition("op_contains(error_type)", {"error_type": "Bash"})
+    c1 = check("op_contains·命中blocked_error_type", ok1)
+    c2 = check("op_contains·命中op字段", ok2)
+    c3 = check("op_contains·无关字段不命中", ok3)
+    c4 = check("op_contains·AND NOT prechecked", ok4)
+    c5 = check("op_contains·短token拒绝", ok5)
+    c6 = check("op_contains·空参数拒绝", ok6)
+    c7 = check("op_contains·字段名撞名拒绝", ok7)
+    return c1 and c2 and c3 and c4 and c5 and c6 and c7
+
+
 def main():
     print(f"\n{'='*50}", flush=True)
     print(f"  迭进 v3.4.0 端到端测试", flush=True)
@@ -152,6 +173,7 @@ def main():
 
     print(f"\n--- 去伪存真过滤 ---", flush=True)
     test_evidence_filter()
+    test_op_contains()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)
