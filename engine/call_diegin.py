@@ -23,6 +23,8 @@ from mindol.diegin_integration import memory_format_context, memory_archive
 sys.path.insert(0, str(Path(__file__).parent))
 from mindol.diegin_integration import memory_format_context, memory_archive
 
+from evo.rule_engine import build_gongqi_suggestions
+
 from evo.main import (get_rules_for_task, arbitrate, full_review, record_behavior,
                       health_check, run_maintenance, dgen_archive, mempalace_search,
                       auto_sandwich, record_user_feedback, auto_sandwich_trigger,
@@ -248,6 +250,7 @@ def evidence_filter(interceptions: list, context: dict) -> list:
 
     return filtered
 
+
 def pre_check(context: dict) -> dict:
 
     """任务前预检 - 检索规则 + 仲裁（对齐 AGENTS.md 裁决格式）
@@ -373,36 +376,7 @@ def pre_check(context: dict) -> dict:
         pass
 
     # ========== 攻七强化 Q1: 及时使用 - 高置信度模式优先推荐 ==========
-    _suggestions = []
-    try:
-        _priority_sug = []
-        _normal_sug = []
-        for p in rules["patterns"]:
-            _s = {
-                "id": getattr(p, "id", ""),
-                "scenario": getattr(p, "trigger_scenario", ""),
-                "decision": getattr(p, "decision_logic", ""),
-                "confidence": getattr(p, "confidence", 0),
-            }
-            _logic = str(getattr(p, "decision_logic", "") or "").strip()
-            _conf = float(getattr(p, "confidence", 0) or 0)
-            _trig = str(getattr(p, "trigger_condition", "") or "").strip()
-            # 工具名级噪音过滤（P2a 防伪模式污染）：trigger 为 tool_name=='X' 的模式
-            # 任何工具调用都触发，无场景区分，推荐无信息量 → 不进 priority 推荐
-            _tool_lvl_noise = _trig.startswith("tool_name ==")
-            # 高置信度 + 实质决策逻辑 + 非工具名级噪音 → 优先采用（复用验证过的正确做法）
-            _is_priority = _conf >= 4.5 and len(_logic) >= 6 and not _tool_lvl_noise
-            _s["priority"] = _is_priority
-            if _is_priority:
-                _priority_sug.append(_s)
-            else:
-                _normal_sug.append(_s)
-        # 按置信度降序
-        _priority_sug.sort(key=lambda x: -float(x["confidence"]))
-        _normal_sug.sort(key=lambda x: -float(x["confidence"]))
-        _suggestions = (_priority_sug + _normal_sug)[:5]
-    except Exception:
-        _suggestions = []
+    _suggestions = build_gongqi_suggestions(rules["patterns"])
     # display_line 升级：放行且有高置信度模式 → 显式推荐优先采用
     _display_line = result.get("display_line", "")
     if result.get("decision") == "allow" and _suggestions and _suggestions[0].get("priority"):

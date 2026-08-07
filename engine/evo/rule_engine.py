@@ -172,6 +172,48 @@ class Precedent:
     created_at: str = ""
 
 
+def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
+    """攻七推荐纯函数（v3.x 提取自 pre_check 内联逻辑，便于独立回归测试）
+
+    训练/测试分离：本函数只做只读计算，不写规则库、不写 Mindol、不触发学习，
+    回归测试可注入固定种子模式验证推荐行为，防"测试集泄漏进训练集"。
+    规则：
+      - priority: confidence>=4.5 且 decision_logic 长度>=6 且非 tool_name== 噪音
+      - 排序：priority 优先，组内按 confidence 降序；总量截断 top_n
+    """
+    _suggestions = []
+    try:
+        _priority_sug = []
+        _normal_sug = []
+        for p in patterns:
+            _s = {
+                "id": getattr(p, "id", ""),
+                "scenario": getattr(p, "trigger_scenario", ""),
+                "decision": getattr(p, "decision_logic", ""),
+                "confidence": getattr(p, "confidence", 0),
+            }
+            _logic = str(getattr(p, "decision_logic", "") or "").strip()
+            _conf = float(getattr(p, "confidence", 0) or 0)
+            _trig = str(getattr(p, "trigger_condition", "") or "").strip()
+            # 工具名级噪音过滤（P2a 防伪模式污染）：trigger 为 tool_name=='X' 的模式
+            # 任何工具调用都触发，无场景区分，推荐无信息量 → 不进 priority 推荐
+            _tool_lvl_noise = _trig.startswith("tool_name ==")
+            # 高置信度 + 实质决策逻辑 + 非工具名级噪音 → 优先采用（复用验证过的正确做法）
+            _is_priority = _conf >= 4.5 and len(_logic) >= 6 and not _tool_lvl_noise
+            _s["priority"] = _is_priority
+            if _is_priority:
+                _priority_sug.append(_s)
+            else:
+                _normal_sug.append(_s)
+        # 按置信度降序
+        _priority_sug.sort(key=lambda x: -float(x["confidence"]))
+        _normal_sug.sort(key=lambda x: -float(x["confidence"]))
+        _suggestions = (_priority_sug + _normal_sug)[:top_n]
+    except Exception:
+        _suggestions = []
+    return _suggestions
+
+
 # ============================================================
 # 规则引擎核心
 # ============================================================

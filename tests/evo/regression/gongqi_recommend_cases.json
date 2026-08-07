@@ -1,0 +1,311 @@
+{
+  "meta": {
+    "name": "gongqi_recommend_regression",
+    "purpose": "攻七推荐正式回归集（训练/测试分离，借鉴 Penguin GDPevo 防偷看答案）",
+    "train_split_note": "train_snapshot = 真实规则库历史沉淀快照（基线，随规则库演进人工更新，不用于硬断言）",
+    "test_split_note": "test_cases = 固定种子模式 + 输入上下文 -> 期望推荐（硬断言，不随真实规则库漂移）",
+    "anti_leak": "测试运行时注入隔离临时规则目录 + 临时 CODEX_HOME；build_gongqi_suggestions 为纯函数，只读不写规则库/Mindol，测试用例绝不进入引擎学习路径",
+    "engine_version": "v3.6+",
+    "created_at": "2026-08-07"
+  },
+  "train_snapshot": [
+    {
+      "id": "pat_ps_stdin_bom_flow",
+      "confidence": 5.0,
+      "trigger_condition": "'stdin' in context and 'json' in context",
+      "decision_logic_len": 77,
+      "triggered_count": 16
+    },
+    {
+      "id": "gongqi_fix_hooks_ps1_bom_20260805_124836",
+      "confidence": 5.0,
+      "trigger_condition": "op_contains(hooks_ps1_bom)",
+      "decision_logic_len": 25,
+      "triggered_count": 0
+    },
+    {
+      "id": "pat_auto_auto_fix_command_failure_1",
+      "confidence": 5.0,
+      "trigger_condition": "",
+      "decision_logic_len": 23,
+      "triggered_count": 22
+    },
+    {
+      "id": "gongqi_verified_command_failure_20260805_145423",
+      "confidence": 5.0,
+      "trigger_condition": "op_contains(command_failure)",
+      "decision_logic_len": 21,
+      "triggered_count": 27
+    },
+    {
+      "id": "gongqi_verified_tool_error_Bash_20260805_145424",
+      "confidence": 5.0,
+      "trigger_condition": "op_contains(tool_error_Bash)",
+      "decision_logic_len": 31,
+      "triggered_count": 9
+    },
+    {
+      "id": "gongqi_fix_command_failure_20260805_165257",
+      "confidence": 5.0,
+      "trigger_condition": "op_contains(command_failure)",
+      "decision_logic_len": 21,
+      "triggered_count": 23
+    },
+    {
+      "id": "gongqi_fix_tool_error_Bash_20260805_165258",
+      "confidence": 5.0,
+      "trigger_condition": "op_contains(tool_error_Bash)",
+      "decision_logic_len": 27,
+      "triggered_count": 9
+    },
+    {
+      "id": "gongqi_verified_image_url_20260804_080935",
+      "confidence": 4.5,
+      "trigger_condition": "op_contains(image_url)",
+      "decision_logic_len": 25,
+      "triggered_count": 0
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "t01_stdin_bom_priority",
+      "desc": "stdin+BOM 场景应命中 BOM 模式并 priority 推荐",
+      "context": {
+        "context": "powershell 管道向 python 传 stdin json 出现 JSONDecodeError: Expecting value",
+        "task_type": "general"
+      },
+      "seed_patterns": [
+        {
+          "id": "pat_ps_stdin_bom_flow",
+          "pattern_name": "ps_stdin_bom_flow",
+          "trigger_scenario": "PS 5.1 管道向 Python 传 stdin JSON 时 json.loads 崩溃",
+          "decision_logic": "先验字节再解码：sys.stdin.buffer.read() 检查 b'\\xef\\xbb\\xbf' 前缀并剥离，再 decode utf-8 strip",
+          "trigger_condition": "'stdin' in context and 'json' in context",
+          "confidence": 5.0
+        },
+        {
+          "id": "pat_noise_tool_bash",
+          "pattern_name": "noise_tool_bash",
+          "trigger_scenario": "tool_Bash",
+          "decision_logic": "单次命令快照无复用价值",
+          "trigger_condition": "tool_name == 'Bash'",
+          "confidence": 5.0
+        }
+      ],
+      "expect": {
+        "first_id": "pat_ps_stdin_bom_flow",
+        "first_priority": true,
+        "matched_count": 1,
+        "noise_not_priority": [
+          "pat_noise_tool_bash"
+        ]
+      }
+    },
+    {
+      "id": "t02_command_failure_priority",
+      "desc": "command_failure 场景应命中 gongqi 模式并 priority 推荐",
+      "context": {
+        "op": "command_failure",
+        "context": "命令执行失败，修复后成功",
+        "task_type": "general"
+      },
+      "seed_patterns": [
+        {
+          "id": "gongqi_verified_command_failure_20260805_145423",
+          "pattern_name": "命令执行前预检",
+          "trigger_scenario": "auto: 修复 command_failure 成功后的行为模式",
+          "decision_logic": "执行命令前先dry-run或验证参数正确性",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 5.0
+        },
+        {
+          "id": "pat_irrelevant",
+          "pattern_name": "无关模式",
+          "trigger_scenario": "image_url 修复",
+          "decision_logic": "image_url 操作已修复并验证通过，固化该路径",
+          "trigger_condition": "op_contains(image_url)",
+          "confidence": 4.5
+        }
+      ],
+      "expect": {
+        "first_id": "gongqi_verified_command_failure_20260805_145423",
+        "first_priority": true,
+        "matched_count": 1
+      }
+    },
+    {
+      "id": "t03_tool_error_priority",
+      "desc": "tool_error_Bash 场景应命中 gongqi 模式并 priority 推荐",
+      "context": {
+        "blocked_error_type": "tool_error_Bash",
+        "context": "Bash 工具报错已修复",
+        "task_type": "general"
+      },
+      "seed_patterns": [
+        {
+          "id": "gongqi_verified_tool_error_Bash_20260805_145424",
+          "pattern_name": "修复tool_error_Bash经验",
+          "trigger_scenario": "auto: 修复 tool_error_Bash 成功后的行为模式",
+          "decision_logic": "tool_error_Bash 操作已修复并验证通过，固化该路径",
+          "trigger_condition": "op_contains(tool_error_Bash)",
+          "confidence": 5.0
+        }
+      ],
+      "expect": {
+        "first_id": "gongqi_verified_tool_error_Bash_20260805_145424",
+        "first_priority": true,
+        "matched_count": 1
+      }
+    },
+    {
+      "id": "t04_plain_question_no_recommend",
+      "desc": "普通提问不产生任何推荐（matched=0, suggestions=[]）",
+      "context": {
+        "context": "今天天气怎么样",
+        "task_type": "question"
+      },
+      "seed_patterns": [
+        {
+          "id": "gongqi_verified_command_failure_20260805_145423",
+          "pattern_name": "命令执行前预检",
+          "trigger_scenario": "auto: 修复 command_failure 成功后的行为模式",
+          "decision_logic": "执行命令前先dry-run或验证参数正确性",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 5.0
+        }
+      ],
+      "expect": {
+        "matched_count": 0,
+        "suggestions_empty": true
+      }
+    },
+    {
+      "id": "t05_priority_sorting",
+      "desc": "多个 priority 模式按 confidence 降序排列",
+      "context": {
+        "op": "command_failure",
+        "context": "命令失败修复场景",
+        "task_type": "general"
+      },
+      "seed_patterns": [
+        {
+          "id": "pat_low_high",
+          "pattern_name": "低置信度",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run或验证参数正确性",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 4.6
+        },
+        {
+          "id": "pat_high",
+          "pattern_name": "高置信度",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 5.0
+        }
+      ],
+      "expect": {
+        "order": [
+          "pat_high",
+          "pat_low_high"
+        ],
+        "all_priority": true
+      }
+    },
+    {
+      "id": "t06_low_conf_no_priority",
+      "desc": "低置信度或短逻辑模式不进 priority，但仍在 normal 建议中",
+      "context": {
+        "op": "command_failure",
+        "context": "命令失败场景",
+        "task_type": "general"
+      },
+      "seed_patterns": [
+        {
+          "id": "pat_low_conf",
+          "pattern_name": "低置信",
+          "trigger_scenario": "cmd",
+          "decision_logic": "先校验参数",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 3.5
+        },
+        {
+          "id": "pat_short_logic",
+          "pattern_name": "短逻辑",
+          "trigger_scenario": "cmd",
+          "decision_logic": "预检",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 5.0
+        }
+      ],
+      "expect": {
+        "first_priority": false,
+        "suggestion_count": 2
+      }
+    },
+    {
+      "id": "t07_top_n_truncate",
+      "desc": "默认截断 top_n=5",
+      "context": {
+        "op": "command_failure",
+        "context": "命令失败多模式场景",
+        "task_type": "general"
+      },
+      "seed_patterns": [
+        {
+          "id": "p01",
+          "pattern_name": "p01",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 5.0
+        },
+        {
+          "id": "p02",
+          "pattern_name": "p02",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 4.9
+        },
+        {
+          "id": "p03",
+          "pattern_name": "p03",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 4.8
+        },
+        {
+          "id": "p04",
+          "pattern_name": "p04",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 4.7
+        },
+        {
+          "id": "p05",
+          "pattern_name": "p05",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 4.6
+        },
+        {
+          "id": "p06",
+          "pattern_name": "p06",
+          "trigger_scenario": "cmd",
+          "decision_logic": "执行命令前先dry-run并校验参数与输出编码",
+          "trigger_condition": "op_contains(command_failure)",
+          "confidence": 4.5
+        }
+      ],
+      "expect": {
+        "suggestion_count": 5,
+        "first_id": "p01"
+      }
+    }
+  ]
+}
