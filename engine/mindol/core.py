@@ -42,7 +42,7 @@ class Mindol:
     def _init_persistence(self):
         os.makedirs(self._storage_path, exist_ok=True)
         db_path = os.path.join(self._storage_path, "memory.db")
-        self._db = sqlite3.connect(db_path, check_same_thread=False)
+        self._db = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
         self._db.execute("CREATE TABLE IF NOT EXISTS memory_units (uid TEXT PRIMARY KEY, space TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, path TEXT DEFAULT '', metadata TEXT DEFAULT '{}', timestamp REAL DEFAULT 0, embedding BLOB)")
         self._db.execute("CREATE TABLE IF NOT EXISTS relations (source_uid TEXT NOT NULL, target_uid TEXT NOT NULL, relation_type TEXT NOT NULL, weight REAL DEFAULT 1.0, PRIMARY KEY (source_uid, target_uid, relation_type))")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_uid)")
@@ -229,7 +229,12 @@ class Mindol:
                 self._relation_index.setdefault(r[0], []).append(len(self._relations)-1)
                 self._relation_index.setdefault(r[1], []).append(len(self._relations)-1)
         except Exception as e:
-            print(f"[Mindol] Load warning: {e}")
+            # 静默加载告警：禁止向 stdout/stderr 输出，防止污染钩子 JSON 管道
+            try:
+                with open(os.path.join(self._storage_path, "load_warnings.log"), "a", encoding="utf-8") as _f:
+                    _f.write(f"{time.time()} [Mindol] Load warning: {e}\n")
+            except Exception:
+                pass
 
     def close(self):
         if self._db: self.save(); self._db.close(); self._db = None

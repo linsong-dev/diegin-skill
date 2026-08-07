@@ -106,7 +106,7 @@ class ConflictArbiter:
                     if (rid and rid.lower() in tl) or (cond and any(w in tl for w in cond.lower().split()[:3])):
                         delta = -0.3 if is_pattern else 0.5
                         setattr(r, "_mem_conf_adj", (getattr(r, "_mem_conf_adj", 0) or 0) + delta)
-                notes.append(f"[{hit_space}:{score:.0%}]记忆支持拦截")
+                notes.append(f"[{hit_space}:{min(score, 1.0):.0%}]记忆支持拦截")
             elif any(k in tl for k in ("allow", "pass", "放行", "通过", "success", "verified")):
                 for r in all_items:
                     rid = getattr(r, "id", "") or ""
@@ -114,7 +114,7 @@ class ConflictArbiter:
                     if rid and rid.lower() in tl:
                         delta = 0.5 if is_pattern else -0.3
                         setattr(r, "_mem_conf_adj", (getattr(r, "_mem_conf_adj", 0) or 0) + delta)
-                notes.append(f"[{hit_space}:{score:.0%}]记忆支持放行")
+                notes.append(f"[{hit_space}:{min(score, 1.0):.0%}]记忆支持放行")
         return " ".join(notes)
 
     def to_display(self, result: ArbitrationResult) -> Dict[str, Any]:

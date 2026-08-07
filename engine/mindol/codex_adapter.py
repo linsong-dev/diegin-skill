@@ -67,7 +67,7 @@ class CodexMemoryAdapter:
         if not results: return ""
         lines = ["[MEM] Related memories:", ""]
         for r in results:
-            lines.append(f"  [{r['score']:.0%}][{r['space']}] {r['text'][:200]}")
+            lines.append(f"  [{min(r['score'], 1.0):.0%}][{r['space']}] {r['text'][:200]}")
         return "\n".join(lines)
 
     def stats(self) -> Dict[str, int]:

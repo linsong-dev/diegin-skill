@@ -246,8 +246,7 @@ class RuleEngine:
     def _mindol_warn(self, ctx: str, exc: Exception):
         """记录 Mindol 同步失败（消除静默失败，防复发：失败必须可见）"""
         try:
-            import sys as _sys
-            print(f"[RULE_ENGINE][WARN] Mindol {ctx} failed: {exc}", file=_sys.stderr)
+            # 不再向 stderr 输出：PowerShell 钩子 2>&1 合并会污染引擎 JSON 输出
             try:
                 _logp = os.path.join(os.path.dirname(__file__), "..", "..", "var", "logs", "diegin_audit.log")
                 _logp = os.path.abspath(_logp)
