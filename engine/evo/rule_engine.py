@@ -19,7 +19,19 @@ import io
 import json
 import os
 import re
+import ast
+import copy
+import functools
 from datetime import datetime, timedelta
+
+@functools.lru_cache(maxsize=512)
+def _compile_trigger_ast(expr: str):
+    """标准化后的 trigger 表达式 → 安全 AST 树（lru_cache：高频匹配避免重复 parse）"""
+    try:
+        return ast.parse(expr, mode="eval")
+    except SyntaxError:
+        return None
+
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
@@ -426,6 +438,22 @@ class RuleEngine:
             }, ensure_ascii=False)
             m.add_unit(text=text, source="diegin_pattern", uid=uid, space=m.SPACE_PATTERN)
 
+
+        # [JSON 权威] 孤儿清理：Mindol 中已不在 JSON 的规则/模式单元删除（防删除项复活）
+        if force_status:
+            try:
+                _rule_uids = {f"rule_{r.id}" for r in self._interceptions}
+                _pat_uids = {f"pat_{p.id}" for p in self._patterns}
+                for _spn, _valid in ((m.SPACE_RULE, _rule_uids), (m.SPACE_PATTERN, _pat_uids)):
+                    _sp = m.get_space(_spn)
+                    if _sp is None:
+                        continue
+                    for _u in list(_sp.memory_units):
+                        if _u.uid not in _valid:
+                            m.remove_unit(_u.uid)
+            except Exception as _e:
+                self._mindol_warn("mindol-orphan-cleanup", _e)
+
         # 3. 元经验 → SPACE_ABSTRACT
         for meta in self._metas:
             uid = f"meta_{meta.id}"
@@ -595,7 +623,7 @@ class RuleEngine:
             return False
 
     def _rebuild_json_from_mindol(self):
-        """从 Mindol 重建所有 JSON 文件（Mindol 权威 → JSON 副本）"""
+        """废弃：JSON 为权威后不再从 Mindol 重建 JSON（保留仅为向后兼容，无调用点）"""
         if not self._mindol or not self._interceptions:
             return
         try:
@@ -616,29 +644,65 @@ class RuleEngine:
             import json as _j
             with open(rule_file, "r", encoding="utf-8") as f:
                 json_rules = _j.load(f)
-            return len(json_rules) == len(self._interceptions)
+            json_ids = {it["id"] for it in json_rules}
+            mindol_ids = set()
+            if self._mindol:
+                _sp = self._mindol.get_space(self._mindol.SPACE_RULE)
+                if _sp:
+                    mindol_ids = {u.uid.replace("rule_", "") for u in _sp.memory_units}
+            return json_ids == mindol_ids
         except Exception:
             return False
 
     # ─── 存储与加载 ───
 
     def _load_all(self):
-        """加载所有规则数据 - 优先从 Mindol（权威源），失败时回退 JSON"""
-        if self._mindol:
-            if self._load_from_mindol():
-                # Mindol 加载成功，确认 JSON 副本一致性，不一致则重建
-                if not self._verify_json_consistency():
-                    self._rebuild_json_from_mindol()
-                return
-        
-        # Fallback: 从 JSON 加载（文件系统备份）
+        """加载所有规则数据 - JSON（完整权威）优先，Mindol 仅为检索镜像。
+
+        历史缺陷修复（v3.6.6→）：Mindol 单元只存字段子集（规则 10/22 字段），
+        以 Mindol 为权威加载后回写 JSON 会丢失 logic_score/outcome_score/
+        valid_until/invalid_conditions/block_count 等 12 个字段（覆盖问题）。
+        现改为 JSON 优先加载；JSON 缺失/全空时回退 Mindol（旧环境升级路径）。"""
         self._interceptions = self._load_json("interception_rules.json", InterceptionRule)
         self._patterns = self._load_json("success_patterns.json", SuccessPattern)
         self._metas = self._load_json("meta_experiences.json", MetaExperience)
         self._precedents = self._load_json("precedents.json", Precedent)
-        # 重建 Mindol 索引
-        if self._mindol:
-            self._mindol_sync_all()
+
+        if not self._mindol:
+            return
+        # JSON 权威判定：核心规则文件存在且解析非空（规则库以 JSON 为唯一权威）
+        _json_authoritative = (self.rules_dir / "interception_rules.json").exists() and bool(self._interceptions)
+        if _json_authoritative:
+            try:
+                if self._verify_json_consistency():
+                    # 增量：JSON 与 Mindol ID 集合一致 → 镜像无需重建（启动零写放大）
+                    pass
+                else:
+                    # ID 不一致 → 全量重建检索镜像（单向，含孤儿清理）
+                    self._mindol_sync_all(force_status=True)
+            except Exception as _e:
+                self._mindol_warn("load_all-sync-mindol", _e)
+        elif self._load_from_mindol():
+            # JSON 缺失/全空 → 从 Mindol 恢复（防误清空历史数据）
+            pass
+
+        # [治理] active 死规则自动归档（P0 字段审计：引用不存在字段=永不命中）
+        if _json_authoritative:
+            try:
+                _archived_any = False
+                for _r in list(self._interceptions):
+                    if _r.lifecycle_status != "active":
+                        continue
+                    _p0 = [i for i in self.validate_trigger_live(_r.trigger_condition) if i.startswith("[P0]")]
+                    if _p0:
+                        _r.lifecycle_status = "archived"
+                        self._sync_one_rule_to_mindol(_r)
+                        _archived_any = True
+                        print("[RULE_ENGINE][GOVERN] 死规则自动归档 %s: %s" % (_r.id, "; ".join(_p0)[:120]))
+                if _archived_any:
+                    self.save_all(force=True)
+            except Exception as _e:
+                self._mindol_warn("dead-rule-governance", _e)
 
     def _load_json(self, filename: str, cls, retry: bool = False):
         """加载 JSON 文件（失败时自动从备份恢复）"""
@@ -1360,12 +1424,6 @@ class RuleEngine:
         # tracker 生成规则标志：prechecked（已预检）默认 False（未预检 → NOT prechecked 为真）
         scope.setdefault('prechecked', False)
 
-        # 解析 AST
-        try:
-            tree = ast.parse(expr, mode='eval')
-        except SyntaxError:
-            return False
-
         # 裸词转换：将不在作用域中的 Name 节点转为 Constant（字符串）
         # 避免 NameError 的同时保证安全（AST级操作，无需字符串替换）
         PYTHON_KEYWORDS = frozenset({'True', 'False', 'None'})
@@ -1374,10 +1432,12 @@ class RuleEngine:
         # 小写布尔归一：true/false -> True/False（在 AST 转换前，用词边界替换避免误伤字符串）
         expr = _re.sub(r'\btrue\b', 'True', expr)
         expr = _re.sub(r'\bfalse\b', 'False', expr)
-        try:
-            tree = ast.parse(expr, mode='eval')
-        except SyntaxError:
+        # 解析 AST（lru_cache 缓存标准化后的语法树，避免每次匹配重复 parse；
+        # 返回副本供 BareWordToConstant 就地变换，防共享缓存树被污染）
+        tree = _compile_trigger_ast(expr)
+        if tree is None:
             return False
+        tree = copy.deepcopy(tree)
 
         class BareWordToConstant(ast.NodeTransformer):
             def visit_Name(self, node):
