@@ -695,7 +695,7 @@ class RuleEngine:
             if self._mindol:
                 _sp = self._mindol.get_space(self._mindol.SPACE_RULE)
                 if _sp:
-                    mindol_ids = {u.uid.replace("rule_", "") for u in _sp.memory_units}
+                    mindol_ids = {u.uid.removeprefix("rule_") for u in _sp.memory_units}
             return json_ids == mindol_ids
         except Exception:
             return False

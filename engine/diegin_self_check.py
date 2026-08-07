@@ -57,6 +57,10 @@ def main():
         rj = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules.json")
         with io.open(rj, "r", encoding="utf-8") as f:
             jrules = json.load(f)
+        rja = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules_archive.json")
+        if os.path.exists(rja):
+            with io.open(rja, "r", encoding="utf-8") as f:
+                jrules = jrules + json.load(f)
         jid_set = {r.get("id") for r in jrules}
         mids = set()
         if engine is not None and engine._mindol is not None:
@@ -364,6 +368,10 @@ def main():
         try:
             with io.open(rj2, "r", encoding="utf-8") as f:
                 jr = json.load(f)
+            rj2a = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules_archive.json")
+            if os.path.exists(rj2a):
+                with io.open(rj2a, "r", encoding="utf-8") as f:
+                    jr = jr + json.load(f)
             for r in jr:
                 st = r.get("lifecycle_status", "")
                 cur_counts[st] = cur_counts.get(st, 0) + 1
