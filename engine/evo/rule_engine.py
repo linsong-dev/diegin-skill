@@ -644,6 +644,10 @@ class RuleEngine:
             import json as _j
             with open(rule_file, "r", encoding="utf-8") as f:
                 json_rules = _j.load(f)
+            _arch_path = self.rules_dir / "interception_rules_archive.json"
+            if _arch_path.exists():
+                with open(_arch_path, "r", encoding="utf-8") as _af:
+                    json_rules += _j.load(_af)
             json_ids = {it["id"] for it in json_rules}
             mindol_ids = set()
             if self._mindol:
@@ -664,7 +668,9 @@ class RuleEngine:
         valid_until/invalid_conditions/block_count 等 12 个字段（覆盖问题）。
         现改为 JSON 优先加载；JSON 缺失/全空时回退 Mindol（旧环境升级路径）。"""
         self._interceptions = self._load_json("interception_rules.json", InterceptionRule)
+        self._interceptions += self._load_json("interception_rules_archive.json", InterceptionRule)
         self._patterns = self._load_json("success_patterns.json", SuccessPattern)
+        self._patterns += self._load_json("success_patterns_archive.json", SuccessPattern)
         self._metas = self._load_json("meta_experiences.json", MetaExperience)
         self._precedents = self._load_json("precedents.json", Precedent)
 
@@ -730,6 +736,24 @@ class RuleEngine:
                 print(f"[RULE_ENGINE] 已备份损坏文件至 {bak_path.name}")
             return []
 
+    def _write_archive_file(self, filename: str, items: List):
+        """写归档文件（原子写 + 读回验证）：归档为静态历史，精确反映内存归档集合，
+        删除即消失（git 历史仍保留已删记录）。"""
+        filepath = self.rules_dir / filename
+        out = []
+        for it in items:
+            d = asdict(it) if not isinstance(it, dict) else it
+            out.append(d)
+        out.sort(key=lambda x: x.get("id", ""))
+        tmp_path = filepath.parent / f"{filename}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+        os.replace(str(tmp_path), str(filepath))
+        with open(filepath, "r", encoding="utf-8") as f:
+            saved_arch = json.load(f)
+        if len(saved_arch) != len(out):
+            raise RuntimeError(f"_write_archive_file verify failed: {filename} {len(saved_arch)} != {len(out)}")
+
     def _save_json(self, filename: str, data: List):
         """保存 JSON 文件（写前备份 + 原子写入 + 写后验证 + 阈值保护）"""
         import shutil, datetime as dt
@@ -744,6 +768,12 @@ class RuleEngine:
                     with open(filepath, "r", encoding="utf-8") as _ef:
                         _old = json.load(_ef)
                     _existing = {it.get("id"): it for it in _old if isinstance(it, dict)}
+                _arch_path = self.rules_dir / "interception_rules_archive.json"
+                if _arch_path.exists():
+                    with open(_arch_path, "r", encoding="utf-8") as _af:
+                        _old_arch = json.load(_af)
+                    for _it in _old_arch:
+                        _existing.setdefault(_it.get("id"), _it)
                 for _item in data:
                     _oid = _item.get("id") if isinstance(_item, dict) else getattr(_item, "id", None)
                     _o = _existing.get(_oid) or {}
@@ -765,6 +795,15 @@ class RuleEngine:
                                 setattr(_item, _k, _ov)
             except Exception as _e:
                 print(f"[RULE_ENGINE] count-preserve merge failed: {_e}")
+
+        # [归档分区] archived → *_archive.json，非 archived → 主文件（主文件精简，git 可读）
+        if filename in ("interception_rules.json", "success_patterns.json"):
+            _arch_name = filename.replace(".json", "_archive.json")
+            _archived = [x for x in data if getattr(x, "lifecycle_status", "") == "archived"]
+            _main = [x for x in data if getattr(x, "lifecycle_status", "") != "archived"]
+            if _archived:
+                self._write_archive_file(_arch_name, _archived)
+            data = _main
 
         # Step 1: 写前备份
         bak_path = None
@@ -806,6 +845,11 @@ class RuleEngine:
                         except Exception:
                             pass
                     _jid_ids = {item.get("id") for item in saved}
+                    _arch_path = self.rules_dir / "interception_rules_archive.json"
+                    if _arch_path.exists():
+                        with open(_arch_path, "r", encoding="utf-8") as _af:
+                            for _ait in json.load(_af):
+                                _jid_ids.add(_ait.get("id"))
                     if _mid_ids != _jid_ids and len(_mid_ids) > 0:
                         _only_j = _jid_ids - _mid_ids
                         _only_m = _mid_ids - _jid_ids

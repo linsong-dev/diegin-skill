@@ -78,6 +78,8 @@ function SR-Check {
     $r = Join-Path $dieginRoot "engine\evo\rules"
     Merge-One (Join-Path $s "interception_rules.json") (Join-Path $r "interception_rules.json") "interception"
     Merge-One (Join-Path $s "success_patterns.json") (Join-Path $r "success_patterns.json") "patterns"
+    Merge-One (Join-Path $s "interception_rules_archive.json") (Join-Path $r "interception_rules_archive.json") "interception-archive"
+    Merge-One (Join-Path $s "success_patterns_archive.json") (Join-Path $r "success_patterns_archive.json") "patterns-archive"
     $sd = Join-Path $s "domain_rules"; $rd = Join-Path $r "domain_rules"
     $sf = Get-ChildItem $sd -Filter "*.json" -EA 0
     $rf = Get-ChildItem $rd -Filter "*.json" -EA 0
@@ -100,6 +102,8 @@ function SR-Sync {
     $r = Join-Path $dieginRoot "engine\evo\rules"
     Apply-Merge (Join-Path $s "interception_rules.json") (Join-Path $r "interception_rules.json") "interception"
     Apply-Merge (Join-Path $s "success_patterns.json") (Join-Path $r "success_patterns.json") "patterns"
+    Apply-Merge (Join-Path $s "interception_rules_archive.json") (Join-Path $r "interception_rules_archive.json") "interception-archive"
+    Apply-Merge (Join-Path $s "success_patterns_archive.json") (Join-Path $r "success_patterns_archive.json") "patterns-archive"
     
     # domain_rules: bidirectional sync
     $sd = Join-Path $s "domain_rules"; $rd = Join-Path $r "domain_rules"
