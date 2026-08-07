@@ -1518,7 +1518,7 @@ def get_seed_interceptions() -> List[InterceptionRule]:
     return [
         InterceptionRule(
             id="seed_debug_critical_001",
-            trigger_condition="task_type == debug AND target == production",
+            trigger_condition="task_type == 'pre_tool' AND command.contains('production')",
             action="block_execution; force_confirmation",
             severity="critical",
             tags=["global", "irreversible"],
@@ -1529,7 +1529,7 @@ def get_seed_interceptions() -> List[InterceptionRule]:
         ),
         InterceptionRule(
             id="seed_file_destructive_002",
-            trigger_condition="op == delete AND recursive == true",
+            trigger_condition="task_type == 'pre_tool' AND command.contains('Remove-Item') AND command.contains('-Recurse')",
             action="block_execution; require_explicit_approval",
             severity="high",
             tags=["global", "irreversible"],
@@ -1540,7 +1540,7 @@ def get_seed_interceptions() -> List[InterceptionRule]:
         ),
         InterceptionRule(
             id="seed_network_external_003",
-            trigger_condition="op == network AND target != localhost",
+            trigger_condition="task_type == 'pre_tool' AND (command.contains('Invoke-WebRequest') OR command.contains('curl'))",
             action="permission_check; confirm_before_send",
             severity="medium",
             tags=["global"],

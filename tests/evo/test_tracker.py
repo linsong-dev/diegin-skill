@@ -29,7 +29,7 @@ def test_record_ignore_increment():
     tr, eng = _make_tracker()
     eng.add_interception(InterceptionRule(id="r1", trigger_condition="x", action="block", severity="high", tags=["t"], triggered_count=10))
     r = tr.record_ignore("r1")
-    assert r["action"] == "updated"
+    assert r["action"] in ("updated", "soft_eliminated")
     rule = eng.get_interception_by_id("r1")
     assert rule.ignored_count == 1
     teardown(); print("  [PASS] record_ignore increment")

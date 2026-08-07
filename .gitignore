@@ -48,3 +48,6 @@ requirements.txt
 
 # Sync backups (local only)
 *_backup_sync_*/
+
+# Runtime audit logs
+var/logs/*.log

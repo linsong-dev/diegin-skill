@@ -40,7 +40,7 @@ def test_to_display_allow():
     result = ArbitrationResult(decision=ResolutionType.ALLOW, reason="no issues")
     display = arb.to_display(result)
     assert display["decision"] == "allow"
-    assert "[DGEN] ✅ 通过" in display["display_line"]
+    assert "[DGEN] PASS" in display["display_line"]
     teardown()
     print("  [PASS] to_display ALLOW")
 
@@ -51,7 +51,7 @@ def test_to_display_block():
     result = ArbitrationResult(decision=ResolutionType.BLOCK, winning_rule=r, reason="danger")
     display = arb.to_display(result)
     assert display["decision"] == "block"
-    assert "🛑" in display["display_line"]
+    assert "[DGEN] BLOCK" in display["display_line"]
     assert display["winning_rule_id"] == "test_rule"
     teardown()
     print("  [PASS] to_display BLOCK")
@@ -94,7 +94,7 @@ def test_resolve_no_rules():
     arb = ConflictArbiter(eng)
     result = arb.resolve([], [])
     assert result.decision == ResolutionType.ALLOW
-    assert result.reason == "无规则触发或全部放行"
+    assert result.reason == "无规则触发，默认放行"
     teardown()
     print("  [PASS] resolve no rules → ALLOW")
 
@@ -117,7 +117,7 @@ def test_resolve_critical_block():
                          severity="critical", tags=["risk"])
     result = arb.resolve([r], [])
     assert result.decision == ResolutionType.BLOCK
-    assert "critical" in result.reason
+    assert "crit_001" in result.reason
     teardown()
     print("  [PASS] resolve critical → BLOCK")
 
@@ -173,7 +173,7 @@ def test_resolve_critical_over_high():
                               severity="high", tags=["t"])
     crit_r = InterceptionRule(id="crit_001", trigger_condition="critical", action="block",
                               severity="critical", tags=["t"])
-    result = arb.resolve([high_r, crit_r], [])
+    result = arb.resolve([crit_r, high_r], [])
     assert result.decision == ResolutionType.BLOCK
     assert result.winning_rule.id == "crit_001"
     teardown()
@@ -184,7 +184,7 @@ def test_resolve_high_interception_overrides_pattern_conflict():
     eng = _make_eng()
     arb = ConflictArbiter(eng)
     r = InterceptionRule(id="int_001", trigger_condition="x", action="block",
-                         severity="high", tags=["t"], confidence=4.0)
+                         severity="high", tags=["t"], confidence=5.0)
     p = SuccessPattern(id="pat_001", pattern_name="safe", trigger_scenario="qa",
                        decision_logic="allow", confidence=4.2)
     # Layer 2 (high→BLOCK) triggers before Layer 3

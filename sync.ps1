@@ -182,6 +182,62 @@ function SH-Sync {
 }
 
 
+# ──────────────────────────────────────────────────
+# References: 源码库参考资料 → 运行时（src→rt 单向，源码库为权威）
+# ──────────────────────────────────────────────────
+function REF-Check {
+    INF "References: src→runtime (diff)"
+    $sd = Join-Path $srcRoot "references"; $rd = Join-Path $dieginRoot "references"
+    $sf = Get-ChildItem $sd -Filter "*.md" -EA 0
+    $rf = Get-ChildItem $rd -Filter "*.md" -EA 0
+    $rn = @{}
+    foreach ($f in $rf) { $rn[$f.Name] = $true }
+    $diffCount = 0
+    foreach ($f in $sf) {
+        if (-not $rn.ContainsKey($f.Name)) { DIF ("missing in rt: " + $f.Name); $diffCount++; continue }
+        $rfPath = Join-Path $rd $f.Name
+        $rc = [System.IO.File]::ReadAllBytes($rfPath)
+        $sc = [System.IO.File]::ReadAllBytes($f.FullName)
+        if ($rc.Length -ne $sc.Length) { DIF ($f.Name + " content differs"); $diffCount++ }
+        else {
+            $same = $true
+            for ($i = 0; $i -lt $rc.Length; $i++) { if ($rc[$i] -ne $sc[$i]) { $same = $false; break } }
+            if (-not $same) { DIF ($f.Name + " content differs"); $diffCount++ }
+            else { OK ($f.Name + " consistent") }
+        }
+    }
+    if ($diffCount -eq 0) { OK "all references consistent" }
+}
+
+function REF-Sync {
+    INF "References: runtime ← src (sync)"
+    $sd = Join-Path $srcRoot "references"; $rd = Join-Path $dieginRoot "references"
+    if (-not (Test-Path $rd)) { New-Item -ItemType Directory -Path $rd -Force | Out-Null }
+    $sf = Get-ChildItem $sd -Filter "*.md" -EA 0
+    $copied = 0
+    foreach ($f in $sf) {
+        $rf = Join-Path $rd $f.Name
+        $needsCopy = $false
+        if (-not (Test-Path $rf)) { $needsCopy = $true }
+        else {
+            $rc = [System.IO.File]::ReadAllBytes($rf)
+            $sc = [System.IO.File]::ReadAllBytes($f.FullName)
+            if ($rc.Length -ne $sc.Length) { $needsCopy = $true }
+            else {
+                for ($i = 0; $i -lt $rc.Length; $i++) { if ($rc[$i] -ne $sc[$i]) { $needsCopy = $true; break } }
+            }
+        }
+        if ($needsCopy) {
+            Copy-Item $f.FullName $rf -Force
+            ACT ("references: " + $f.Name + " → runtime")
+            $copied++
+        } else {
+            OK ($f.Name + " consistent")
+        }
+    }
+    if ($copied -gt 0) { Write-Host ("  synced " + $copied + " files to runtime") -ForegroundColor Green }
+}
+
 # [P4-20260806] 发布门禁：变更-验证绑定（ACC-QRY-004/005）
 # 变更日志存在且含 verification=failed/error → 中止同步（无验证变更不得流入发布）
 function Test-PublishGate {
@@ -215,15 +271,17 @@ Write-Host ("  RT:     " + $dieginRoot)
 Write-Host ""
 
 switch ($Action) {
-    "check"       { SR-Check; Write-Host ""; SH-Check }
+    "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check }
     "sync-rules"  { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync }
     "sync-hooks"  { SH-Sync }
-    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync }
+    "sync-refs"   { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; REF-Sync }
+    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync }
     default {
         Write-Host "Usage: .\sync.ps1 <action>" -ForegroundColor Yellow
         Write-Host "  check       — 仅检查差异（默认）" -ForegroundColor Cyan
         Write-Host "  sync-rules  — 合并运行时独有规则 → 源码库" -ForegroundColor Cyan
         Write-Host "  sync-hooks  — 同步运行时钩子 → 源码库" -ForegroundColor Cyan
+        Write-Host "  sync-refs   — 同步源码库参考资料 → 运行时（src→rt 单向）" -ForegroundColor Cyan
         Write-Host "  sync-all    — 先检查，再同步全部" -ForegroundColor Cyan
     }
 }

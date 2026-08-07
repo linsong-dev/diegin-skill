@@ -17,15 +17,15 @@ def _make_dash():
 def test_init():
     dash, eng = _make_dash()
     assert dash.rule_engine is not None
-    assert len(dash._scenario_keywords) == 13
+    assert len(dash._scenario_keywords) == 45
     teardown(); print("  [PASS] init")
 def test_generate_report_empty():
     dash, eng = _make_dash()
     report = dash.generate_report()
     assert report["total_rules"] == 0
     assert report["cognitive_entropy"] == 0
-    assert report["decision_snr"] == 1.0
-    assert report["satisfaction"] == 1.0
+    assert report["decision_snr"] == -1.0
+    assert report["satisfaction"] == -1.0
     teardown(); print("  [PASS] generate_report empty")
 def test_generate_report_with_rules():
     dash, eng = _make_dash()
@@ -65,7 +65,7 @@ def test_calculate_snr():
     teardown(); print("  [PASS] _calculate_snr")
 def test_calculate_snr_no_triggers():
     dash, eng = _make_dash()
-    assert dash._calculate_snr([]) == 1.0
+    assert dash._calculate_snr([]) == -1.0
     teardown(); print("  [PASS] _calculate_snr no triggers")
 def test_count_scenarios():
     dash, eng = _make_dash()
@@ -77,8 +77,8 @@ def test_count_scenarios():
     teardown(); print("  [PASS] _count_scenarios")
 def test_status_functions():
     dash, eng = _make_dash()
-    assert "健康" in dash._status_entropy(3)
-    assert "过高" in dash._status_entropy(11)
+    assert "健康" in dash._status_entropy(0.3)
+    assert "过高" in dash._status_entropy(0.9)
     assert "健康" in dash._status_snr(0.8)
     assert "过低" in dash._status_snr(0.2)
     assert "不足" in dash._status_capacity(1)
@@ -92,8 +92,9 @@ def test_recommendations():
     recs = dash._generate_recommendations(entropy=15, snr=0.2, capacity=1, satisfaction=0.1, redundancy=0.5)
     assert len(recs) >= 4  # Should generate many warnings
     # Healthy case
-    recs2 = dash._generate_recommendations(entropy=1, snr=0.9, capacity=6, satisfaction=0.9, redundancy=0.0)
-    assert any("[OK]" in r for r in recs2)
+    recs2 = dash._generate_recommendations(entropy=0.3, snr=0.9, capacity=6, satisfaction=0.9, redundancy=0.0)
+    assert len(recs2) == 1  # 健康态产出 1 条 [OK] 汇总建议
+    assert recs2[0].startswith("[OK]")
     teardown(); print("  [PASS] _generate_recommendations")
 def test_run_health_check():
     eng = RuleEngine(rules_dir=TEST_DIR)
@@ -101,7 +102,8 @@ def test_run_health_check():
     report = run_health_check(eng)
     assert isinstance(report, dict)
     assert report["total_rules"] == 1
-    shutil.rmtree(TEST_DIR)
+    if os.path.exists(TEST_DIR):
+        shutil.rmtree(TEST_DIR)
     print("  [PASS] run_health_check")
 if __name__ == "__main__":
     print("=== evo.dashboard Test Suite ===\n")

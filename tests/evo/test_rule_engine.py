@@ -25,7 +25,7 @@ def teardown():
 # ─── Dataclass Construction ───
 
 def test_interception_rule_defaults():
-    r = InterceptionRule(id="test_001", trigger_condition="x > 1", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="test_001", trigger_condition="persist_check", action="block", severity="high", tags=["test"])
     assert r.id == "test_001"
     assert r.logic_score == 5.0
     assert r.confidence == 5.0
@@ -70,7 +70,7 @@ def test_engine_init():
 def test_add_interception():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
-    r = InterceptionRule(id="crud_001", trigger_condition="x > 5", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="crud_001", trigger_condition="test_block", action="block", severity="high", tags=["test"])
     rid = eng.add_interception(r)
     assert rid == "crud_001"
     assert len(eng.get_interceptions()) == 1
@@ -81,7 +81,7 @@ def test_add_interception():
 def test_add_interception_auto_id():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
-    r = InterceptionRule(id="", trigger_condition="x > 5", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="", trigger_condition="test_block", action="block", severity="high", tags=["test"])
     rid = eng.add_interception(r)
     assert rid != ""
     assert rid.startswith("rule_")
@@ -91,7 +91,7 @@ def test_add_interception_auto_id():
 def test_get_interception_by_id():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
-    r = InterceptionRule(id="get_001", trigger_condition="x > 5", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="get_001", trigger_condition="test_block", action="block", severity="high", tags=["test"])
     eng.add_interception(r)
     found = eng.get_interception_by_id("get_001")
     assert found is not None
@@ -103,7 +103,7 @@ def test_get_interception_by_id():
 def test_update_interception():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
-    r = InterceptionRule(id="upd_001", trigger_condition="x > 5", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="upd_001", trigger_condition="test_block", action="block", severity="high", tags=["test"])
     eng.add_interception(r)
     ok = eng.update_interception("upd_001", severity="low", confidence=3.0)
     assert ok == True
@@ -118,7 +118,7 @@ def test_update_interception():
 def test_delete_interception():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
-    r = InterceptionRule(id="del_001", trigger_condition="x > 5", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="del_001", trigger_condition="test_block", action="block", severity="high", tags=["test"])
     eng.add_interception(r)
     assert eng.delete_interception("del_001") == True
     assert len(eng.get_interceptions()) == 0
@@ -208,11 +208,11 @@ def test_retrieve_for_task_severity_filter():
     eng = RuleEngine(rules_dir=TEST_DIR)
     for s in ["critical", "high", "medium", "low"]:
         eng.add_interception(InterceptionRule(
-            id=f"sev_{s}", trigger_condition=f"severity == '{s}'",
+            id=f"sev_{s}", trigger_condition=f"task_type == '{s}'",
             action="block", severity=s, tags=["test"]
         ))
     # Query that triggers all
-    ctx = {"severity": "high", "channel": "chat", "task_type": "test"}
+    ctx = {"task_type": "high", "channel": "chat"}
     result = eng.retrieve_for_task(ctx)
     # Only the one matching should fire
     assert len(result["interceptions"]) == 1
@@ -224,10 +224,10 @@ def test_safe_evaluate_simple():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
     # Test simple boolean expressions via _match_condition
-    ctx = {"task_type": "file_write", "channel": "chat", "target": "app.asar"}
+    ctx = {"task_type": "file_write", "channel": "chat", "command": "app.asar"}
     r = InterceptionRule(
         id="safe_001",
-        trigger_condition="task_type == 'file_write' AND target == 'app.asar'",
+        trigger_condition="task_type == 'file_write' AND command == 'app.asar'",
         action="block", severity="high", tags=["test"]
     )
     eng.add_interception(r)
@@ -267,7 +267,7 @@ def test_init_rules_if_empty():
 def test_persistence():
     setup()
     eng = RuleEngine(rules_dir=TEST_DIR)
-    r = InterceptionRule(id="persist_001", trigger_condition="x > 1", action="block", severity="high", tags=["test"])
+    r = InterceptionRule(id="persist_001", trigger_condition="persist_check", action="block", severity="high", tags=["test"])
     eng.add_interception(r)
     # Create new engine reading same dir
     eng2 = RuleEngine(rules_dir=TEST_DIR)
