@@ -29,9 +29,48 @@ class EvidenceVault:
         with open(self._log_path, "w", encoding="utf-8") as f:
             json.dump(self._trail[-500:], f, ensure_ascii=False, indent=2)
 
+    def _is_valid_evidence(self, rule_id: str, verdict: str, reason: str, source: str) -> bool:
+        """去伪存真·证据有效性门（v3.8.1）：
+        拒绝无实质内容的 pass 记录（post_tool 钩子把工具名当 rule_id 写空壳 reason 的污染源）。
+        保留：fail/block 真实失败、quarterly_falsification 内置审计、skip 审计、
+        引用真实规则/模式 id 且有实质 reason 的 pass。
+        """
+        if verdict in ("fail", "block", "pending"):
+            return True  # 失败/阻断证据必须保留（即使 rule_id 是工具名）
+        if source == "quarterly_falsification":
+            return True  # 内置季度证伪审计
+        r = (reason or "").strip()
+        _r_compact = r.replace(" ", "").replace(chr(0x3000), "")
+        if len(_r_compact) < 6:
+            return False  # 空壳 reason
+        if r.startswith("tool=") and "exit=" in r:
+            # tool=Bash exit=0 纯工具名模板（无实质内容）→ 拒绝
+            return False
+        if verdict in ("pass", "allow"):
+            # pass 必须引用真实规则/模式 id（证必可验）
+            try:
+                from evo.main import _get_engine
+                _eng = _get_engine()
+                if _eng.get_interception_by_id(rule_id) or _eng.get_pattern_by_id(rule_id):
+                    return True
+            except Exception:
+                pass
+            return False
+        return True  # skip 等其他审计记录
+
     def record(self, rule_id: str, verdict: str, reason: str,
                source: str = "auto", context: dict = None):
-        """记录一条证据判定"""
+        """记录一条证据判定（v3.8.1 前置有效性门，拒绝污染）"""
+        if not self._is_valid_evidence(rule_id, verdict, reason, source):
+            return {
+                "ts": datetime.datetime.now().isoformat(),
+                "rule_id": rule_id,
+                "verdict": verdict,
+                "reason": reason[:200],
+                "source": source,
+                "rejected": True,
+                "reject_reason": "evidence_validity_gate: 空壳 pass 或非真实规则 id 记录被拒绝",
+            }
         entry = {
             "ts": datetime.datetime.now().isoformat(),
             "rule_id": rule_id,

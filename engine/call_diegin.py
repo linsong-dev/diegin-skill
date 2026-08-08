@@ -639,14 +639,18 @@ if __name__ == "__main__":
             ctx = json.loads(raw_input) if raw_input else {}
             from evo.evidence_vault import EvidenceVault
             ev = EvidenceVault()
-            result = ev.route_verdict(
+            _entry = ev.record(
                 rule_id=ctx.get("rule_id", "unknown"),
                 verdict=ctx.get("verdict", "pass"),
                 reason=ctx.get("reason", ""),
                 source=ctx.get("source", "auto"),
                 context={"detail": ctx.get("detail", ""), "tool": ctx.get("rule_id", "")}
             )
-            print(json.dumps({"ok": True, "ts": result.get("ts", "")}, ensure_ascii=False))
+            if _entry.get("rejected"):
+                print(json.dumps({"ok": False, "rejected": True,
+                              "reason": _entry.get("reject_reason", "")}, ensure_ascii=False))
+            else:
+                print(json.dumps({"ok": True, "ts": _entry.get("ts", "")}, ensure_ascii=False))
         except Exception as e:
             print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
     elif mode == "feedback":
