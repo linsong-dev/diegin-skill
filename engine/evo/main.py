@@ -1901,10 +1901,14 @@ def principle_health() -> dict:
     # 一二不过三：升级率
     try:
         db = tracker._load_strikes_db()
-        types = len(db)
-        escalated = len([e for e in db.values() if (e.get("count", 0) or 0) >= 3])
+        # v3.8.2: fix_status=verified 视为已修复闭环，不计入待干预升级率（防误报）
+        pending = {k: v for k, v in db.items() if (v.get("fix_status") or "") != "verified"}
+        types = len(pending)
+        escalated = len([e for e in pending.values() if (e.get("count", 0) or 0) >= 3])
         report["一二不过三"] = {
             "strike_types": types,
+            "strikes_total": len(db),
+            "strikes_verified": len(db) - types,
             "escalation_rate": round(escalated / types, 3) if types else 0.0,
             "health": "🟢" if types == 0 or escalated / types < 0.2 else ("🟡" if escalated / types < 0.4 else "🔴"),
         }
