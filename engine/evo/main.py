@@ -619,7 +619,7 @@ def generalize_from_patterns() -> list:
             id=rid,
             trigger_condition=cond,
             action="suggest_from_pattern; " + (p.decision_logic[:60] if hasattr(p, "decision_logic") else ""),
-            severity="low" if conf < 4.0 else "medium",
+            severity="low",  # [FIX v3.8.1] suggest_from_pattern 为正向建议语义, 固定 low 防 medium→escalate 误判
             tags=["attack", "举一反三", "from_pattern"],
             logic_score=conf, outcome_score=os_val, confidence=conf,
             source="learned",

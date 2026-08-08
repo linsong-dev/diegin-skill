@@ -237,7 +237,17 @@ def evidence_filter(interceptions: list, context: dict) -> list:
         if lifecycle == 'staging':
             triggered = getattr(rule, 'triggered_count', 0) or 0
             confidence = getattr(rule, 'confidence', 0) or 0
-            if triggered >= 2 or confidence >= 4.5:
+            # [FIX v3.8.1] staging 验证死锁: staging 规则需进入匹配集才会被 record_triggered 计数,
+            # 原条件(tc>=2/conf>=4.5)导致新建规则永远无法自然命中 → 放宽为 conf>=3.8 或新建 7 天内放行
+            created_at = getattr(rule, 'created_at', '') or ''
+            is_new = False
+            if created_at:
+                try:
+                    from datetime import datetime as _dt8
+                    is_new = (_dt8.now() - _dt8.fromisoformat(created_at)).days <= 7
+                except Exception:
+                    pass
+            if triggered >= 2 or confidence >= 4.5 or confidence >= 3.8 or is_new:
                 filtered.append(rule)
                 if evidence_record:
                     evidence_record(rid, 'skip', f'staging阈值达标(触发={triggered},置信度={confidence}), evidence_filter批量非验证', source='evidence_filter')

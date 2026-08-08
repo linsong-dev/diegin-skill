@@ -701,6 +701,15 @@ class RuleEngine:
 
     # ─── 存储与加载 ───
 
+    def _merge_dedup_by_id(self, items):
+        """主+archive 合并去重（v3.8.1）：同 id 条目以后加载者（archive）为准，
+        archived 终态覆盖主文件同 id active 副本，防归档模式/规则复活。"""
+        _seen = {}
+        for _it in items:
+            _iid = getattr(_it, "id", None) or ""
+            _seen[_iid] = _it
+        return list(_seen.values())
+
     def _load_all(self):
         """加载所有规则数据 - JSON（完整权威）优先，Mindol 仅为检索镜像。
 
@@ -708,10 +717,16 @@ class RuleEngine:
         以 Mindol 为权威加载后回写 JSON 会丢失 logic_score/outcome_score/
         valid_until/invalid_conditions/block_count 等 12 个字段（覆盖问题）。
         现改为 JSON 优先加载；JSON 缺失/全空时回退 Mindol（旧环境升级路径）。"""
-        self._interceptions = self._load_json("interception_rules.json", InterceptionRule)
-        self._interceptions += self._load_json("interception_rules_archive.json", InterceptionRule)
-        self._patterns = self._load_json("success_patterns.json", SuccessPattern)
-        self._patterns += self._load_json("success_patterns_archive.json", SuccessPattern)
+        # [FIX v3.8.1] 主+archive 合并去重：同 id 以 archive（后加载）为准，
+        # 防 archived 终态条目被主文件同 id active 副本复活
+        self._interceptions = self._merge_dedup_by_id(
+            self._load_json("interception_rules.json", InterceptionRule)
+            + self._load_json("interception_rules_archive.json", InterceptionRule)
+        )
+        self._patterns = self._merge_dedup_by_id(
+            self._load_json("success_patterns.json", SuccessPattern)
+            + self._load_json("success_patterns_archive.json", SuccessPattern)
+        )
         self._metas = self._load_json("meta_experiences.json", MetaExperience)
         self._precedents = self._load_json("precedents.json", Precedent)
 

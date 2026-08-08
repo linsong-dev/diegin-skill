@@ -413,7 +413,8 @@ class ConflictArbiter:
             # 非阻断语义动作关键词：这类规则本意是验证/报告/传递/记录，不应因 severity 高而误伤
             _non_block_actions = ("relay", "verify", "report", "record", "check", "log",
                                   "notify", "write_state", "read_in_tool", "mark_", "audit",
-                                  "传递", "验证", "报告", "记录", "检查", "通知", "审计", "回写")
+                                  "suggest", "recommend",
+                                  "传递", "验证", "报告", "记录", "检查", "通知", "审计", "回写", "建议")
             _block_actions = ("block", "intercept", "deny", "forbid", "stop", "禁止", "拦截", "阻断", "拒绝")
             _non_block_only = []
             _real_block = []

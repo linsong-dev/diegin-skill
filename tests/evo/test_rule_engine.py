@@ -275,6 +275,42 @@ def test_persistence():
     teardown()
     print("  [PASS] persistence across engine instances")
 
+# ─── v3.8.1 回归：主+archive 合并去重 ───
+
+def test_merge_dedup_archive_wins():
+    """v3.8.1：_merge_dedup_by_id 同 id 以 archive（后加载）为准，防归档复活"""
+    setup()
+    eng = RuleEngine(rules_dir=TEST_DIR)
+    active = InterceptionRule(id="dup_001", trigger_condition="test", action="block", severity="high", tags=["test"], lifecycle_status="active")
+    archived = InterceptionRule(id="dup_001", trigger_condition="test", action="block", severity="high", tags=["test"], lifecycle_status="archived")
+    merged = eng._merge_dedup_by_id([active, archived])
+    assert len(merged) == 1
+    assert merged[0].lifecycle_status == "archived"
+    teardown()
+    print("  [PASS] merge_dedup archive wins")
+
+def test_load_all_dedup_main_archive():
+    """v3.8.1：_load_all 主+archive 同 id 只保留一条（archive 终态优先）"""
+    setup()
+    main = [{
+        "id": "dup_load_001", "trigger_condition": "test", "action": "block", "severity": "high",
+        "tags": ["test"], "lifecycle_status": "active",
+    }]
+    with open(os.path.join(TEST_DIR, "interception_rules.json"), "w", encoding="utf-8") as f:
+        json.dump(main, f, ensure_ascii=False, indent=2)
+    arch = [{
+        "id": "dup_load_001", "trigger_condition": "test", "action": "block", "severity": "high",
+        "tags": ["test"], "lifecycle_status": "archived",
+    }]
+    with open(os.path.join(TEST_DIR, "interception_rules_archive.json"), "w", encoding="utf-8") as f:
+        json.dump(arch, f, ensure_ascii=False, indent=2)
+    eng = RuleEngine(rules_dir=TEST_DIR)
+    same = [r for r in eng.get_interceptions(active_only=False) if r.id == "dup_load_001"]
+    assert len(same) == 1
+    assert same[0].lifecycle_status == "archived"
+    teardown()
+    print("  [PASS] load_all dedup main+archive")
+
 if __name__ == "__main__":
     print("=== evo.rule_engine Test Suite ===\n")
     tests = [
@@ -298,6 +334,8 @@ if __name__ == "__main__":
         test_seed_interceptions,
         test_init_rules_if_empty,
         test_persistence,
+        test_merge_dedup_archive_wins,
+        test_load_all_dedup_main_archive,
     ]
     passed = 0
     for t in tests:
