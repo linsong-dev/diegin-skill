@@ -372,6 +372,11 @@ try {
         }
         if ($null -eq $checkResult -or [string]::IsNullOrEmpty($checkResult.decision)) {
             $engineError = $true
+            # v3.8.3: fail-open 补异常详情日志，便于定位引擎预检失败根因
+            $errDetail = ($rawOutput -join ' ')
+            if ([string]::IsNullOrWhiteSpace($errDetail)) { $errDetail = '(no output)' }
+            if ($errDetail.Length -gt 500) { $errDetail = $errDetail.Substring(0, 500) + '...(truncated)' }
+            Add-NoBOMLog -Path $auditLog -Message ($time + ' [HOOK:DGEN-ENGINE-ERROR] 引擎异常，本次放行但状态未验证 | python=' + $pythonExe + ' | output=' + $errDetail)
         } else {
             $finalDecision = $checkResult.decision
             $finalMatched = $checkResult.matched_interceptions
@@ -464,7 +469,6 @@ try {
 # [A1] 去伪存真：引擎故障必须显式标注 ENGINE_ERROR，不得伪装 VERIFIED
 # 放行（audit 精神·不阻断业务），但状态文件与上下文如实记录
 if ($engineError) {
-    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ENGINE-ERROR] 引擎异常，本次放行但状态未验证"
     Write-DGENStatusFile -Status "ENGINE_ERROR" -Rules "?" -Decision "unknown" -Matched "0"
     $toolCtxStr = '{"ts":"' + (Get-Date -Format "o") + '","decision":"engine_error","matched_count":0,"tool_name":"' + $toolName + '","error":"engine_unavailable"}'
     try { [System.IO.File]::WriteAllText((Join-Path $stateDir "diegin_pre_tool_context.json"), $toolCtxStr, $script:utf8NoBOM) } catch {}

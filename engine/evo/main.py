@@ -1861,6 +1861,37 @@ def adjust_rule_confidence(rule_id: str, delta: float, reason: str = "", source:
     return False
 
 
+def audit_strike_summary(strikes: dict) -> dict:
+    """一二不过三审核口径（v3.8.2 对齐）：fix_status=verified 视为已修复闭环。
+
+    供 audit 标准审核使用，与 principle_health 的待干预口径一致：
+    已修复验证的 strike 不列为"已达阈值"告警（防误报），
+    未修复且 count>=3 仍须高亮待干预。
+    返回:
+        total: 记录总数
+        verified: [{"error_type","count"}] 已修复闭环
+        pending_high: [{"error_type","count"}] 未修复且 count>=3
+        pending_warn: [{"error_type","count"}] 未修复且 count==2
+        pending_ok: [{"error_type","count"}] 未修复且 count<2
+    """
+    summary = {"total": 0, "verified": [], "pending_high": [], "pending_warn": [], "pending_ok": []}
+    for _et, _v in (strikes or {}).items():
+        if not isinstance(_v, dict):
+            continue
+        summary["total"] += 1
+        _cnt = int(_v.get("count", 0) or 0)
+        _item = {"error_type": _et, "count": _cnt}
+        if (_v.get("fix_status") or "") == "verified":
+            summary["verified"].append(_item)
+        elif _cnt >= 3:
+            summary["pending_high"].append(_item)
+        elif _cnt == 2:
+            summary["pending_warn"].append(_item)
+        else:
+            summary["pending_ok"].append(_item)
+    return summary
+
+
 def principle_health() -> dict:
     """P2 八原则健康看板：每个原则一个健康报告（🟢正常 / 🟡关注 / 🔴干预）"""
     try:

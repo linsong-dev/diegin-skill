@@ -2023,22 +2023,22 @@ if __name__ == "__main__":
         if _oa.path.exists(_stf):
             with open(_stf, "r", encoding="utf-8") as _f:
                 _strikes = _ja.load(_f)
-        print(f"\n{_s(len(_strikes) == 0)} 一二不过三（错误追踪）")
-        if _strikes:
-            _high_risk = {k: v for k, v in _strikes.items() if v.get("count", 0) >= 3}
-            _warn = {k: v for k, v in _strikes.items() if v.get("count", 0) == 2}
-            _ok = {k: v for k, v in _strikes.items() if v.get("count", 0) == 1}
-            if _high_risk:
-                for k, v in _high_risk.items():
-                    print(f"    {chr(0x274C)} {k}: {v['count']}次 {_w('已达阈值')}")
-            if _warn:
-                for k, v in _warn.items():
-                    print(f"    {chr(0x26A0)} {k}: {v['count']}次（下一次将触发阻断）")
-            if _ok:
-                for k, v in _ok.items():
-                    print(f"    {chr(0x1F514)} {k}: {v['count']}次")
-        else:
+        # v3.8.3: 与 principle_health 同口径——fix_status=verified 视为已修复闭环，不列为待干预
+        from evo.main import audit_strike_summary as _strike_summary
+        _ss = _strike_summary(_strikes)
+        _pending_count = len(_ss["pending_high"]) + len(_ss["pending_warn"]) + len(_ss["pending_ok"])
+        print(f"\n{_s(_pending_count == 0)} 一二不过三（错误追踪）")
+        if _ss["total"] == 0:
             print(f"    {chr(0x2705)} 无错误记录")
+        else:
+            for _k in _ss["pending_high"]:
+                print(f"    {chr(0x274C)} {_k['error_type']}: {_k['count']}次 {_w('已达阈值')}")
+            for _k in _ss["pending_warn"]:
+                print(f"    {chr(0x26A0)} {_k['error_type']}: {_k['count']}次（下一次将触发阻断）")
+            for _k in _ss["pending_ok"]:
+                print(f"    {chr(0x1F514)} {_k['error_type']}: {_k['count']}次")
+            for _k in _ss["verified"]:
+                print(f"    {chr(0x2705)} {_k['error_type']}: {_k['count']}次（已修复 verified，闭环不干预）")
 
         # breach 日志
         _blf = _oa.path.join(_base, "var", "state", "dgen_breach_log.json")
@@ -2076,15 +2076,25 @@ if __name__ == "__main__":
             print(f"    引擎加载失败: {_ee}")
 
         # ── 6. 去伪存真 ──
-        _etf = _oa.path.join(_base, "var", "state", "evidence_trail.json")
-        _trail = []
-        if _oa.path.exists(_etf):
-            with open(_etf, "r", encoding="utf-8") as _f:
-                _trail = _ja.load(_f)
-        print(f"\n{_s(len(_trail) > 0)} 去伪存真（证据链）")
-        print(f"    裁决记录: {len(_trail)} 条")
-        if _trail:
-            _recent = _trail[-5:]
+        # v3.8.3: 证据库统一走 get_vault（修复 audit 读 var/state 错误路径恒显 0 条）
+        _total_v = 0
+        _recent = []
+        _vault_err = ""
+        try:
+            from evo.main import get_vault
+            _vault = get_vault()
+            _vs = _vault.get_stats() if hasattr(_vault, "get_stats") else {}
+            _total_v = _vs.get("total_verdicts", 0) or 0
+            if hasattr(_vault, "get_recent"):
+                _recent = _vault.get_recent(5)
+        except Exception as _ve:
+            _total_v = -1
+            _vault_err = str(_ve)[:80]
+        print(f"\n{_s(_total_v > 0)} 去伪存真（证据链）")
+        if _total_v < 0:
+            print(f"    证据库加载失败: {_vault_err}")
+        else:
+            print(f"    裁决记录: {_total_v} 条")
             for _e in _recent:
                 print(f"    {_e.get('ts','?')[:16]} | {_e.get('verdict','?'):8s} | {_e.get('reason','')[:50]}")
 
@@ -2142,8 +2152,8 @@ if __name__ == "__main__":
 
         # ── 总结 ──
         _issues = []
-        if _high_risk:
-            _issues.append(f"{len(_high_risk)} 个错误类型已达阈值")
+        if _ss['pending_high']:
+            _issues.append('{} 个错误类型已达阈值'.format(len(_ss['pending_high'])))
         if _alerting > 0:
             _issues.append(f"{_alerting} 条告警规则")
         if _blocking > 0:
