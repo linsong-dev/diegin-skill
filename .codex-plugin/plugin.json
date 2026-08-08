@@ -15,7 +15,7 @@
   "interface": {
     "displayName": "迭进·DGEN",
     "shortDescription": "AI 全域常驻自我迭代进化系统",
-    "longDescription": "基于八元原则网络（守三+攻七+一二不过三+举一反三+去伪存真+裁决律+缓急律+止观门），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
+    "longDescription": "基于八元原则网络（攻七+守三+一二不过三+举一反三+去伪存真+裁决律+缓急律+止观门），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
     "developerName": "linsong-dev",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],

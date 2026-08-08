@@ -77,7 +77,7 @@ class BehaviorTracker:
         except Exception:
             pass
 
-    _COUNTER_FIELDS = ("triggered_count", "ignored_count", "override_count",
+    _COUNTER_FIELDS = ("triggered_count", "ignored_count", "override_count", "block_count",
                        "last_triggered", "last_ignored", "confidence", "lifecycle_status")
 
     def _reconcile_counts_from_json(self):
@@ -97,7 +97,7 @@ class BehaviorTracker:
                     jr = by_id.get(r.id)
                     if not jr:
                         continue
-                    for k in ("triggered_count", "ignored_count", "override_count"):
+                    for k in ("triggered_count", "ignored_count", "override_count", "block_count"):
                         jv = jr.get(k) or 0
                         if jv > (getattr(r, k, 0) or 0):
                             setattr(r, k, jv)
@@ -120,7 +120,8 @@ class BehaviorTracker:
                 continue
             for dk, ck in (("triggered_delta", "triggered_count"),
                            ("ignored_delta", "ignored_count"),
-                           ("override_delta", "override_count")):
+                           ("override_delta", "override_count"),
+                           ("block_delta", "block_count")):
                 d = entry.get(dk, 0) or 0
                 if d:
                     setattr(rule, ck, (getattr(rule, ck, 0) or 0) + d)
@@ -236,7 +237,23 @@ class BehaviorTracker:
                             last_triggered=rule.last_triggered)
         return {"action": "updated", "triggered_count": rule.triggered_count}
 
-    
+    def record_block(self, rule_id: str, blocked_rule: str = "") -> Dict:
+        # v3.8.3: 守三真实阻断计数（block_count 回写，曾恒为 0）
+        rule, rule_type = self._resolve_rule(rule_id)
+        if not rule:
+            return {"action": "not_found"}
+        if not hasattr(rule, "block_count"):
+            return {"action": "not_supported"}  # 成功模式无阻断字段
+
+        rule.block_count += 1
+        if blocked_rule and hasattr(rule, "blocked_rules"):
+            if blocked_rule not in rule.blocked_rules:
+                rule.blocked_rules.append(blocked_rule)
+
+        self._queue_counter(rule_id, rule_type, block_delta=1)
+        return {"action": "updated", "block_count": rule.block_count}
+
+
     def _strikes_db_path(self):
         import os
         return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "var", "state", "strikes_db.json")

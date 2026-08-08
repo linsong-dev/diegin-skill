@@ -357,6 +357,11 @@ def pre_check(context: dict) -> dict:
             _trk.record_triggered(getattr(_r, "id", ""))
         for _p in rules["patterns"]:
             _trk.record_triggered(getattr(_p, "id", ""))
+        # v3.8.3: 守三真实阻断计数回写（block_count 曾恒为 0，审计口径补齐）
+        if result.get("decision") in ("block", "iron_wall_block"):
+            _wid = result.get("winning_rule_id") or ""
+            if _wid:
+                _trk.record_block(_wid, blocked_rule=_wid)
     except Exception:
         pass
 

@@ -61,6 +61,31 @@ def test_record_triggered():
     rule = eng.get_interception_by_id("r4")
     assert rule.triggered_count == 1
     teardown(); print("  [PASS] record_triggered")
+
+def test_record_block():
+    # v3.8.3: 守三真实阻断计数回写（block_count 曾恒为 0）
+    tr, eng = _make_tracker()
+    eng.add_interception(InterceptionRule(id="b1", trigger_condition="x", action="block", severity="high", tags=["t"]))
+    r = tr.record_block("b1", blocked_rule="b1")
+    assert r["action"] == "updated"
+    rule = eng.get_interception_by_id("b1")
+    assert rule.block_count == 1
+    assert "b1" in rule.blocked_rules
+    teardown(); print("  [PASS] record_block")
+
+def test_record_block_pattern_not_supported():
+    # 成功模式无 block_count 字段 → not_supported 而非崩溃
+    tr, eng = _make_tracker()
+    eng.add_pattern(SuccessPattern(id="p1", pattern_name="x", trigger_scenario="qa", decision_logic="allow"))
+    r = tr.record_block("p1")
+    assert r["action"] == "not_supported"
+    teardown(); print("  [PASS] record_block pattern not_supported")
+
+def test_record_block_not_found():
+    tr, eng = _make_tracker()
+    r = tr.record_block("nonexistent")
+    assert r["action"] == "not_found"
+    teardown(); print("  [PASS] record_block not_found")
 def test_record_self_error():
     tr, eng = _make_tracker()
     r = tr.record_self_error("test_error", "something went wrong", {"task_type": "test"})

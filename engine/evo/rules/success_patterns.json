@@ -21,8 +21,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-03T16:31:46.557782",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T11:12:31.094152",
+    "triggered_count": 32
   },
   {
     "id": "gongqi_fix_hooks_ps1_bom_20260805_124836",
@@ -46,8 +46,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T12:48:36.203968",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T11:12:31.094152",
+    "triggered_count": 9
   },
   {
     "id": "pat_auto_auto_fix_command_failure_1",
@@ -71,8 +71,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-03T16:08:05.151491",
     "valid_until": "",
-    "last_triggered": "2026-08-04T17:44:22.017785",
-    "triggered_count": 22
+    "last_triggered": "2026-08-08T09:06:50.803411",
+    "triggered_count": 32
   },
   {
     "id": "gongqi_verified_command_failure_20260805_145423",
@@ -96,8 +96,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T14:54:23.919391",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T13:59:58.839317",
+    "triggered_count": 117
   },
   {
     "id": "gongqi_verified_tool_error_Bash_20260805_145424",
@@ -121,8 +121,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T14:54:24.351347",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T13:59:58.839317",
+    "triggered_count": 81
   },
   {
     "id": "gongqi_fix_command_failure_20260805_165257",
@@ -146,8 +146,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T16:52:57.850413",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T13:59:58.839317",
+    "triggered_count": 112
   },
   {
     "id": "gongqi_fix_tool_error_Bash_20260805_165258",
@@ -171,8 +171,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T16:52:58.323535",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T13:59:58.840367",
+    "triggered_count": 82
   },
   {
     "id": "gongqi_verified_image_url_20260804_080935",
@@ -188,7 +188,7 @@
     "core_capability": "",
     "logic_score": 3.5,
     "outcome_score": 3.5,
-    "confidence": 4.5,
+    "confidence": 5.0,
     "source": "learned",
     "auto_promoted": true,
     "promoted_from": "",
@@ -196,7 +196,82 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-04T08:09:35.399671",
     "valid_until": "",
-    "last_triggered": "",
-    "triggered_count": 0
+    "last_triggered": "2026-08-08T13:59:58.840367",
+    "triggered_count": 80
+  },
+  {
+    "id": "pat_auto_tool_shell_command_1",
+    "pattern_name": "auto_tool_shell_command_1",
+    "trigger_scenario": "tool_shell_command",
+    "decision_logic": "PS 向迭进引擎传含中文的 JSON 参数会被乱码破坏(JSONDecodeError)；正确做法：先 [System.IO.File]::WriteAllText 写 UTF-8 NoBOM 临时文件，再用 check_file 模式读取",
+    "trigger_condition": "task_type == 'pre_tool' and ('WriteAllText' in command or 'check_file' in command)",
+    "micro_template": "PS 向迭进引擎传含中文的 JSON 参数会被乱码破坏(JSONDecodeError)；正确做法：先 [System.IO.File]::WriteAllTe",
+    "preconditions": [],
+    "boundary_conditions": [],
+    "luck_factor": "low",
+    "emotion_factor": "low",
+    "core_capability": "",
+    "logic_score": 4.0,
+    "outcome_score": 3.5,
+    "confidence": 4.3999999999999995,
+    "source": "auto_sandwich",
+    "auto_promoted": true,
+    "promoted_from": "generalize",
+    "promoted_at": "2026-08-08T09:25:02.032269",
+    "lifecycle_status": "active",
+    "created_at": "2026-08-08T09:17:58.633420",
+    "valid_until": "",
+    "last_triggered": "2026-08-08T15:00:19.955876",
+    "triggered_count": 10942
+  },
+  {
+    "id": "pat_auto_tool_Bash_1",
+    "pattern_name": "auto_tool_Bash_1",
+    "trigger_scenario": "tool_Bash",
+    "decision_logic": "$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n# 场景2: 命令失败 fail 却被误标 ok:true\n$ctx2 = '{\"rule_id\":\"Bash\",\"verdict\":\"fail\",\"reason\":\"exit=1 command failed\",\"source\":\"post_t",
+    "trigger_condition": "tool_name == 'Bash'",
+    "micro_template": "$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n# 场景2: 命令失败 fail 误标 ok:true 防护",
+    "preconditions": [],
+    "boundary_conditions": [],
+    "luck_factor": "low",
+    "emotion_factor": "low",
+    "core_capability": "",
+    "logic_score": 4.0,
+    "outcome_score": 3.5,
+    "confidence": 5.0,
+    "source": "auto_sandwich",
+    "auto_promoted": false,
+    "promoted_from": "verified",
+    "promoted_at": "2026-08-08T12:45:53.116932",
+    "lifecycle_status": "active",
+    "created_at": "2026-08-08T12:45:32.323482",
+    "valid_until": "",
+    "last_triggered": "2026-08-08T15:00:23.495173",
+    "triggered_count": 18681
+  },
+  {
+    "id": "pat_auto_tool_review_fix_verify_loop_1",
+    "pattern_name": "auto_tool_review_fix_verify_loop_1",
+    "trigger_scenario": "tool_review_fix_verify_loop",
+    "decision_logic": "人工 review/fix 验证闭环成功 → 提炼成功模式 → pytest 回归验证 + checkpush 审推确认闭环",
+    "trigger_condition": "'review' in command or 'fix' in command or '审查' in command or '修复' in command",
+    "micro_template": "人工 review/fix 验证闭环成功 → 提炼成功模式 → pytest 回归验证 + checkpush 审推确认闭环",
+    "preconditions": [],
+    "boundary_conditions": [],
+    "luck_factor": "low",
+    "emotion_factor": "low",
+    "core_capability": "",
+    "logic_score": 4.0,
+    "outcome_score": 3.5,
+    "confidence": 3.8,
+    "source": "auto_sandwich",
+    "auto_promoted": false,
+    "promoted_from": "",
+    "promoted_at": "",
+    "lifecycle_status": "staging",
+    "created_at": "2026-08-08T14:40:45.653628",
+    "valid_until": "",
+    "last_triggered": "2026-08-08T14:40:45.653628",
+    "triggered_count": 1
   }
 ]

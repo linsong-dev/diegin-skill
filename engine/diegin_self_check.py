@@ -424,6 +424,25 @@ def main():
         result["checks"]["baseline_no_regression"] = False
         result["issues"].append("基线对比异常: %s" % e)
 
+    # v3.8.3: audit 口径 = principle_health 口径防回退（改看板忘了改 audit 时自检红）
+    try:
+        _aligned = False
+        _cli = os.path.join(ENGINE_DIR, "call_diegin.py")
+        _main = os.path.join(ENGINE_DIR, "evo", "main.py")
+        if os.path.exists(_cli) and os.path.exists(_main):
+            _cli_txt = io.open(_cli, "r", encoding="utf-8").read()
+            _main_txt = io.open(_main, "r", encoding="utf-8").read()
+            # 精确匹配防子串绕过（如 audit_strike_summaryX 含原串但语义已坏）
+            _aligned = ("import audit_strike_summary as _strike_summary" in _cli_txt
+                        and "def audit_strike_summary(strikes: dict) -> dict:" in _main_txt
+                        and "fix_status" in _main_txt)
+        result["checks"]["audit_strike_aligned"] = _aligned
+        if not _aligned:
+            result["issues"].append("audit 口径未对齐 principle_health（需引用 audit_strike_summary）")
+    except Exception as e:
+        result["checks"]["audit_strike_aligned"] = False
+        result["issues"].append("audit 口径检查异常: %s" % e)
+
     # 汇总
     failed = [k for k, v in result["checks"].items() if v is False]
     result["status"] = "FAIL" if failed else "ok"
