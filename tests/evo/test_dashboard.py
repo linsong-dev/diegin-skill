@@ -1,10 +1,10 @@
 """Tests for evo.dashboard"""
-import os, sys, shutil
+import os, sys, shutil, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine", "evo"))
 from dashboard import HealthDashboard, run_health_check
 from rule_engine import RuleEngine, InterceptionRule, SuccessPattern, Precedent
-TEST_DIR = os.path.join(os.path.dirname(__file__), "_test_dash")
+TEST_DIR = tempfile.mkdtemp(prefix="dgen_test_dash_")  # v3.8.1 临时目录，避免清空仓库内 git 跟踪夹具
 def setup():
     if os.path.exists(TEST_DIR): shutil.rmtree(TEST_DIR)
     os.makedirs(TEST_DIR, exist_ok=True)
