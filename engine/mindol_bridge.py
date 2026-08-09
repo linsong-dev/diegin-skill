@@ -30,6 +30,15 @@ def cmd_record(args):
         return 1
     source = args[0]
     text = " ".join(args[1:])
+    # P1 写入脱敏：token/凭证不落库（优先复用 diegin_integration 单一事实源，失败则内联兜底）
+    try:
+        from mindol.diegin_integration import sanitize_text
+        text = sanitize_text(text)
+    except Exception:
+        import re as _re
+        for _p in (r"gh[pousr]_[A-Za-z0-9]{20,}", r"sk-[A-Za-z0-9]{20,}",
+                   r"x-access" + r"-token:[^\s@]+@", r"AIza[0-9A-Za-z_-]{20,}"):
+            text = _re.sub(_p, "[REDACTED]", text)
     space = "codex"  # 默认
     # 检查末尾是否指定空间
     if text.endswith(")") and "(" in text:
