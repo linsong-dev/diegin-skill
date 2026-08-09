@@ -99,6 +99,22 @@ metadata:
 
 
 **违反后果：** 迭进引擎标记未激活，后续操作将被自动拦截。
+### 规则 0-2：事毕收尾（工作区整洁 + 经验沉淀）
+
+每轮任务结束时（止观门"事毕清零"之前），机械执行：
+1. 运行 `powershell -NoProfile -ExecutionPolicy Bypass -File %DEV_ROOT%\TOOL\workspace-check.ps1`
+2. 出现 `[stray]` 项时：`_apt_*` / `_mn_*` / `*_json_check.py` 等临时文件立即删除；其他游离项询问用户归属
+3. 根目录只剩白名单内容后才封存本轮
+4. **经验沉淀**：回顾本轮，如有值得沉淀的洞察（新方法/工具/规则，不在现有规则库），
+   记一条元经验入库：`python %DEV_ROOT%\TOOL\rule_incremental.py add <meta.json>`
+   （JSON 形如：{"type":"meta","id":"meta_manual_<场景>_<日期>","insight":"<洞察>",
+   "applicable_contexts":["<适用场景>"],"action_binding":"<绑定的行动>","source_review":"<日期> 会话","confidence":4.5}）
+   无洞察则跳过，不硬凑
+5. 开工时也轻量跑一次（上一轮可能未清干净）
+
+**违反后果：** 游离临时文件持续累积 + 有价值洞察流失，根目录散乱、经验库空转
+（2026-08-09 教训：63 个 `_apt_*` 文件堆积；meta_experiences 空库长期闲置）。
+
 
 
 
@@ -111,6 +127,22 @@ metadata:
 
 
 **违反后果：** 迭进引擎标记未激活，后续操作将被自动拦截。
+### 规则 0-2：事毕收尾（工作区整洁 + 经验沉淀）
+
+每轮任务结束时（止观门"事毕清零"之前），机械执行：
+1. 运行 `powershell -NoProfile -ExecutionPolicy Bypass -File %DEV_ROOT%\TOOL\workspace-check.ps1`
+2. 出现 `[stray]` 项时：`_apt_*` / `_mn_*` / `*_json_check.py` 等临时文件立即删除；其他游离项询问用户归属
+3. 根目录只剩白名单内容后才封存本轮
+4. **经验沉淀**：回顾本轮，如有值得沉淀的洞察（新方法/工具/规则，不在现有规则库），
+   记一条元经验入库：`python %DEV_ROOT%\TOOL\rule_incremental.py add <meta.json>`
+   （JSON 形如：{"type":"meta","id":"meta_manual_<场景>_<日期>","insight":"<洞察>",
+   "applicable_contexts":["<适用场景>"],"action_binding":"<绑定的行动>","source_review":"<日期> 会话","confidence":4.5}）
+   无洞察则跳过，不硬凑
+5. 开工时也轻量跑一次（上一轮可能未清干净）
+
+**违反后果：** 游离临时文件持续累积 + 有价值洞察流失，根目录散乱、经验库空转
+（2026-08-09 教训：63 个 `_apt_*` 文件堆积；meta_experiences 空库长期闲置）。
+
 
 
 ## 一、八元原则网络（迭进元原则·全域不可绕过）
