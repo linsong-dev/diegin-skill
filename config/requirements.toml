@@ -4,7 +4,7 @@ allow_managed_hooks_only = true
 hooks = true
 
 [hooks]
-windows_managed_dir = "%USERPROFILE%\.codex\diegin\hooks"
+windows_managed_dir = '%USERPROFILE%\.codex\diegin\hooks'
 
 [[hooks.SessionStart]]
 matcher = "startup|resume"
