@@ -144,6 +144,28 @@ def test_op_contains():
     return c1 and c2 and c3 and c4 and c5 and c6 and c7
 
 
+def test_gongqi_noise_filter():
+    """攻七推荐：工具名级伪模式整体剔除 + priority 标记正确"""
+    from evo.rule_engine import build_gongqi_suggestions
+
+    class _FakePat:
+        def __init__(self, pid, scenario, decision, conf, trig):
+            self.id = pid
+            self.trigger_scenario = scenario
+            self.decision_logic = decision
+            self.confidence = conf
+            self.trigger_condition = trig
+
+    noise = _FakePat("pat_noise_bash", "tool_Bash", "工具名级伪模式决策逻辑" * 4, 5.0, "tool_name == 'Bash'")
+    rich = _FakePat("pat_rich_write", "PS写文件", "写含中文文件用 WriteAllText UTF-8 NoBOM 原子写并读回验证", 4.9, "tool_name == 'PowerShell' and 'Set-Content' in command")
+    low = _FakePat("pat_low", "低置信", "短逻辑", 3.0, "op_contains(xxx)")
+    sug = build_gongqi_suggestions([noise, rich, low])
+    ids = [s["id"] for s in sug]
+    c1 = check("攻七·工具名级伪模式剔除", "pat_noise_bash" not in ids)
+    c2 = check("攻七·priority标记正确", len(sug) > 0 and sug[0]["priority"] is True and sug[0]["id"] == "pat_rich_write")
+    return c1 and c2
+
+
 def main():
     print(f"\n{'='*50}", flush=True)
     print(f"  迭进 v3.4.0 端到端测试", flush=True)
@@ -174,6 +196,9 @@ def main():
     print(f"\n--- 去伪存真过滤 ---", flush=True)
     test_evidence_filter()
     test_op_contains()
+
+    print(f"\n--- 攻七推荐 ---", flush=True)
+    test_gongqi_noise_filter()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

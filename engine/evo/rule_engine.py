@@ -178,10 +178,14 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
     训练/测试分离：本函数只做只读计算，不写规则库、不写 Mindol、不触发学习，
     回归测试可注入固定种子模式验证推荐行为，防"测试集泄漏进训练集"。
     规则：
-      - priority: confidence>=4.5 且 decision_logic 长度>=6 且非 tool_name== 噪音
+      - 工具名级噪音（trigger 仅为 tool_name=='X'，任何工具调用都触发）→ 整体剔除
+      - priority: confidence>=4.5 且 decision_logic 长度>=6
       - 排序：priority 优先，组内按 confidence 降序；总量截断 top_n
     """
     _suggestions = []
+    import re as _re
+    # 纯工具名级触发（形如 tool_name == 'Bash'，无场景/操作区分）→ 推荐无信息量
+    _tool_noise_re = _re.compile(r"^tool_name\s*==\s*['\"][^'\"]+['\"]$")
     try:
         _priority_sug = []
         _normal_sug = []
@@ -196,10 +200,11 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
             _conf = float(getattr(p, "confidence", 0) or 0)
             _trig = str(getattr(p, "trigger_condition", "") or "").strip()
             # 工具名级噪音过滤（P2a 防伪模式污染）：trigger 为 tool_name=='X' 的模式
-            # 任何工具调用都触发，无场景区分，推荐无信息量 → 不进 priority 推荐
-            _tool_lvl_noise = _trig.startswith("tool_name ==")
-            # 高置信度 + 实质决策逻辑 + 非工具名级噪音 → 优先采用（复用验证过的正确做法）
-            _is_priority = _conf >= 4.5 and len(_logic) >= 6 and not _tool_lvl_noise
+            # 任何工具调用都触发，无场景区分，推荐无信息量 → 整体剔除，不进推荐列表
+            if _tool_noise_re.match(_trig):
+                continue
+            # 高置信度 + 实质决策逻辑 → 优先采用（复用验证过的正确做法）
+            _is_priority = _conf >= 4.5 and len(_logic) >= 6
             _s["priority"] = _is_priority
             if _is_priority:
                 _priority_sug.append(_s)
@@ -1753,5 +1758,3 @@ def init_rules_if_empty(rule_engine: RuleEngine):
         rule_engine.add_interception(rule)
     rule_engine.save_all()
     print("[OK] 种子规则注入完成，智能体已具备基础生存能力")
-
-

@@ -417,12 +417,20 @@ try {
                             $sugLine += " 做法: " + $dText
                         }
                         $sugLines += $sugLine
-                        # 高置信度 + 实质决策逻辑 → 优先采用（独立醒目行）
-                        $sConf = 0.0
-                        try { $sConf = [double]$s.confidence } catch { $sConf = 0.0 }
+                        # 攻七·优先采用判定：以引擎 priority 字段为准（v3.9 单一事实源）
+                        # 引擎 build_gongqi_suggestions 已剔除工具名级噪音 + conf>=4.5 + 实质决策逻辑
                         $sDec = ""
                         if ($s.decision) { $sDec = [string]$s.decision }
-                        if ($sConf -ge 4.5 -and $sDec.Length -ge 6) {
+                        $sIsPriority = $false
+                        if ($null -ne $s.priority) {
+                            try { $sIsPriority = [bool]$s.priority } catch { $sIsPriority = $false }
+                        } else {
+                            # 旧引擎回退：高置信度 + 实质决策逻辑
+                            $sConf = 0.0
+                            try { $sConf = [double]$s.confidence } catch { $sConf = 0.0 }
+                            if ($sConf -ge 4.5 -and $sDec.Length -ge 6) { $sIsPriority = $true }
+                        }
+                        if ($sIsPriority) {
                             $pText = $sDec
                             if ($pText.Length -gt 100) { $pText = $pText.Substring(0, 100) + "…" }
                             if (-not $priorityText) { $priorityText = $pText }
@@ -456,6 +464,16 @@ try {
                         Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] write_error=$($_.Exception.Message)"
                     }
                 }
+            }
+            # v3.9 无优先推荐时清理旧推荐文件：防止 post_tool 采纳过期的伪模式推荐
+            if (-not $priorityPatternId) {
+                try {
+                    $prioFileTmp = Join-Path $stateDir "dgen_priority_pattern.json"
+                    if (Test-Path $prioFileTmp) {
+                        [System.IO.File]::Delete($prioFileTmp)
+                        Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] clear_stale_priority"
+                    }
+                } catch { }
             }
         }
     } else {
