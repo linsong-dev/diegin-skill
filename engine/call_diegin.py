@@ -57,6 +57,24 @@ def _append_audit(msg: str) -> None:
 
 
 
+def _decode_stdin_bytes(_b: bytes) -> str:
+    """[2026-08-09] PS5.1 管道中文加固：UTF-8 优先，失败回退 GBK，去 BOM。
+    PS5.1 默认 $OutputEncoding=ASCII/GBK 会把中文变成 ? 或 GBK 字节，
+    统一在此收敛，避免 prompt/上下文入库乱码与 json.loads 崩溃。"""
+    if _b.startswith(b"\xef\xbb\xbf"):
+        _b = _b[3:]
+    if not _b:
+        return ""
+    for _enc in ("utf-8", "gbk"):
+        try:
+            _s = _b.decode(_enc)
+            if "\ufffd" not in _s:
+                return _s.strip()
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return _decode_stdin_bytes(_b).strip()
+
+
 def load_principle_rules(context: dict, record_strike: bool = True) -> list:
     """Load strike (一二不过三) + staging (举一反三) rules into arbitration pipeline"""
     engine = _get_engine()
@@ -515,7 +533,7 @@ if __name__ == "__main__":
 
         else:
 
-            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _b.decode("utf-8", errors="replace").strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _decode_stdin_bytes(_b).strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
 
         ctx = json.loads(raw)
 
@@ -640,7 +658,7 @@ if __name__ == "__main__":
         try:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            raw_input = _b.decode("utf-8", errors="replace").strip()
+            raw_input = _decode_stdin_bytes(_b).strip()
             ctx = json.loads(raw_input) if raw_input else {}
             from evo.evidence_vault import EvidenceVault
             ev = EvidenceVault()
@@ -707,7 +725,7 @@ if __name__ == "__main__":
         """
 
         if not sys.stdin.isatty():
-            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _b.decode("utf-8", errors="replace").strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _decode_stdin_bytes(_b).strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
         elif len(sys.argv) > 2:
             raw = sys.argv[2]
         else:
@@ -807,7 +825,7 @@ if __name__ == "__main__":
             if not _sys.stdin.isatty():
                 _b = _sys.stdin.buffer.read()
                 _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-                raw = _b.decode("utf-8", errors="replace").strip()
+                raw = _decode_stdin_bytes(_b).strip()
             else:
                 raw = _sys.argv[2]
         except (IndexError, IOError):
@@ -1024,7 +1042,7 @@ if __name__ == "__main__":
             try:
                 _b = sys.stdin.buffer.read()
                 _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-                _in = _b.decode("utf-8", errors="replace").strip()
+                _in = _decode_stdin_bytes(_b).strip()
                 if _in:
                     _j = json.loads(_in)
                     if isinstance(_j, dict):
@@ -1279,7 +1297,7 @@ if __name__ == "__main__":
         try:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            _in = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            _in = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
             _pid = _in.get("pattern_id", "")
             _adopted = bool(_in.get("adopted", True))
             _reason = str(_in.get("reason", "") or "")[:120]
@@ -1316,7 +1334,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            _in = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            _in = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
             error_type = _in.get("error_type", _in.get("type", "unknown"))
             detail = _in.get("detail", _in.get("error", ""))
             severity = _in.get("severity", "high")
@@ -1331,7 +1349,7 @@ if __name__ == "__main__":
         if len(sys.argv) > 2:
             raw = sys.argv[2]
         else:
-            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _b.decode("utf-8", errors="replace").strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _decode_stdin_bytes(_b).strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
         ctx = json.loads(raw)
         rules = get_rules_for_task(ctx)
         result = arbitrate(rules["interceptions"], rules["patterns"])
@@ -1517,7 +1535,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
         pm = get_pacemaker()
         result = pm.classify(ctx)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
@@ -1551,7 +1569,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            _in = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            _in = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
             item_id = _in.get("item_id", _in.get("id", "unknown"))
             summary = _in.get("summary", _in.get("description", ""))
             learnings = _in.get("learnings", None)
@@ -1709,7 +1727,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
         tool_name = ctx.get("tool_name", ctx.get("tool", ""))
         exit_code = ctx.get("exit_code", ctx.get("exit", 0))
         cmd = ctx.get("cmd", ctx.get("command", ""))
@@ -1746,7 +1764,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
         error_type = ctx.get("error_type", ctx.get("type", "unknown"))
         detail = ctx.get("detail", ctx.get("error", ""))
         severity = ctx.get("severity", "high")
@@ -1759,7 +1777,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
         error_type = ctx.get("error_type", ctx.get("type", ctx.get("detected_type", "unknown")))
         detail = ctx.get("detail", ctx.get("error", ""))
         severity = ctx.get("severity", "high")
@@ -1821,7 +1839,7 @@ if __name__ == "__main__":
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
-            ctx = json.loads(_b.decode("utf-8", errors="replace").strip() or "{}")
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
         error_type = ctx.get("error_type", "unknown")
         fix_exit_code = ctx.get("exit_code", ctx.get("exit", -1))
         fix_error = ctx.get("error", ctx.get("err", ""))

@@ -1,4 +1,8 @@
 ﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+# [2026-08-09] 中文传输加固：PS5.1 默认 $OutputEncoding=ASCII/控制台GBK 会破坏管道中文
+# → 强制 UTF-8，保证 PS->Python stdin / Python stdout->PS 均无损（防 prompt 入库乱码、pre_reply JSON 解析失败）
+try { $OutputEncoding = $script:utf8NoBOM } catch {}
+try { [Console]::OutputEncoding = $script:utf8NoBOM } catch {}
 
 function Write-AtomicFile {
     param([string]$Path,[string]$Content)

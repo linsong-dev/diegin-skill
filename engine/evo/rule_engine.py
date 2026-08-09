@@ -51,7 +51,9 @@ def _noise_reason(text: str) -> str:
         return "含替换字符 U+FFFD"
     # 乱码路径特征: E:\??\ 或任意段 \??\（用 chr(63) 构造问号，避免检测代码本身触发连续问号启发式）
     _q2 = chr(63) * 2
-    if re.search(r"[\\/]" + _q2 + r"[\\/]", text) or "\\" + _q2 + "\\" in text or _q2 + "\\" in text:
+    # [2026-08-09] 修复：?? 未转义时被正则引擎解析为惰性量词，导致任意单条 / 或 \ 均误判为乱码路径
+    _q2_esc = re.escape(_q2)
+    if re.search(r"[\\/]" + _q2_esc + r"[\\/]", text) or "\\" + _q2 + "\\" in text or _q2 + "\\" in text:
         return "含乱码路径 " + _q2 + "（证据不可验证）"
     low = text.lower()
     # 疑似测试/临时样本（非真实成功经验）
