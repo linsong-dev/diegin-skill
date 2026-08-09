@@ -1,0 +1,26 @@
+# Diegin 配置模板（公开版）
+# 注意：用户级配置（notify / marketplaces / plugins / mcp_servers / projects / desktop / windows /
+#       model_providers / 个人绝对路径）属于本机环境，一律不要提交到公开仓库。
+# 本机实际配置请放在运行版 config.toml；checkpush sync 不会覆盖本模板。
+
+disable_response_storage = true
+model_reasoning_effort = "high"
+
+[features]
+hooks = true
+memories = true
+
+# P3-10 规则 TTL/淘汰/复审 配置
+[maintenance]
+staging_max_age_days = 14
+cached_max_age_days = 30
+failure_ttl_days = 30
+archived_retention_days = 90
+
+# P3-12 cron 批处理调度
+[cron]
+downtime_start = "23:00"
+downtime_end = "06:00"
+maintenance_interval_h = 24
+deep_review_interval_h = 24
+health_interval_h = 6
