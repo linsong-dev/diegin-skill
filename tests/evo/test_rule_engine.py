@@ -348,3 +348,26 @@ if __name__ == "__main__":
             traceback.print_exc()
     total = len(tests)
     print(f"\n=== {passed}/{total} tests passed ===")
+
+
+# ─── _noise_reason 质量门（2026-08-09 正则 ?? 惰性量词回归） ───
+
+def test_noise_reason_slash_backslash_pass():
+    """含斜杠或反斜杠的正常决策逻辑不得被误判为乱码路径（?? 惰性量词回归）"""
+    from evo.rule_engine import _noise_reason
+    assert _noise_reason("收集信息先核验链接与目标一致（owner/仓库名）；页面超时降级 GitHub API / raw README") == ""
+    assert _noise_reason("递归删除/移动目录前：GetFullPath 验证目标绝对路径前缀在授权范围内；再 Directory.Delete($p,$true)") == ""
+
+def test_noise_reason_garbage_path_still_rejected():
+    """真乱码路径（含问号路径段）仍必须被拦截（证必可验）"""
+    from evo.rule_engine import _noise_reason
+    assert "含乱码路径" in _noise_reason("写文件到 E:" + chr(92) + chr(63) * 2 + chr(92) + "x 后读回验证")
+
+def test_noise_reason_other_gates():
+    """空逻辑 / U+FFFD / 测试样本 / 只读查询 各质量门仍生效"""
+    from evo.rule_engine import _noise_reason
+    assert _noise_reason("   ") == "空决策逻辑"
+    assert "U+FFFD" in _noise_reason("乱码" + chr(0xFFFD) + "文本")
+    assert "疑似测试/临时样本" in _noise_reason("先写 test.txt 验证")
+    assert "只读查询命令" in _noise_reason("Get-Content 文件然后……")
+
