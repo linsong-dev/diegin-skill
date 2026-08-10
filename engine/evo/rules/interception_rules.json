@@ -1580,5 +1580,142 @@
         "blocked_rules":  [
 
                           ]
+    },
+    {
+        "id":  "pat_rule_pat_manual_ps1_chinese_bom_20260809",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and \u0027.ps1\u0027 in command and (\u0027WriteAllText\u0027 in command or \u0027Set-Content\u0027 in command or \u0027Out-File\u0027 in command)",
+        "action":  "suggest_from_pattern; 写含中文的 .ps1 工具脚本时用 UTF-8 with BOM 编码（[System.IO.File]::WriteA",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: pat_manual_ps1_chinese_bom_20260809",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:02:25.466861",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:49:56.972781",
+        "boundary_conditions":  [
+                                    "ps1中文脚本存UTF8 BOM"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  74,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "self_error_image_url",
+        "trigger_condition":  "error_type==\u0027image_url\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "high",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "critical",
+        "created_at":  "2026-07-26T08:49:05.898828",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T11:43:00.606955",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_image_url_20260810_114227",
+        "trigger_condition":  "op_contains(image_url) AND NOT prechecked",
+        "action":  "pre_check_before_image_url; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "image_url"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  4.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: image_url",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-10T11:42:27.472238",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:49:56.972781",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  21,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_image_url_20260810_114227",
+        "trigger_condition":  "op_contains(image_url)",
+        "action":  "suggest_from_pattern; image_url操作前预检，避免同类错误",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_image_url_20260810_114227",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-08-10T11:48:59.676390",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:49:56.972781",
+        "boundary_conditions":  [
+                                    "检查image_url状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  21,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
     }
 ]

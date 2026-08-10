@@ -375,5 +375,208 @@
         "valid_until":  "",
         "last_triggered":  "2026-08-09T11:55:44.594742",
         "triggered_count":  50
+    },
+    {
+        "id":  "pat_manual_ps1_chinese_bom_20260809",
+        "pattern_name":  "ps1脚本含中文需UTF8 BOM",
+        "trigger_scenario":  "PowerShell 5.1 用 -File 执行含中文的 .ps1 脚本：无 BOM 时按 ANSI/GBK 解析，中文乱码、引号错位、语法报错（2026-08-09 workspace-check.ps1 实测）",
+        "decision_logic":  "写含中文的 .ps1 工具脚本时用 UTF-8 with BOM 编码（[System.IO.File]::WriteAllText + UTF8Encoding($true)）；纯 ASCII 注释的脚本可无 BOM；写完用 powershell -File 实跑一次确认无解析错误",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and \u0027.ps1\u0027 in command and (\u0027WriteAllText\u0027 in command or \u0027Set-Content\u0027 in command or \u0027Out-File\u0027 in command)",
+        "micro_template":  "ps1中文脚本存UTF8 BOM",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "",
+        "logic_score":  4.5,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "manual",
+        "auto_promoted":  true,
+        "promoted_from":  "generalize",
+        "promoted_at":  "2026-08-09T16:02:25.472633",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:20:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:49:56.976936",
+        "triggered_count":  305
+    },
+    {
+        "id":  "pat_manual_ps_string_escape_20260809",
+        "pattern_name":  "复杂字符串单引号拼接防转义",
+        "trigger_scenario":  "PowerShell 字符串含内嵌双引号/反引号时，双引号转义易错：ParserError 或符号被传输层吞掉（2026-08-09 README 反引号丢失、文档替换 ParserError 实测）",
+        "decision_logic":  "含引号/反引号/特殊符号的字符串操作：用单引号字面量 + 变量拼接（反引号用 [char]96 构造）；避免在双引号内嵌转义；写完读回验证关键符号是否保留",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027Replace\u0027 in command or \u0027Contains\u0027 in command) and (\u0027WriteAllText\u0027 in command or \u0027WriteAllLines\u0027 in command)",
+        "micro_template":  "单引号拼接+[char]构造反引号",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "",
+        "logic_score":  4.5,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "manual",
+        "auto_promoted":  true,
+        "promoted_from":  "auto",
+        "promoted_at":  "2026-08-09T18:04:36.504942",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:20:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T15:01:12.664795",
+        "triggered_count":  145
+    },
+    {
+        "id":  "pat_manual_delete_dir_guard_20260809",
+        "pattern_name":  "递归删除前验证路径并清只读",
+        "trigger_scenario":  "递归删除含 git 仓库的目录失败：pack-*.idx 等文件带只读属性，Directory.Delete 抛 UnauthorizedAccessException（2026-08-09 临时文件目录实测）",
+        "decision_logic":  "递归删除/移动目录前：1) GetFullPath 验证目标绝对路径前缀在授权范围内；2) 先递归清只读（Get-ChildItem -Recurse -File | ForEach-Object IsReadOnly=$false）；3) 再 Directory.Delete($p,$true)",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027Remove-Item\u0027 in command or \u0027Directory.Delete\u0027 in command) and (\u0027-Recurse\u0027 in command or \u0027-Force\u0027 in command)",
+        "micro_template":  "路径验证→清只读→再递归删",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "",
+        "logic_score":  4.5,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "manual",
+        "auto_promoted":  true,
+        "promoted_from":  "auto",
+        "promoted_at":  "2026-08-09T18:04:36.509924",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:20:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T13:41:47.162447",
+        "triggered_count":  206
+    },
+    {
+        "id":  "pat_manual_doc_writeback_verify_20260809",
+        "pattern_name":  "写中文文档后读回验证",
+        "trigger_scenario":  "写含中文的文档/脚本后不读回验证，编码/行尾/符号被破坏：反引号被吞、BOM 混入、CRLF 混用、标题版本号与文件名不一致（2026-08-09 多文档实测）",
+        "decision_logic":  "用 WriteAllText 写文档后立即读回验证：BOM 三字节、CRLF 计数、关键符号（反引号/引号）保留、文件版本号与标题一致；不达标立即修",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027WriteAllText\u0027 in command or \u0027.md\u0027 in command or \u0027README\u0027 in command) and (\u0027utf-8\u0027 in command or \u0027UTF8\u0027 in command or \u0027utf8\u0027 in command or \u0027Encoding\u0027 in command or \u0027encoding\u0027 in command)",
+        "micro_template":  "写后读回验证BOM/行尾/符号",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "",
+        "logic_score":  4.5,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "manual",
+        "auto_promoted":  true,
+        "promoted_from":  "auto",
+        "promoted_at":  "2026-08-09T18:04:36.519183",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:20:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T15:01:06.515687",
+        "triggered_count":  1190
+    },
+    {
+        "id":  "pat_manual_new_tool_smoke_20260809",
+        "pattern_name":  "新工具落地先最小样本实测",
+        "trigger_scenario":  "新脚本/工具直接交付未实测，首跑才发现问题：编码乱码、参数错误、路径失效（2026-08-09 workspace-check.ps1 先测试文件验证 -Clean 通过才交付）",
+        "decision_logic":  "新工具/新流程落地前：先造最小测试样本跑通全流程（创建测试文件→运行→验证预期结果→清理），再交付或集成；不实测不交付",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027workspace-check\u0027 in command or \u0027-File\u0027 in command) and (\u0027Test-Path\u0027 in command or \u0027test\u0027 in command or \u0027verify\u0027 in command)",
+        "micro_template":  "最小样本实测通过再交付",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "",
+        "logic_score":  4.5,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "manual",
+        "auto_promoted":  true,
+        "promoted_from":  "auto",
+        "promoted_at":  "2026-08-09T18:04:36.525517",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:20:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:56:59.669410",
+        "triggered_count":  236
+    },
+    {
+        "id":  "pat_manual_research_link_verify_20260809",
+        "pattern_name":  "信息收集先核验链接并降级",
+        "trigger_scenario":  "信息收集时链接指向错误目标（TradingAgents 链接实为 OpenOPC）；网页抓取超时导致信息缺失（2026-08-09 研究会话实测）",
+        "decision_logic":  "收集信息先核验链接与目标一致（owner/仓库名）；页面超时降级 GitHub API / raw README；多源数据不一致以官方为准并标注来源差异",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027github.com\u0027 in command or \u0027open_page\u0027 in command or \u0027search\u0027 in command)",
+        "micro_template":  "核验链接→超时降级API/raw",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "",
+        "logic_score":  4.5,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "manual",
+        "auto_promoted":  true,
+        "promoted_from":  "auto",
+        "promoted_at":  "2026-08-09T18:04:36.531725",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:20:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:49:56.976936",
+        "triggered_count":  637
+    },
+    {
+        "id":  "gongqi_fix_image_url_20260810_114227",
+        "pattern_name":  "预防image_url",
+        "trigger_scenario":  "auto: 修复 image_url 成功后的行为模式",
+        "decision_logic":  "image_url操作前预检，避免同类错误",
+        "trigger_condition":  "op_contains(image_url)",
+        "micro_template":  "检查image_url状态，确认无误后执行",
+        "preconditions":  [
+
+                          ],
+        "boundary_conditions":  [
+
+                                ],
+        "luck_factor":  "low",
+        "emotion_factor":  "low",
+        "core_capability":  "auto_generated_by_gongqi: image_url via fix_rule=shousan_review_image_url_20260810_114227",
+        "logic_score":  3.5,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "auto_promoted":  true,
+        "promoted_from":  "generalize",
+        "promoted_at":  "2026-08-10T11:48:59.678719",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-10T11:42:27.501656",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T14:49:56.976936",
+        "triggered_count":  79
     }
 ]

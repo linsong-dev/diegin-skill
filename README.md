@@ -13,7 +13,7 @@
   <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.7.0-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.8.0-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>
@@ -47,7 +47,7 @@
 | 文件 | 作用 |
 |:-----|:------|
 | engine/evo/main.py | 统一入口 + 定期维护 |
-| engine/evo/rule_engine.py | 规则引擎（255 条规则，CRUD + 匹配 + RULE-GUARD 触发写入门） |
+| engine/evo/rule_engine.py | 规则引擎（235 条规则（active 41），CRUD + 匹配 + RULE-GUARD 触发写入门） |
 | engine/evo/tracker.py | 行为追踪（一二不过三连锁、守三攻七循环） |
 | engine/evo/arbiter.py | 仲裁器（P0-P5 优先级裁决） |
 | engine/evo/pacemaker.py | 缓急律调度（宕机时段） |
@@ -120,7 +120,7 @@ pip install numpy
 cd engine
 python test_all.py --verbose
 `
-预期输出：结果: 16/16 通过 (0 失败)
+预期输出：结果: 32/32 通过 (0 失败)
 
 ## 快速使用
 
@@ -149,7 +149,7 @@ quarterly_falsification_enabled = true
 diegin/
 ├── engine/           Python 引擎
 │   ├── call_diegin.py    CLI 入口
-│   ├── test_all.py       16 个端到端测试
+│   ├── test_all.py       32 个端到端测试
 │   ├── evo/              八元原则引擎
 │   └── mindol/           Mindol 语义记忆引擎
 ├── hooks/             PowerShell 钩子（全域常驻）
