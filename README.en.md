@@ -1,0 +1,170 @@
+<p align="center">
+  <img src="assets/logo.svg" width="200" alt="DGEN">
+</p>
+
+<h1 align="center">Diegin · DGEN</h1>
+
+<p align="center">
+  <b>An always-on, self-evolving cognitive layer for AI</b><br>
+  AI that learns from its mistakes like a human — smarter with every use
+</p>
+
+<p align="center">
+  [![中文](https://img.shields.io/badge/中文-README-red)](README.md) | [![EN](https://img.shields.io/badge/EN-README-blue)](README.en.md) |
+  <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
+  </a>
+  <img src="https://img.shields.io/badge/version-3.8.1-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
+  <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
+</p>
+
+---
+
+## What Diegin Is in 30 Seconds
+
+Diegin is an **OS-level evolution layer for AI**. It calls no external APIs, needs no GPU, and runs in pure Python.
+
+> Normal AI: the mistakes it made today may happen again tomorrow
+>
+> AI with Diegin: errors are auto-detected → fixed and hardened on the spot → generalized → never repeated
+
+## Architecture
+
+```
+User action → [Pacemaker] classify task type
+            → [Truth Gate] verify information
+            → [Shou-san · lightweight] scan failure modes
+            → Execute
+               ├─ success → [Gong-qi] distill success patterns
+               └─ failure → [One-Two-No-Three] fix → harden → escalate
+            → [Arbiter · Verdict Law] decide by priority
+            → [Closure Gate] seal this round
+            → [Shou-san · deep] offline review
+```
+
+## Core Files
+
+| File | Role |
+|:-----|:-----|
+| engine/evo/main.py | Unified entry + scheduled maintenance |
+| engine/evo/rule_engine.py | Rule engine (235 rules, 41 active; CRUD + matching + RULE-GUARD) |
+| engine/evo/tracker.py | Behavior tracking (One-Two-No-Three chain, Shou-san/Gong-qi loop) |
+| engine/evo/arbiter.py | Arbiter (P0–P5 priority verdict) |
+| engine/evo/pacemaker.py | Pacemaker scheduling (downtime windows) |
+| engine/evo/closure.py | Closure gate (cognitive sealing) |
+| engine/evo/evidence_vault.py | Truth-gate evidence vault + quarterly falsification |
+| engine/evo/error_detector.py | Error detection + One-Two-No-Three blocking |
+| engine/evo/dashboard.py | Health dashboard |
+| engine/mindol/ | Mindol semantic memory engine |
+
+## The Eight-Principle Network
+
+| # | Principle | Direction | Mechanism |
+|:-:|:----|:---:|:-----|
+| 1 | Gong-qi 攻七 | Attack | Recognize strengths → distill → institutionalize (v3.8: reuse verified practices first) |
+| 2 | Shou-san 守三 | Defense | See shortcomings → find causes → correct behavior |
+| 3 | One-Two-No-Three 一二不过三 | Safety valve | Fix → harden → escalate (max three strikes) |
+| 4 | Generalization 举一反三 | Expansion | One case → three insights → broad coverage → regression check |
+| 5 | Truth Gate 去伪存真 | Hard floor | Claims need evidence → evidence must be verifiable → verify as true + quarterly falsification |
+| 6 | Verdict Law 裁决律 | Constitution | Truth first → survival first → completion first |
+| 7 | Pacemaker 缓急律 | Rhythm | Urgent tasks → speed; slow tasks → truth; balance the pace |
+| 8 | Closure Gate 止观门 | Sealing | Seal on completion → reset focus → no lingering |
+
+> **Numbering is the cognitive order; runtime priority follows the Verdict Law P0–P5, independent of numbering.**
+
+**Runtime dominance mapping:**
+
+| Verdict tier | Dominant principle at runtime |
+|:---|:---|
+| P0 truth | Truth Gate (false info never enters any pipeline) |
+| P1 safety | One-Two-No-Three (blocking beats reinforcement/generalization) |
+| P2 completion | Closure Gate (reset after sealing, no extra corrections) |
+| P3 urgent | Pacemaker (urgent pass-through, no deep review) |
+| P4 confidence | Gong-qi / Shou-san (higher confidence wins) |
+| P5 staging | Generalization (activate only after Truth Gate verification) |
+
+> **Cognitive order is for learning and narrative; runtime control is decided by the Verdict Law P0–P5. The two dimensions do not conflict.**
+
+## Gong-qi Reinforcement (v3.8)
+
+Verified good practices → **recommended in time → preferred → generalized fast → adoption feedback**:
+
+- **Timely**: `pre_check` marks high-confidence patterns as priority and recommends them before tool calls
+- **Preferred**: Arbiter P4 weights same-scenario reuse +0.5 (reusing a verified method beats negative correction)
+- **Faster generalization**: reuse ≥2 times or conf ≥4.5 triggers cross-domain generalization
+- **Feedback loop**: successful tool use auto-adopts (confidence +0.5); veto ×0.7
+- **Quality guardrails**: `audit_patterns` / `audit_staging` / `audit_evidence` prevent hollow patterns and fake data
+
+## Real-World Cases (verified 2026-08-10)
+
+- **Generalization ×2 with 71/74 hits and zero false positives on day one**: two cross-domain rules shipped on 08-09 (`pat_rule_pat_manual_ps1_chinese_bom` / `pat_rule_pat_manual_backup_before_remove`) fired 71/74 times in production on 08-10; manual review confirmed clear boundaries and no false positives, so they were kept and officially released.
+- **image_url Shou-san with 11 audit hits**: repeated `view_image` calls in one session triggered One-Two-No-Three; `self_error_image_url` was revived from archived to critical. All 11 hits that day went through audit (circuit-breaker behavior). Review scheduled ≈08-17; if no recurrence, strikes can be reset manually.
+- **Mojibake root-cause fix**: Chinese garbled through the PS5.1 ↔ Python pipeline (`$OutputEncoding` defaults to US-ASCII, `[Console]::OutputEncoding` to GBK), corrupting stored prompts and breaking pre_reply JSON parsing → forced UTF-8 + lazy-quantifier fix in the quality gate; 7 rejected Gong-qi patterns were restored and the stuck experience-distillation pipeline was unblocked.
+- **Same-day auto_adopt of Gong-qi rules**: Gong-qi rules shipped on 08-09 (`pat_manual_doc_writeback_verify` ×4, `pat_manual_new_tool_smoke` ×1) were auto-adopted in production on 08-10 (confidence +0.5) — the "ship → production → adopt" loop completed within 24 hours.
+
+## Quick Start
+
+### Requirements
+- Python 3.12+
+- Codex desktop (v3.0+; 26.x already ships Diegin hook support)
+- PowerShell 5.1+ (Windows)
+
+### Install
+```powershell
+git clone https://github.com/linsong-dev/diegin-skill.git
+cd Diegin
+pip install numpy
+```
+
+### Register hooks
+Replace `%CODEX_HOME%` in `config/hooks.json` with your Codex install path, merge into `%CODEX_HOME%/hooks.json`, and restart Codex.
+
+### Activate
+In a Codex conversation, enter `接入迭进` or `dgen on`.
+
+### Verify
+```powershell
+cd engine
+python test_all.py --verbose
+```
+Expected output: `结果: 32/32 通过 (0 失败)`
+
+## Quick Usage
+
+| Command | Effect |
+|:-----|:------|
+| `接入迭进` or `dgen on` | Activate the Diegin engine |
+| `迭进状态` | View rule library / confidence / health |
+| `守三攻七复盘` | Negative correction + positive reinforcement review |
+| `@迭进` | Trigger pre-check, output raw JSON |
+| `dgen feedback <ID> <agree/veto/silent>` | Give feedback on a rule to adjust confidence |
+
+## Configuration
+
+```toml
+[pacemaker]
+downtime_start = "23:00"
+downtime_end   = "06:00"
+
+[evidence_vault]
+quarterly_falsification_enabled = true
+```
+
+## Project Structure
+
+```
+diegin/
+├── engine/           Python engine
+│   ├── call_diegin.py    CLI entry
+│   ├── test_all.py       32 end-to-end tests
+│   ├── evo/              Eight-principle engine
+│   └── mindol/           Mindol semantic memory engine
+├── hooks/             PowerShell hooks (always-on)
+├── config/            Routing config
+├── assets/            Logo and assets
+├── tests/             Test suite
+├── sync.ps1           Sync script
+├── deploy/            Deploy scripts + platform adapters
+└── LICENSE            Apache 2.0
+```

@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
+  [![EN](https://img.shields.io/badge/EN-README-blue)](README.en.md) | [![中文](https://img.shields.io/badge/中文-README-red)](README.md) | <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.8.0-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.8.1-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>
@@ -95,8 +95,14 @@
 - **反馈闭环**：工具成功自动采纳（置信度+0.5）；否决 ×0.7
 - **质量护栏**：`audit_patterns` / `audit_staging` / `audit_evidence` 防空壳与假数据再生
 
-## 快速开始
+## 实战案例（2026-08-10 实测）
 
+- **举一反三 ×2 当日 71/74 次命中、零误伤**：08-09 入库的 2 条跨域泛化规则（`pat_rule_pat_manual_ps1_chinese_bom` / `pat_rule_pat_manual_backup_before_remove`）08-10 即在实战中触发 71/74 次，人工复核 boundary 明确、无误伤，按裁决保留并正式发布。
+- **image_url 守三 11 次审计**：同一会话内 view_image 连发触发「一二不过三」，`self_error_image_url` 从 archived 升级 critical 复活，当日 11 次命中全部走 audit（熔断期行为），按计划 ≈08-17 复查，无复发可人工 reset。
+- **乱码根因修复**：PS5.1 ↔ Python 管道中文乱码（`$OutputEncoding` 默认 US-ASCII、`[Console]::OutputEncoding` 默认 GBK）导致 prompt 入库变 `?`、pre_reply JSON 解析失败 → 强制 UTF-8 + 质量门正则惰性量词修复；7 个被拒的攻七模式恢复提升，经验沉淀管线卡死闭环。
+- **攻七规则当日 auto_adopt**：08-09 入库的攻七规则（`pat_manual_doc_writeback_verify` ×4、`pat_manual_new_tool_smoke` ×1）08-10 实战当日自动采纳（置信度 +0.5），「入库 → 实战 → 采纳」闭环 24 小时内跑通。
+
+## 快速开始
 ### 环境要求
 - Python 3.12+
 - Codex 桌面版（v3.0+，26.x 已内置迭进钩子支持）
