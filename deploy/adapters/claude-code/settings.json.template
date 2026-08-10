@@ -1,0 +1,81 @@
+{
+  // 迭进 × Claude Code 适配器配置模板（M2）。
+  // 用法：把本文件的 hooks 段合并进用户级 ~/.claude/settings.json（勿覆盖已有配置），
+  //       或放到项目根 .claude/settings.json（仅该项目生效）。
+  // 必改：把 <DGEN_ROOT> 替换为迭进安装根目录（源码库或运行版，含 engine/contract.py）。
+  //       如需指定其他 Python，可把 "python" 换为绝对路径。
+  // 建议：CLI 优先——VSCode 扩展下 UserPromptSubmit/PreToolUse 的 additionalContext
+  //       注入存在已知 bug（claude-code issues #49063 / #20062）。
+  "hooks": {
+    // 会话开始：注入迭进常驻上下文（需 matcher startup|resume 才会触发）
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<DGEN_ROOT>/deploy/adapters/claude-code/diegin_claude_session_start.py\""
+          }
+        ]
+      }
+    ],
+    // 用户提问：迭进预检 + 攻七注入（block → exit 2 + stderr 回显阻断提示）
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<DGEN_ROOT>/deploy/adapters/claude-code/diegin_claude_prompt.py\""
+          }
+        ]
+      }
+    ],
+    // 工具调用前：迭进守三预检（block → permissionDecision deny 阻断该工具）
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<DGEN_ROOT>/deploy/adapters/claude-code/diegin_claude_pre_tool.py\""
+          }
+        ]
+      }
+    ],
+    // 工具执行后：契约确认 + 健康上报（不阻断）
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<DGEN_ROOT>/deploy/adapters/claude-code/diegin_claude_post_tool.py\""
+          }
+        ]
+      }
+    ],
+    // 会话停止：止观门/去伪存真确认（Stop 需 matcher always 才会触发）
+    "Stop": [
+      {
+        "matcher": "always",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<DGEN_ROOT>/deploy/adapters/claude-code/diegin_claude_stop.py\""
+          }
+        ]
+      }
+    ],
+    // 上下文压缩：补一次呼吸确认（可选，复用 stop 适配器）
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"<DGEN_ROOT>/deploy/adapters/claude-code/diegin_claude_stop.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
