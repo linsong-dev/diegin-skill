@@ -1,0 +1,59 @@
+name: Bug 报告
+description: 报告迭进运行异常（规则误伤 / 引擎错误 / 钩子失效）
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量提供以下信息，缺失时迭进将无法定位规则。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 问题领域
+      options:
+        - 规则误伤（守三/攻七拦截异常）
+        - 引擎错误（self_check / call_diegin 报错）
+        - 钩子失效（PreTool / PreReply 未触发）
+        - 记忆库（Mindol 检索/写入异常）
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 运行 `迭进状态` 或查看 plugin.json
+      placeholder: "3.8.1"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: Codex 版本 / Python 版本 / 操作系统
+      placeholder: "Codex 26.x · Python 3.12 · Windows 11"
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 发生了什么？期望是什么？实际是什么？
+      placeholder: |
+        1. 执行 ...
+        2. 迭进输出 ...
+        3. 期望 ... 实际 ...
+    validations:
+      required: true
+  - type: textarea
+    id: audit
+    attributes:
+      label: 审计日志（可选但强烈建议）
+      description: var/logs/diegin_audit.log 最近相关行；或触发规则的 rule_id / matched_count
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 自检
+      options:
+        - label: 已运行 `python engine/diegin_self_check.py` 并附结果
+        - label: 已确认非既有 known issue（查看 # 标签）
