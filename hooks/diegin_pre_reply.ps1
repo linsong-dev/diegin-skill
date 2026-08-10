@@ -130,39 +130,36 @@ try {
     $prompt = $hookInput.prompt
 
     if (Test-Path $pythonExe) {
-        # 构建输入 JSON，传递给 pre_reply 模式
-        $ctx = [ordered]@{
-            prompt=$prompt
-            turn_id=$hookInput.turn_id
-            blocked_error_type=$blockedType
+        # [M1 契约通道 v1.0] Codex 适配器：UserPromptSubmit → 统一信封 → contract.py（三态响应）
+        $contractPy = Join-Path $g_pr "engine\contract.py"
+        $dgEnv = [ordered]@{
+            contract="1.0"
+            event="prompt_pre"
+            ts=(Get-Date -Format "o")
+            context=@{ platform="codex"; hook="UserPromptSubmit"; prompt=$prompt; turn_id=$hookInput.turn_id; blocked_error_type=$blockedType }
         }
-        $ctxJson = $ctx | ConvertTo-Json -Compress
+        $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 5
 
-        # 单次 Python 调用，完成所有操作
-        $rawOutput = $ctxJson | & $pythonExe $enginePy pre_reply 2>&1
+        # 单次 Python 调用，完成所有操作（契约统一入口）
+        $rawOutput = $envJson | & $pythonExe $contractPy 2>&1
         $lastExit = $LASTEXITCODE
 
-        if ($lastExit -ne 0) {
-            # [A1] 区分引擎故障(Traceback)与引擎裁决(block)：故障放行但显式标注
-            if ($rawOutput -match "Traceback|AttributeError|TypeError|KeyError|ImportError|ModuleNotFoundError") {
-                Write-PreReplyEngineError -Detail "pre_reply 引擎异常 exit=$lastExit" -UserMessage "引擎异常（预检未执行），本次放行但状态未验证"
-            } else {
-                # 引擎裁决为 block，输出阻断信息
-                Write-Output $rawOutput
-                Write-PhaseState -Phase "pre_reply" -Status "engine_blocked" -Data @{ts=(Get-Date -Format "o")}
-                exit 1
-            }
+        $resp = $null
+        try { $resp = $rawOutput | ConvertFrom-Json } catch { $resp = $null }
+        if ($null -ne $resp -and $resp.decision -eq "block") {
+            # 契约裁决 block：输出阻断信息
+            Write-Output $resp.reason
+            Write-PhaseState -Phase "pre_reply" -Status "engine_blocked" -Data @{ts=(Get-Date -Format "o")}
+            exit 1
+        } elseif ($null -ne $resp -and $resp.decision -eq "allow") {
+            # 契约响应 allow：inject 即注入文本（display_text）
+            $displayText = $resp.inject
+            if (-not $displayText) { $displayText = "[DGEN] PASS" }
+            Write-Output $displayText
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] OK decision=allow matched=$($resp.matched_count)"
         } else {
-            # allow 路径：解析 JSON，提取显示文本，输出
-            try {
-                $result = $rawOutput | ConvertFrom-Json
-                $displayText = $result.display_text
-                Write-Output $displayText
-                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] OK decision=allow matched=$($result.matched_count)"
-            } catch {
-                # [A1] JSON 解析失败 = 引擎输出异常，显式标注（不伪装 allow）
-                Write-PreReplyEngineError -Detail "pre_reply 输出非JSON" -UserMessage "引擎输出异常（预检未验证），本次放行"
-            }
+            # [A1] 契约输出异常 = 引擎输出异常，显式标注（不伪装 allow）
+            Write-PreReplyEngineError -Detail "contract pre_reply 输出异常 exit=$lastExit" -UserMessage "引擎输出异常（预检未验证），本次放行"
         }
     } else {
         # [A1] python 缺失 = 引擎不可用，显式标注

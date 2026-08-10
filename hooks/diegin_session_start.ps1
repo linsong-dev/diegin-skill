@@ -62,11 +62,18 @@ $time=Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 
 $pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"
 if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" }
-$enginePy=Join-Path $g_pr "engine\call_diegin.py"
+$enginePy=Join-Path $g_pr "engine\contract.py"
 $engineOk=$false;$ruleCount=0
 if(Test-Path $pythonExe){
-    $result=& $pythonExe $enginePy health 2>&1
-    try{$p=$result|ConvertFrom-Json;$engineOk=$true;$ruleCount=$p.active_rules}catch{}
+    # [M1 契约通道 v1.0] SessionStart → 统一信封 → contract.py（session_start → health）
+    $dgEnv = [ordered]@{ contract="1.0"; event="session_start"; ts=(Get-Date -Format "o"); context=@{ platform="codex"; hook="SessionStart" } }
+    $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 5
+    $result = $envJson | & $pythonExe $enginePy 2>&1
+    try{
+        $resp = $result | ConvertFrom-Json
+        $engineOk = $true
+        if ($resp.health) { $ruleCount = $resp.health.active_rules } else { $ruleCount = 0 }
+    }catch{}
 }
 
 Write-PhaseState -Phase "session_start" -Status "passed" -Data @{engine_ok=$engineOk.ToString();time=(Get-Date -Format "yyyy-MM-dd HH:mm:ss")}

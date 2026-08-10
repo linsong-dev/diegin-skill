@@ -222,12 +222,19 @@ if (Test-Path $g_sf) {
 }
 if ($phaseJson -and (Test-Path $pythonExe)) {
     try {
-        # 构建上下文，匹配 hard_floor 规则
-        $ctxForEngine = "{`"phase`":`"stop_verification`",`"phase_check`":false,`"phase_state`":" + $phaseJson + "}"
-        $engineResult = $ctxForEngine | & $pythonExe $enginePy check 2>&1
+        # [M1 契约通道 v1.0] Stop → 统一信封 → contract.py（stop + phase_state 硬地板检查）
+        $contractPy = Join-Path $g_pr "engine\contract.py"
+        $dgEnv = [ordered]@{
+            contract="1.0"
+            event="stop"
+            ts=(Get-Date -Format "o")
+            context=@{ platform="codex"; hook="Stop"; phase_state=$phaseJson }
+        }
+        $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 6
+        $engineResult = $envJson | & $pythonExe $contractPy 2>&1
         $engineDecision = $engineResult | ConvertFrom-Json
-        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_CHECK decision=$($engineDecision.decision) matched=$($engineDecision.matched_interceptions)"
-        if ($engineDecision.decision -in @("BLOCK","IRON_WALL_BLOCK")) {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_CHECK decision=$($engineDecision.decision) matched=$($engineDecision.matched_count)"
+        if ($engineDecision.decision -eq "block") {
             Write-PhaseState -Phase "stop_verification" -Status "hard_floor_blocked" -Data @{engine_decision=$engineDecision.decision;reason=$engineDecision.reason}
             # 硬地板阻断是正常机制，不作为 strike 记录（已修复）
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_BLOCK (expected, no strike)"

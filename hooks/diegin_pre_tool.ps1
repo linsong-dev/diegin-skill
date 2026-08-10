@@ -354,23 +354,23 @@ $activeRules = "?"
 $engineError = $false
 try {
     if (Test-Path $pythonExe) {
-        $ctx = [ordered]@{
-            task_type="pre_tool"
-            tool_name=$toolName
-            blocked_error_type=$blockedType
-            marker_missing=$false
-            command=$command
-            text=$command
-            hook_event_name="PreToolUse"
+        # [M1 契约通道 v1.0] Codex 适配器：Codex 事件 → 统一信封 → contract.py（三态响应）
+        $contractPy = Join-Path $g_pr "engine\contract.py"
+        $dgEnv = [ordered]@{
+            contract="1.0"
+            event="tool_pre"
+            ts=(Get-Date -Format "o")
+            tool=@{ name=$toolName; input=@{ command=$command } }
+            context=@{ platform="codex"; hook="PreToolUse"; blocked_error_type=$blockedType }
         }
-        $ctxJson = $ctx | ConvertTo-Json -Compress -Depth 3
+        $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 5
         $checkResult = $null
         for ($_attempt = 1; $_attempt -le 3; $_attempt++) {
-            $rawOutput = $ctxJson | & $pythonExe $enginePy check 2>&1
+            $rawOutput = $envJson | & $pythonExe $contractPy 2>&1
             try { $checkResult = $rawOutput | ConvertFrom-Json } catch { $checkResult = $null }
             if ($null -ne $checkResult -and -not [string]::IsNullOrEmpty($checkResult.decision)) { break }
             if ($_attempt -lt 3) {
-                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-RETRY] check attempt=$_attempt"
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-RETRY] contract tool_pre attempt=$_attempt"
                 Start-Sleep -Milliseconds 300
             }
         }
@@ -383,13 +383,13 @@ try {
             Add-NoBOMLog -Path $auditLog -Message ($time + ' [HOOK:DGEN-ENGINE-ERROR] 引擎异常，本次放行但状态未验证 | python=' + $pythonExe + ' | output=' + $errDetail)
         } else {
             $finalDecision = $checkResult.decision
-            $finalMatched = $checkResult.matched_interceptions
-            $finalRule = $checkResult.winning_rule_id
+            $finalMatched = $checkResult.matched_count
+            $finalRule = $checkResult.winning_rule
 
             $s2=@{ts=(Get-Date -Format "o");decision=$finalDecision;reason=$checkResult.reason;winning_rule=$finalRule;matched_count=$finalMatched;source="pre_tool"}
             [System.IO.File]::WriteAllText($replyFile,($s2|ConvertTo-Json -Compress),$script:utf8NoBOM)
 
-            if($finalDecision -in @("block","iron_wall_block")){
+            if($finalDecision -eq "block"){
                 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK] rule=$finalRule"
                 $blockRule = $finalRule
                 if ([string]::IsNullOrEmpty($blockRule)) { $blockRule = "unknown" }

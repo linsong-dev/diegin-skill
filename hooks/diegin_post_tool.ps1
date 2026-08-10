@@ -121,7 +121,12 @@ $markerFile = Join-Path $stateDir "dgen_marker_pending.json"
 $activeRules = "?"
 try {
     if (Test-Path $pythonExe) {
-        $h = & $pythonExe $enginePy health 2>&1 | ConvertFrom-Json; $activeRules = $h.active_rules
+        # [M1 契约通道 v1.0] PostToolUse → 统一信封 → contract.py（tool_post → health）
+        $contractPy = Join-Path $g_pr "engine\contract.py"
+        $dgEnv = [ordered]@{ contract="1.0"; event="tool_post"; ts=(Get-Date -Format "o"); context=@{ platform="codex"; hook="PostToolUse" } }
+        $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 5
+        $resp = $envJson | & $pythonExe $contractPy 2>&1 | ConvertFrom-Json
+        if ($resp.health) { $activeRules = $resp.health.active_rules }
     }
 } catch {}
 
