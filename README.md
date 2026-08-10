@@ -56,6 +56,7 @@
 | engine/evo/error_detector.py | 错误检测 + 一二不过三阻断 |
 | engine/evo/dashboard.py | 健康度仪表盘 |
 | engine/mindol/ | Mindol 语义记忆引擎 |
+| references/whitepaper.md | AI 自我进化系统白皮书 v1.0（八元原则方法论） |
 
 ## 八元原则
 
