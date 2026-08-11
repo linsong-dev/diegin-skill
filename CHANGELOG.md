@@ -14,6 +14,7 @@
 - feat: 产品化 P2——领域规则包示例 3 个（deploy/domain-examples/: coding/writing/data-analysis，即插即用 rules.json + 推广级 README）
 - docs: AI 自我进化系统白皮书 v1.0（references/whitepaper.md，八元原则方法论 + 真实证据）
 - docs: 产品化 P2——社区技术文 2 篇（references/articles/: 《AI 为什么总重复犯错》《迭进 vs LOOP vs 目标模式》+ 索引）
+- fix(health): 统一健康口径——total_rules/active_rules 只数拦截规则（新增 success_patterns/total_assets 保留模式视角），与 self_check 对齐（235/41）
 ## 3.8.0 (2026-08-10)
 
 - feat: 规则增量发布——守三 +4（image_url critical 复活 / 举一反三 ×2 / staging 派生），攻七 +7（六条 manual + image_url 泛化）
