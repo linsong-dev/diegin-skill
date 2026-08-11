@@ -47,8 +47,10 @@ def test_closure():
 def test_evidence():
     from evo.main import get_vault
     v = get_vault()
-    v.record("r1", "pass", "通过")
-    v.record("r2", "skip", "跳过")
+    # v3.8.1 证据有效性门：pass/skip 需引用真实规则 id 或有实质 reason；
+    # 测试用 fail/block（无条件保留）保证干净环境可复现
+    v.record("r1", "fail", "测试失败证据：预检拦截了高危操作")
+    v.record("r2", "block", "测试阻断证据：一二不过三升三错级熔断")
     stats = v.get_stats()
     c1 = check("证据库·裁决记录", stats["total_verdicts"] >= 2)
     return c1
