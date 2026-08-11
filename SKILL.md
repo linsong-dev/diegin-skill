@@ -34,8 +34,8 @@ metadata:
 
         label: "安装迭进引擎"
 
-  version: "v3.6.6"
-  date: "2026-08-01"
+  version: "v3.8.1"
+  date: "2026-08-11"
 ---
 
 
@@ -99,22 +99,6 @@ metadata:
 
 
 **违反后果：** 迭进引擎标记未激活，后续操作将被自动拦截。
-### 规则 0-2：事毕收尾（工作区整洁 + 经验沉淀）
-
-每轮任务结束时（止观门"事毕清零"之前），机械执行：
-1. 运行 `powershell -NoProfile -ExecutionPolicy Bypass -File %DEV_ROOT%\TOOL\workspace-check.ps1`
-2. 出现 `[stray]` 项时：`_apt_*` / `_mn_*` / `*_json_check.py` 等临时文件立即删除；其他游离项询问用户归属
-3. 根目录只剩白名单内容后才封存本轮
-4. **经验沉淀**：回顾本轮，如有值得沉淀的洞察（新方法/工具/规则，不在现有规则库），
-   记一条元经验入库：`python %DEV_ROOT%\TOOL\rule_incremental.py add <meta.json>`
-   （JSON 形如：{"type":"meta","id":"meta_manual_<场景>_<日期>","insight":"<洞察>",
-   "applicable_contexts":["<适用场景>"],"action_binding":"<绑定的行动>","source_review":"<日期> 会话","confidence":4.5}）
-   无洞察则跳过，不硬凑
-5. 开工时也轻量跑一次（上一轮可能未清干净）
-
-**违反后果：** 游离临时文件持续累积 + 有价值洞察流失，根目录散乱、经验库空转
-（2026-08-09 教训：63 个 `_apt_*` 文件堆积；meta_experiences 空库长期闲置）。
-
 
 
 
@@ -123,10 +107,9 @@ metadata:
 每次调用工具前，PreToolUse 钩子自动执行引擎预检。
 无需手动确认 [DGEN] 状态，钩子自动处理。
 
-
-
-
 **违反后果：** 迭进引擎标记未激活，后续操作将被自动拦截。
+
+
 ### 规则 0-2：事毕收尾（工作区整洁 + 经验沉淀）
 
 每轮任务结束时（止观门"事毕清零"之前），机械执行：
@@ -142,8 +125,6 @@ metadata:
 
 **违反后果：** 游离临时文件持续累积 + 有价值洞察流失，根目录散乱、经验库空转
 （2026-08-09 教训：63 个 `_apt_*` 文件堆积；meta_experiences 空库长期闲置）。
-
-
 
 ## 一、八元原则网络（迭进元原则·全域不可绕过）
 
@@ -157,7 +138,7 @@ metadata:
 
 
 
-> **编号为认知顺序（攻七→守三→一二不过三→举一反三→去伪存真→裁决律→缓急律→止观门）；执行优先级以裁决律 P0-P5 为准（真伪→安全→完形→紧急→置信→staging），不受编号顺序影响。**
+> **编号为认知顺序（攻七→守三→一二不过三→举一反三→去伪存真→裁决律→缓急律→止观门）；执行优先级以裁决律 P0-P5 为准（真伪→安全→完形→紧急→置信→staging），P6 语义记忆权重仅调节 P4 与兜底，不受编号顺序影响。**
 
 ### 1. 攻七（正向强化）
 
@@ -359,9 +340,11 @@ metadata:
 
 | P3 | 缓急律的"紧急分流"优先于守三深度复盘 | 紧急时不启动深度反省 |
 
-| P4 | 守三的改进规则与攻七的成功模式冲突时 → 置信度裁决 | 分别计算置信度，高者胜出 |
+| P4 | 守三的改进规则与攻七的成功模式冲突时 → 置信度裁决 | 分别计算置信度（含 P6 语义记忆权重），高者胜出；delta≤0.1 视为无实质冲突，守三负向纠错优先 |
 
 | P5 | 举一反三的staging规则不参与实时仲裁 | staging规则需先经过去伪存真验证才能激活 |
+
+| P6 | Mindol 语义记忆权重 | 高分历史经验双向调节规则/模式置信度，仅影响 P4 与兜底，不凌驾 P0-P3 |
 
 
 
@@ -378,7 +361,7 @@ metadata:
 | P4 置信 | 攻七 / 守三（置信度高者胜出） |
 | P5 staging | 举一反三（先经去伪存真验证再激活） |
 
-> **认知顺序用于学习与叙事；运行时主导权由裁决律 P0-P5 决定。两个维度不同，互不冲突。**
+> **认知顺序用于学习与叙事；运行时主导权由裁决律 P0-P5 决定（P6 语义记忆权重仅影响 P4 与兜底）。两个维度不同，互不冲突。**
 
 
 
@@ -658,7 +641,7 @@ metadata:
 
 ┌───────────────────────────────────────┐
 
-│  系统级规则（21 条）                     │
+│  系统级规则（34 条）                     │
 
 │  引擎自身保护 · 全域强制 · 不可禁用      │
 
@@ -893,9 +876,9 @@ diegin/
 
 │       └── rules/
 
-│           ├── interception_rules.json  系统级规则（21 条）
+│           ├── interception_rules.json  系统级规则（34 条）
 
-│           ├── success_patterns.json    系统级模式（5 条）
+│           ├── success_patterns.json    系统级模式（20 条）
 
 │           └── domain_rules/            领域规则包（用户可扩展）
 
@@ -938,15 +921,15 @@ Mindol 是迭进的**权威语义记忆引擎**，零外部依赖，纯本地运
 
 Mindol（内存优先·权威存储） ↔ RuleEngine（规则引擎）
 
-├─ rule      263 条规则（语义可检索）        JSON 副本（写主·人类可读）
+├─ rule      235 条规则（语义可检索）        JSON 副本（写主·人类可读）
 
-├─ pattern    30 条成功模式
+├─ pattern    20 条成功模式
 
-├─ trade      8 条（strike+Relation）         hooks → mindol_bridge
+├─ trade      5 条（strike+Relation）         hooks → mindol_bridge
 
 ├─ state      1 条阶段状态                     pre_check 上下文注入
 
-└─ codex    ~7,500 条决策归档                    post_review 自动归档
+└─ codex    ~10,370 条决策归档                   post_review 自动归档
 
 `
 
@@ -1021,19 +1004,21 @@ python engine/dgen_evolve.py   # 初始化健康度基线
 
 
 
-| Hook | 触发时机 | Mindol 写入 | AI 回馈 |
+| Hook | 契约事件(v1) | 触发时机 | Mindol 写入 | AI 回馈 |
 
-|:---|:---|:---:|:---:|
+|:---|:---|:---|:---:|:---:|
 
-| SessionStart | 会话启动 | ✅ 初始化 | - |
+| SessionStart | session_start | 会话启动 | ✅ 初始化 | ✅ additionalContext 注入 |
 
-| PreToolUse | 工具调用前 | ✅ mindol_bridge | ✅ display_line 阻断 |
+| UserPromptSubmit | prompt_pre | 用户消息 | ✅ mindol_bridge | ✅ mindol_context + 规则注入 |
 
-| UserPromptSubmit | 用户消息 | ✅ mindol_bridge | ✅ mindol_context + diegin_context.json |
+| PreToolUse | tool_pre | 工具调用前 | ✅ mindol_bridge | ✅ display_line 阻断 / deny |
 
-| PostToolUse | 工具调用后 | ✅ mindol_bridge | ✅ post_review 归档 |
+| PostToolUse | tool_post | 工具调用后 | ✅ mindol_bridge | ✅ post_review 归档 + auto_adopt |
 
-| SessionStop | 会话停止 | ✅ mindol_bridge | ✅ 硬地板检查 |
+| Stop | stop | 会话停止 | ✅ mindol_bridge | ✅ 硬地板检查 |
+
+> 契约 v1（2026-08-10）：5 标准事件统一信封（engine/contract.py）+ 三态决策（block/audit/allow）。Codex 全 5 钩子已接入（M1）；Claude Code 适配器（M2）已交付 deploy/adapters/claude-code/（端到端待真实环境实测）。
 
 
 
