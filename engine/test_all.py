@@ -149,21 +149,43 @@ def test_gongqi_noise_filter():
     from evo.rule_engine import build_gongqi_suggestions
 
     class _FakePat:
-        def __init__(self, pid, scenario, decision, conf, trig):
+        def __init__(self, pid, scenario, decision, conf, trig, created_at=""):
             self.id = pid
             self.trigger_scenario = scenario
             self.decision_logic = decision
             self.confidence = conf
             self.trigger_condition = trig
+            self.created_at = created_at
 
     noise = _FakePat("pat_noise_bash", "tool_Bash", "工具名级伪模式决策逻辑" * 4, 5.0, "tool_name == 'Bash'")
     rich = _FakePat("pat_rich_write", "PS写文件", "写含中文文件用 WriteAllText UTF-8 NoBOM 原子写并读回验证", 4.9, "tool_name == 'PowerShell' and 'Set-Content' in command")
     low = _FakePat("pat_low", "低置信", "短逻辑", 3.0, "op_contains(xxx)")
+    old_pat = _FakePat("pat_old_same_conf", "旧经验", "同分旧经验决策逻辑内容足够长用于测试排序", 5.0, "tool_name == 'PowerShell' and 'X' in command", "2026-08-01T10:00:00")
+    new_pat = _FakePat("pat_new_same_conf", "新经验", "同分新经验决策逻辑内容足够长用于测试排序", 5.0, "tool_name == 'PowerShell' and 'Y' in command", "2026-08-09T16:00:00")
     sug = build_gongqi_suggestions([noise, rich, low])
     ids = [s["id"] for s in sug]
     c1 = check("攻七·工具名级伪模式剔除", "pat_noise_bash" not in ids)
     c2 = check("攻七·priority标记正确", len(sug) > 0 and sug[0]["priority"] is True and sug[0]["id"] == "pat_rich_write")
-    return c1 and c2
+    sug2 = build_gongqi_suggestions([old_pat, new_pat])
+    ids2 = [s["id"] for s in sug2]
+    c3 = check("攻七·同分新优先", ids2 == ["pat_new_same_conf", "pat_old_same_conf"])
+    return c1 and c2 and c3
+
+def test_noise_reason():
+    """攻七质量门 _noise_reason：正则 ?? 惰性量词误判回归 + 真乱码仍拦截"""
+    from evo.rule_engine import _noise_reason
+
+    c1 = check("质量门·含斜杠/反斜杠的正常文本放行",
+               _noise_reason("收集信息先核验链接与目标一致（owner/仓库名）；页面超时降级 GitHub API / raw README；多源数据不一致以官方为准") == "")
+    c2 = check("质量门·含反斜杠路径的正常文本放行",
+               _noise_reason("递归删除/移动目录前：GetFullPath 验证目标绝对路径前缀在授权范围内；再 Directory.Delete($p,$true)") == "")
+    c3 = check("质量门·真乱码路径 E:\\??\\ 仍拦截",
+               "含乱码路径" in _noise_reason("写文件到 E:" + chr(92) + chr(63)*2 + chr(92) + "x 后读回验证"))
+    c4 = check("质量门·U+FFFD 拦截", "U+FFFD" in _noise_reason("乱码" + chr(0xFFFD) + "文本"))
+    c5 = check("质量门·空决策逻辑拦截", _noise_reason("   ") == "空决策逻辑")
+    c6 = check("质量门·测试样本拦截", "疑似测试/临时样本" in _noise_reason("先写 test.txt 验证"))
+    return c1 and c2 and c3 and c4 and c5 and c6
+
 
 
 def main():
@@ -199,6 +221,9 @@ def main():
 
     print(f"\n--- 攻七推荐 ---", flush=True)
     test_gongqi_noise_filter()
+
+    print(f"\n--- 攻七质量门 ---", flush=True)
+    test_noise_reason()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

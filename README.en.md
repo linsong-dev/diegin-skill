@@ -111,14 +111,24 @@ Verified good practices → **recommended in time → preferred → generalized 
 - PowerShell 5.1+ (Windows)
 
 ### Install
+**Option 1: One-click deploy (recommended)**
+```powershell
+git clone https://github.com/linsong-dev/diegin-skill.git
+cd Diegin
+powershell -ExecutionPolicy Bypass -File deploy/deploy.ps1
+```
+Deploys engine + hooks to `%USERPROFILE%/.codex/diegin/`, merges hook config into `%USERPROFILE%/.codex/hooks.json`, and registers the plugin.
+Dependency (numpy) still needs a manual `pip install numpy`.
+
+**Option 2: Manual install**
 ```powershell
 git clone https://github.com/linsong-dev/diegin-skill.git
 cd Diegin
 pip install numpy
 ```
 
-### Register hooks
-Replace `%CODEX_HOME%` in `config/hooks.json` with your Codex install path, merge into `%CODEX_HOME%/hooks.json`, and restart Codex.
+### Register hooks (manual)
+Merge `deploy/hooks-template.json` into `%USERPROFILE%/.codex/hooks.json` (hook scripts auto-load from `%USERPROFILE%/.codex/diegin/hooks/`), then restart Codex.
 
 ### Activate
 In a Codex conversation, enter `接入迭进` or `dgen on`.

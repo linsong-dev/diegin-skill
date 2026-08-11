@@ -110,14 +110,24 @@
 - PowerShell 5.1+
 
 ### 安装
+**方式一：一键部署（推荐）**
+`powershell
+git clone https://github.com/linsong-dev/diegin-skill.git
+cd Diegin
+powershell -ExecutionPolicy Bypass -File deploy/deploy.ps1
+`
+一键部署会自动：部署引擎与钩子到 `%USERPROFILE%\.codex\diegin\`、合并钩子配置到 `%USERPROFILE%\.codex\hooks.json`、注册插件。
+依赖（numpy）请手动安装：`pip install numpy`。
+
+**方式二：手动安装**
 `powershell
 git clone https://github.com/linsong-dev/diegin-skill.git
 cd Diegin
 pip install numpy
 `
 
-### 注册钩子
-将 config/hooks.json 中 %CODEX_HOME% 替换为你的 Codex 安装路径，合并到 %CODEX_HOME%/hooks.json，重启 Codex。
+### 注册钩子（手动方式）
+将 `deploy/hooks-template.json` 合并到 `%USERPROFILE%/.codex/hooks.json`（钩子脚本会自动从 `%USERPROFILE%/.codex/diegin/hooks/` 加载），重启 Codex。
 
 ### 激活
 在 Codex 对话中输入 接入迭进 或 dgen on。
