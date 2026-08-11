@@ -182,7 +182,7 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
     规则：
       - 工具名级噪音（trigger 仅为 tool_name=='X'，任何工具调用都触发）→ 整体剔除
       - priority: confidence>=4.5 且 decision_logic 长度>=6
-      - 排序：priority 优先，组内按 confidence 降序；总量截断 top_n
+      - 排序：priority 优先，组内按 confidence 降序，同分按 created_at 新优先；总量截断 top_n
     """
     _suggestions = []
     import re as _re
@@ -197,6 +197,7 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
                 "scenario": getattr(p, "trigger_scenario", ""),
                 "decision": getattr(p, "decision_logic", ""),
                 "confidence": getattr(p, "confidence", 0),
+                "created_at": getattr(p, "created_at", ""),
             }
             _logic = str(getattr(p, "decision_logic", "") or "").strip()
             _conf = float(getattr(p, "confidence", 0) or 0)
@@ -212,9 +213,20 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
                 _priority_sug.append(_s)
             else:
                 _normal_sug.append(_s)
-        # 按置信度降序
-        _priority_sug.sort(key=lambda x: -float(x["confidence"]))
-        _normal_sug.sort(key=lambda x: -float(x["confidence"]))
+        # 按置信度降序；同分按创建时间新优先（让新沉淀的经验更快浮出）
+        def _sort_key(x):
+            _conf = -float(x["confidence"])
+            _ts = 0.0
+            try:
+                from datetime import datetime as _dt
+                _raw = str(x.get("created_at", "") or "")
+                if _raw:
+                    _ts = _dt.fromisoformat(_raw.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                _ts = 0.0
+            return (_conf, -_ts)
+        _priority_sug.sort(key=_sort_key)
+        _normal_sug.sort(key=_sort_key)
         _suggestions = (_priority_sug + _normal_sug)[:top_n]
     except Exception:
         _suggestions = []
