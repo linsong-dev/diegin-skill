@@ -55,11 +55,13 @@ class HealthDashboard:
 
         report = {
             "generated_at": datetime.now().isoformat(),
-            "total_rules": len(all_rules),
-            "active_rules": len([r for r in all_rules if r.lifecycle_status == "active"]),
-            "deprecating_rules": len([r for r in all_rules if r.lifecycle_status == "deprecating"]),
-            "archived_rules": len([r for r in all_rules if r.lifecycle_status == "archived"]),
-            "cached_rules": len([r for r in all_rules if r.lifecycle_status == "cached"]),
+            "total_rules": len(interceptions),
+            "active_rules": len([r for r in interceptions if r.lifecycle_status == "active"]),
+            "success_patterns": len(patterns),
+            "total_assets": len(all_rules),
+            "deprecating_rules": len([r for r in interceptions if r.lifecycle_status == "deprecating"]),
+            "archived_rules": len([r for r in interceptions if r.lifecycle_status == "archived"]),
+            "cached_rules": len([r for r in interceptions if r.lifecycle_status == "cached"]),
             "cognitive_entropy": round(entropy, 3),
             "entropy_status": self._status_entropy(entropy),
             "decision_snr": round(snr, 3),

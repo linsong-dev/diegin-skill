@@ -33,8 +33,11 @@ def test_generate_report_with_rules():
     eng.add_interception(InterceptionRule(id="r2", trigger_condition="y", action="block", severity="low", tags=["通用"], triggered_count=3, ignored_count=1))
     eng.add_pattern(SuccessPattern(id="p1", pattern_name="safe", trigger_scenario="风险", decision_logic="allow"))
     report = dash.generate_report()
-    assert report["total_rules"] == 3
-    assert report["active_rules"] == 3
+    # v3.8.1+ 口径：total_rules 只数拦截规则（成功模式单独统计 success_patterns / total_assets）
+    assert report["total_rules"] == 2
+    assert report["active_rules"] == 2
+    assert report["success_patterns"] == 1
+    assert report["total_assets"] == 3
     assert report["cached_rules"] == 0
     assert report["decision_snr"] > 0
     assert report["strategy_capacity"] >= 1
