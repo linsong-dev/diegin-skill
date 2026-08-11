@@ -14,7 +14,6 @@
 - docs: SKILL.md 版本一致性刷新——v3.8.1/日期、规则口径（235/20/系统级34）、Hooks 契约事件列+Stop、裁决律 P6、路径脱敏 %DEV_ROOT%
 
 ## 3.8.0 (2026-08-10)
-## 3.8.0 (2026-08-10)
 
 - feat: 规则增量发布——守三 +4（image_url critical 复活 / 举一反三 ×2 / staging 派生），攻七 +7（六条 manual + image_url 泛化）
 - feat: 迭进钩子契约 v1（M1）——新增 engine/contract.py 契约层（5 标准事件统一信封 + 三态决策 + inject/suggestions），Codex PS1 钩子全部接入契约通道（向后兼容）

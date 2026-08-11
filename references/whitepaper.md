@@ -251,9 +251,9 @@ AI Agent 进入生产环境的瓶颈，已经从「能不能做」转向「**可
 | 契约自测 | 15/15 |
 | pytest | 116/116 |
 | 端到端 | 32/32 |
-| 规则库 | 235 条（self_check 口径，active 41） |
+| 规则库 | 235 条（self_check 口径，active 42） |
 
-> 口径说明：`health` 与 `self_check` 已统一为拦截规则口径（235 / active 41，v3.8.1+）；成功模式单独统计（`success_patterns=20`），全资产口径 `total_assets=255` 保留但不混入规则数。
+> 口径说明：`health` 与 `self_check` 已统一为拦截规则口径（235 / active 42，v3.8.1+）；成功模式单独统计（`success_patterns=20`），全资产口径 `total_assets=255` 保留但不混入规则数。
 
 ---
 
@@ -295,7 +295,7 @@ AI Agent 进入生产环境的瓶颈，已经从「能不能做」转向「**可
 
 ## 附录 B：数据口径
 
-- 规则数：235（self_check 口径，2026-08-10）；active 41；
+- 规则数：235（self_check 口径，2026-08-11）；active 42；
 - 测试：pytest 116/116、端到端 32/32、契约自测 15/15；
 - 实战数据：举一反三 71/74 次（08-10 当日）、image_url 审计 11 次（08-10 当日）；
 - 环境：Codex 桌面版 26.x、Python 3.12、Windows 11、PowerShell 5.1。

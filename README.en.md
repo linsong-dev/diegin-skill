@@ -48,7 +48,7 @@ User action → [Pacemaker] classify task type
 | File | Role |
 |:-----|:-----|
 | engine/evo/main.py | Unified entry + scheduled maintenance |
-| engine/evo/rule_engine.py | Rule engine (235 rules, 41 active; CRUD + matching + RULE-GUARD) |
+| engine/evo/rule_engine.py | Rule engine (235 rules, 42 active; CRUD + matching + RULE-GUARD) |
 | engine/evo/tracker.py | Behavior tracking (One-Two-No-Three chain, Shou-san/Gong-qi loop) |
 | engine/evo/arbiter.py | Arbiter (P0–P5 priority verdict) |
 | engine/evo/pacemaker.py | Pacemaker scheduling (downtime windows) |

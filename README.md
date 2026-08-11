@@ -47,7 +47,7 @@
 | 文件 | 作用 |
 |:-----|:------|
 | engine/evo/main.py | 统一入口 + 定期维护 |
-| engine/evo/rule_engine.py | 规则引擎（235 条规则（active 41），CRUD + 匹配 + RULE-GUARD 触发写入门） |
+| engine/evo/rule_engine.py | 规则引擎（235 条规则（active 42），CRUD + 匹配 + RULE-GUARD 触发写入门） |
 | engine/evo/tracker.py | 行为追踪（一二不过三连锁、守三攻七循环） |
 | engine/evo/arbiter.py | 仲裁器（P0-P5 优先级裁决） |
 | engine/evo/pacemaker.py | 缓急律调度（宕机时段） |
