@@ -1,6 +1,6 @@
 {
   "name": "diegin",
-  "version": "3.8.1+codex.20260810160952",
+  "version": "3.9.0+codex.20260812124100",
   "description": "迭进·DGEN — AI 全域常驻自我迭代进化系统",
   "author": {
     "name": "linsong-dev",
@@ -10,19 +10,32 @@
   "homepage": "https://github.com/linsong-dev/diegin-skill",
   "repository": "https://github.com/linsong-dev/diegin-skill",
   "license": "Apache-2.0",
-  "keywords": ["diegin", "dgen", "ai-evolution", "cognitive-framework", "自我进化", "迭进"],
+  "keywords": [
+    "diegin",
+    "dgen",
+    "ai-evolution",
+    "cognitive-framework",
+    "自我进化",
+    "迭进"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "迭进·DGEN",
     "shortDescription": "AI 全域常驻自我迭代进化系统",
-    "longDescription": "基于八元原则网络（攻七+守三+一二不过三+举一反三+去伪存真+裁决律+缓急律+止观门），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
+    "longDescription": "基于律令九章原则网络（四律三门一锁一镜：行知·攻七 / 省知·守三 / 裁决律·预策 / 完形·止观；通变·举一反三 / 真伪·去伪存真 / 恒常·持存；三错锁·一二不过三；自照镜），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
     "developerName": "linsong-dev",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Read", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
     "websiteURL": "https://github.com/linsong-dev/diegin-skill",
     "privacyPolicyURL": "https://github.com/linsong-dev/diegin-skill",
     "termsOfServiceURL": "https://github.com/linsong-dev/diegin-skill",
-    "defaultPrompt": ["使用迭进进行AI自我进化"],
+    "defaultPrompt": [
+      "使用迭进进行AI自我进化"
+    ],
     "brandColor": "#1a1a2e"
   }
 }

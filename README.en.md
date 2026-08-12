@@ -14,7 +14,7 @@
   <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.8.1-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.9.0-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>
@@ -32,15 +32,18 @@ Diegin is an **OS-level evolution layer for AI**. It calls no external APIs, nee
 ## Architecture
 
 ```
-User action → [Pacemaker] classify task type
-            → [Truth Gate] verify information
-            → [Shou-san · lightweight] scan failure modes
+User action → [Constancy Gate · Persistence] entry resume check (user confirmation)
+            → [Pre-strategy · Gather] collect outputs + task_id
+            → [Truth Gate] verify information (P0 unconditional priority)
+            → [Shou-san · lightweight] scan failure modes (anchor: success_patterns≥4.0)
+            → [One-Two-No-Three] alerting → vigilance (no blocking)
+            → [Pre-strategy · Weigh] P0–P6 unified arbitration (P3 constancy resume first)
             → Execute
-               ├─ success → [Gong-qi] distill success patterns
-               └─ failure → [One-Two-No-Three] fix → harden → escalate
-            → [Arbiter · Verdict Law] decide by priority
-            → [Closure Gate] seal this round
-            → [Shou-san · deep] offline review
+               ├─ success → [Gong-qi · Xing-zhi] distill patterns → [Generalization] semantic threshold <0.7
+               └─ failure → [One-Two-No-Three · Three-Strike Lock] fix → harden → escalate
+            → [Closure · Wan-xing] seal this round (4 states + read-only snapshot)
+            → [Shou-san · deep] offline review (≥2 blocks in 3 rounds → emergency)
+            → [Self-Mirror · Direction] mirror report → courage signal ×0.6 → P6 silent influence
 ```
 
 ## Core Files
@@ -50,41 +53,46 @@ User action → [Pacemaker] classify task type
 | engine/evo/main.py | Unified entry + scheduled maintenance |
 | engine/evo/rule_engine.py | Rule engine (235 rules, 42 active; CRUD + matching + RULE-GUARD) |
 | engine/evo/tracker.py | Behavior tracking (One-Two-No-Three chain, Shou-san/Gong-qi loop) |
-| engine/evo/arbiter.py | Arbiter (P0–P5 priority verdict) |
-| engine/evo/pacemaker.py | Pacemaker scheduling (downtime windows) |
-| engine/evo/closure.py | Closure gate (cognitive sealing) |
+| engine/evo/arbiter.py | Pre-strategy arbiter (P0–P6; P6 weight ±0.3 / ±0.1 per round) |
+| engine/evo/pacemaker.py | Pacemaker (removed from Nine Chapters; kept for downtime/cron) |
+| engine/evo/closure.py | Closure · Wan-xing (4-state sealing + read-only snapshot) |
 | engine/evo/evidence_vault.py | Truth-gate evidence vault + quarterly falsification |
-| engine/evo/error_detector.py | Error detection + One-Two-No-Three blocking |
+| engine/evo/error_detector.py | Error detection + One-Two-No-Three blocking (vigilance −0.2) |
+| engine/evo/constancy.py | Constancy Gate · Persistence (task_id lifecycle / nesting≤3 / 30-day snapshots) |
+| engine/evo/self_mirror.py | Self-Mirror · Direction (courage signal ×0.6 / P6 silent influence) |
 | engine/evo/dashboard.py | Health dashboard |
 | engine/mindol/ | Mindol semantic memory engine |
 
-## The Eight-Principle Network
+## The Nine Chapters (Four Laws · Three Gates · One Lock · One Mirror)
 
-| # | Principle | Direction | Mechanism |
-|:-:|:----|:---:|:-----|
-| 1 | Gong-qi 攻七 | Attack | Recognize strengths → distill → institutionalize (v3.8: reuse verified practices first) |
-| 2 | Shou-san 守三 | Defense | See shortcomings → find causes → correct behavior |
-| 3 | One-Two-No-Three 一二不过三 | Safety valve | Fix → harden → escalate (max three strikes) |
-| 4 | Generalization 举一反三 | Expansion | One case → three insights → broad coverage → regression check |
-| 5 | Truth Gate 去伪存真 | Hard floor | Claims need evidence → evidence must be verifiable → verify as true + quarterly falsification |
-| 6 | Verdict Law 裁决律 | Constitution | Truth first → survival first → completion first |
-| 7 | Pacemaker 缓急律 | Rhythm | Urgent tasks → speed; slow tasks → truth; balance the pace |
-| 8 | Closure Gate 止观门 | Sealing | Seal on completion → reset focus → no lingering |
+| Ch. | Principle | Alias | Direction | Mechanism |
+|:-:|:----|:----|:---:|:-----|
+| 1 | Gong-qi 攻七 | Xing-zhi Law | Attack | Try by action → refine on success → solidify what works → verify generalization → discard what fails |
+| 2 | Shou-san 守三 | Sheng-zhi Law | Defense | On failure break it down → trace the cause → refine → inscribe → fight again |
+| 3 | One-Two-No-Three 一二不过三 | Three-Strike Lock | Safety valve | Fix & verify on first → lock the path on second → sword falls on third |
+| 4 | Generalization 举一反三 | Tong-bian Gate | Expansion | One method → three derivations → hundred applications → return to verification |
+| 5 | Truth Gate 去伪存真 | Zhen-wei Gate | Hard floor | Claims need evidence → evidence must be verifiable → verify as true |
+| 6 | Pre-strategy 预策 | Verdict Law | Constitution | Gather → weigh → plan → decide → act → rebalance |
+| 7 | Persistence 持存 | Constancy Gate | Continuity | Explore on start → record while doing → store on pause → resume on return |
+| 8 | Closure 止观 | Wan-xing Law | Sealing | Seal when done → let go of merits and faults → mind like a mirror |
+| 9 | Self-Mirror 自照镜 | Direction Mirror | Reflection | Look back → still the mind → see the path → advance with certainty |
 
-> **Numbering is the cognitive order; runtime priority follows the Verdict Law P0–P5, independent of numbering.**
+> **Numbering is the cognitive order; runtime priority follows the Pre-strategy Law P0–P6, independent of numbering.**
 
 **Runtime dominance mapping:**
 
 | Verdict tier | Dominant principle at runtime |
 |:---|:---|
 | P0 truth | Truth Gate (false info never enters any pipeline) |
-| P1 safety | One-Two-No-Three (blocking beats reinforcement/generalization) |
-| P2 completion | Closure Gate (reset after sealing, no extra corrections) |
-| P3 urgent | Pacemaker (urgent pass-through, no deep review) |
-| P4 confidence | Gong-qi / Shou-san (higher confidence wins) |
+| P1 safety | One-Two-No-Three (blocking beats reinforcement/generalization; alerting → vigilance, no block) |
+| P2 completion | Closure · Wan-xing (reset after sealing, no extra corrections) |
+| P3 resume | Constancy Gate (resume signals unified in the weigh phase; user confirmation before resume) |
+| P4 confidence | Gong-qi / Shou-san (higher confidence wins; vigilance −0.2 on related patterns) |
 | P5 staging | Generalization (activate only after Truth Gate verification) |
+| P6 memory | Mindol (weight ±0.3 / ±0.1 per round; includes Self-Mirror courage signal) |
 
-> **Cognitive order is for learning and narrative; runtime control is decided by the Verdict Law P0–P5. The two dimensions do not conflict.**
+> **Cognitive order is for learning and narrative; runtime control is decided by the Pre-strategy Law P0–P6. The two dimensions do not conflict.**
+> **Pacemaker was removed from the Nine Chapters; it remains as a downtime/cron rhythm tool (no longer at P3).**
 
 ## Gong-qi Reinforcement (v3.8)
 
@@ -168,7 +176,7 @@ diegin/
 ├── engine/           Python engine
 │   ├── call_diegin.py    CLI entry
 │   ├── test_all.py       32 end-to-end tests
-│   ├── evo/              Eight-principle engine
+│   ├── evo/              nine-chapter engine (incl. constancy / self-mirror)-principle engine
 │   └── mindol/           Mindol semantic memory engine
 ├── hooks/             PowerShell hooks (always-on)
 ├── config/            Routing config
