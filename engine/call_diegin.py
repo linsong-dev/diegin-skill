@@ -1137,6 +1137,8 @@ if __name__ == "__main__":
             _audit_log = _os.path.join(_os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
             _ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             _msg = f"{_ts} {_ts} [HOOK:DGEN-CHECK] OK decision={decision} matched={matched_count}"
+            if "P6记忆" in reason:
+                _msg += " | P6-ADJ: " + str(reason)[:300]
             _d = _os.path.dirname(_audit_log)
             if _d and not _os.path.exists(_d):
                 _os.makedirs(_d, exist_ok=True)
