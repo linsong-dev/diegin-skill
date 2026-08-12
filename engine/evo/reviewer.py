@@ -60,6 +60,12 @@ class Reviewer:
         完整三明治复盘
         步骤：正向轻回顾 → 负向深挖 → 归因过滤 → 融合提炼 → 元认知
         """
+        # 定稿第二章：守三锚定优先级（同场景 success_patterns≥4.0，否则回退 intent_summary）
+        try:
+            task_context["baseline_anchor"] = self._anchor_baseline(task_context)
+        except Exception:
+            pass
+
         # 阶段1：正向轻回顾（20% 逻辑，由 AI 生成信号列表）
         positive_signals = self._positive_light_review(result)
 
@@ -129,6 +135,28 @@ class Reviewer:
             attribution={"source": "post_review", "confidence": "low"}
         ))
         return signals
+
+    def _anchor_baseline(self, task_context: Dict) -> Dict:
+        """守三·锚定优先级（定稿第二章）：对比期望行为时，
+        优先检索 success_patterns 中同场景高置信度模式（≥4.0）；
+        若无，则回退至原始用户意图（intent_summary）作为基线标准。"""
+        scene = str(task_context.get("task_type", task_context.get("task", "")))[:80]
+        scene_l = scene.lower().replace("_", "").replace("-", "")
+        patterns = self.rule_engine.get_patterns(active_only=True)
+        best = None
+        for p in patterns:
+            if (getattr(p, "confidence", 0) or 0) < 4.0:
+                continue
+            p_scene = str(getattr(p, "trigger_scenario", "") or "").lower().replace("_", "").replace("-", "")
+            if scene_l and p_scene and (scene_l in p_scene or p_scene in scene_l):
+                if best is None or (getattr(p, "confidence", 0) or 0) > (getattr(best, "confidence", 0) or 0):
+                    best = p
+        if best is not None:
+            return {"source": "success_pattern", "pattern_id": best.id,
+                    "confidence": getattr(best, "confidence", 0) or 0,
+                    "baseline": str(getattr(best, "decision_logic", "") or "")[:300]}
+        return {"source": "intent_summary",
+                "baseline": str(task_context.get("intent_summary", ""))[:300]}
 
     def _negative_deep_review(self, result: Dict) -> List[ReviewSignal]:
         """负向深挖：从任务结果提取失败信号（v3.7 实装，替代空实现）"""

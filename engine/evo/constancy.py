@@ -1,0 +1,260 @@
+# -*- coding: utf-8 -*-
+"""constancy.py - 持存·恒常门（任务续接）
+启而探之 → 行而记之 → 断而存之 → 续而接之
+职责：task_id 生命周期、状态摘要、暂停/恢复、阻塞上报、嵌套保护、溢出保护、30天快照
+定稿依据：律令九章 第七章 持存·恒常门（2026-08-12 最终定稿）
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import uuid
+from typing import Any, Dict, List, Optional
+
+_TASKS_PATH = None
+
+
+def _get_tasks_path() -> str:
+    global _TASKS_PATH
+    if _TASKS_PATH is None:
+        _TASKS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                   "var", "state", "constancy_tasks.json")
+    return _TASKS_PATH
+
+
+MAX_NEST_DEPTH = 3          # 嵌套深度不超过3层
+SNAPSHOT_RETENTION_DAYS = 30  # 封存包保留30天
+USER_SUMMARY_MAX_CHARS = 50   # 用户可见摘要≤50字
+
+_RECOVERABLE_STATUSES = ("paused", "blocked")
+_TERMINAL_STATUSES = ("completed", "abandoned")
+
+
+class TaskRegistry:
+    """恒常门任务登记处：task_id 生命周期 + 状态摘要 + 恢复检查"""
+
+    def __init__(self):
+        self._path = _get_tasks_path()
+        self._tasks: Dict[str, Dict[str, Any]] = {}
+        self._load()
+
+    # ── 持久化 ──────────────────────────────────────────────
+    def _load(self) -> None:
+        try:
+            if os.path.exists(self._path):
+                with open(self._path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._tasks = data
+        except Exception:
+            self._tasks = {}
+
+    def _save(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self._path), exist_ok=True)
+            with open(self._path, "w", encoding="utf-8") as f:
+                json.dump(self._tasks, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # ── 工具 ────────────────────────────────────────────────
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.datetime.now().isoformat()
+
+    def _gen_task_id(self) -> str:
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"task_{ts}_{uuid.uuid4().hex[:6]}"
+
+    def nest_depth(self, task_id: str) -> int:
+        """沿 parent_task_id 链计算嵌套深度（自身=1）"""
+        depth = 0
+        cur = task_id
+        seen = set()
+        while cur and cur in self._tasks and cur not in seen:
+            depth += 1
+            seen.add(cur)
+            cur = self._tasks[cur].get("parent_task_id") or None
+            if depth > 20:  # 防御环
+                break
+        return depth
+
+    def user_summary(self, task_id: str) -> str:
+        """用户可见摘要（≤50字），用于恢复前确认"""
+        t = self._tasks.get(task_id)
+        if not t:
+            return ""
+        intent = (t.get("intent_summary") or "").strip()
+        status = t.get("status", "paused")
+        prefix = f"[{status}] "
+        max_intent = USER_SUMMARY_MAX_CHARS - len(prefix)
+        if len(intent) > max_intent:
+            intent = intent[:max_intent]
+        return prefix + intent
+
+    # ── 生命周期 ────────────────────────────────────────────
+    def begin(self, intent_summary: str, completion_criteria: str = "",
+              pending_items: Optional[List[str]] = None,
+              parent_task_id: Optional[str] = None,
+              context: Optional[Dict] = None) -> Dict[str, Any]:
+        """启而探：创建新任务（含嵌套深度保护）"""
+        intent_summary = (intent_summary or "").strip()
+        if not intent_summary:
+            intent_summary = "未命名任务"
+        if parent_task_id:
+            parent = self._tasks.get(parent_task_id)
+            if not parent:
+                return {"ok": False, "error": "parent_not_found",
+                        "reason": f"父任务不存在: {parent_task_id}"}
+            # 溢出保护：父任务深度达到第3层时，子任务将是第4层 → 拒绝
+            if self.nest_depth(parent_task_id) >= MAX_NEST_DEPTH:
+                return {"ok": False, "error": "nested_overflow",
+                        "reason": "嵌套深度即将达到第4层，恒常门拒绝创建新子任务，由父任务自行消化或放弃该子目标",
+                        "task_id": parent_task_id}
+        task_id = self._gen_task_id()
+        task = {
+            "task_id": task_id,
+            "intent_summary": intent_summary[:500],
+            "completion_criteria": (completion_criteria or "")[:2000],
+            "status": "paused",          # 新建即挂起，等待入口恢复确认
+            "pending_items": [str(x)[:200] for x in (pending_items or [])][:20],
+            "parent_task_id": parent_task_id or "",
+            "blocker_report": "",
+            "created_at": self._now_iso(),
+            "updated_at": self._now_iso(),
+            "context": {k: str(v)[:200] for k, v in (context or {}).items()},
+            "resume_count": 0,
+        }
+        self._tasks[task_id] = task
+        self._save()
+        return {"ok": True, "task_id": task_id, "task": task}
+
+    def find_recoverable(self) -> List[Dict[str, Any]]:
+        """续而接：检索未完成且未超时的 task_id"""
+        now = datetime.datetime.now()
+        out = []
+        for tid, t in self._tasks.items():
+            if t.get("status") not in _RECOVERABLE_STATUSES:
+                continue
+            updated = t.get("updated_at", "")
+            try:
+                age = (now - datetime.datetime.fromisoformat(updated)).days
+            except Exception:
+                age = 0
+            if age > SNAPSHOT_RETENTION_DAYS:
+                continue
+            out.append(dict(t))
+        out.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        return out
+
+    def snapshot(self, task_id: str) -> Dict[str, Any]:
+        """状态摘要（含完成标准、阻塞报告、待办清单）"""
+        return dict(self._tasks.get(task_id) or {})
+
+    def suspend(self, task_id: str, reason: str = "") -> bool:
+        """断而存：任务中断/切换时挂起并生成状态摘要"""
+        t = self._tasks.get(task_id)
+        if not t:
+            return False
+        t["status"] = "paused"
+        t["updated_at"] = self._now_iso()
+        if reason:
+            t["last_pause_reason"] = str(reason)[:500]
+        self._save()
+        return True
+
+    def complete(self, task_id: str) -> bool:
+        t = self._tasks.get(task_id)
+        if not t:
+            return False
+        t["status"] = "completed"
+        t["updated_at"] = self._now_iso()
+        self._save()
+        return True
+
+    def abandon(self, task_id: str, reason: str = "") -> bool:
+        t = self._tasks.get(task_id)
+        if not t:
+            return False
+        t["status"] = "abandoned"
+        t["updated_at"] = self._now_iso()
+        if reason:
+            t["abandon_reason"] = str(reason)[:500]
+        self._save()
+        return True
+
+    def block(self, task_id: str, blocker_report: str) -> bool:
+        """子任务受阻：status=blocked + blocker_report，上报父任务"""
+        t = self._tasks.get(task_id)
+        if not t:
+            return False
+        t["status"] = "blocked"
+        t["blocker_report"] = str(blocker_report)[:2000]
+        t["updated_at"] = self._now_iso()
+        self._save()
+        # 阻塞证据上报父任务
+        parent = t.get("parent_task_id")
+        if parent and parent in self._tasks:
+            self._tasks[parent]["blocker_report"] = str(blocker_report)[:2000]
+            self._tasks[parent]["updated_at"] = self._now_iso()
+            self._save()
+        return True
+
+    def resume(self, task_id: str) -> bool:
+        """续而接：用户确认后恢复任务（completed/abandoned 永不自动恢复）"""
+        t = self._tasks.get(task_id)
+        if not t:
+            return False
+        if t.get("status") in _TERMINAL_STATUSES:
+            return False
+        t["status"] = "paused"  # 恢复后进入执行态，仍以 paused 标记待执行
+        t["resume_count"] = int(t.get("resume_count", 0) or 0) + 1
+        t["updated_at"] = self._now_iso()
+        self._save()
+        return True
+
+    def cleanup_expired(self, max_days: int = SNAPSHOT_RETENTION_DAYS) -> int:
+        """封存包保留30天，超时自动清理（completed/abandoned 与超时的 paused/blocked）"""
+        now = datetime.datetime.now()
+        before = len(self._tasks)
+        keep: Dict[str, Dict[str, Any]] = {}
+        for tid, t in self._tasks.items():
+            updated = t.get("updated_at", t.get("created_at", ""))
+            try:
+                age = (now - datetime.datetime.fromisoformat(updated)).days
+            except Exception:
+                age = 0
+            if age <= max_days or t.get("status") in _TERMINAL_STATUSES:
+                keep[tid] = t
+        removed = before - len(keep)
+        self._tasks = keep
+        if removed:
+            self._save()
+        return removed
+
+    def get_status(self) -> Dict[str, Any]:
+        recoverable = self.find_recoverable()
+        return {
+            "principle": "持存·恒常门",
+            "total_tasks": len(self._tasks),
+            "recoverable": len(recoverable),
+            "recoverable_tasks": [
+                {"task_id": t["task_id"], "status": t.get("status"),
+                 "summary": self.user_summary(t["task_id"]),
+                 "updated_at": t.get("updated_at", "")}
+                for t in recoverable
+            ],
+            "snapshot_retention_days": SNAPSHOT_RETENTION_DAYS,
+            "max_nest_depth": MAX_NEST_DEPTH,
+        }
+
+
+_inst: Optional[TaskRegistry] = None
+
+
+def get_constancy() -> TaskRegistry:
+    global _inst
+    if _inst is None:
+        _inst = TaskRegistry()
+    return _inst

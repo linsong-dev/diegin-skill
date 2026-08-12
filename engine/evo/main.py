@@ -88,6 +88,8 @@ from dashboard import HealthDashboard, run_health_check
 from pacemaker import PaceMaker, get_pacemaker as _get_pacemaker_inst
 from closure import ClosureGate, get_closure as _get_closure_inst
 from evidence_vault import EvidenceVault, get_vault as _get_vault_inst
+from constancy import TaskRegistry, get_constancy as _get_constancy_inst
+from self_mirror import SelfMirror, get_self_mirror as _get_self_mirror_inst
 
 
 # ============================================================
@@ -493,6 +495,38 @@ def _mark_dgen_generalized(src_name: str, rule_id: str) -> None:
         pass
 
 
+_VECTORIZER = None
+
+def _get_vectorizer():
+    """语义距离向量器（懒加载单例）"""
+    global _VECTORIZER
+    if _VECTORIZER is None:
+        try:
+            from mindol.vectorizer import SimpleVectorizer
+            _VECTORIZER = SimpleVectorizer()
+        except Exception:
+            _VECTORIZER = None
+    return _VECTORIZER
+
+def _is_pseudo_generalization(candidate_text: str, existing_texts: List[str],
+                              threshold: float = 0.7) -> Optional[str]:
+    """定稿第四章：推导的跨场景候选规则之间须满足语义距离阈值（向量余弦相似度<0.7），
+    否则判定伪泛化（复制而非泛化），不进入 staging。返回与之过度相似的既有候选文本。"""
+    vz = _get_vectorizer()
+    if vz is None or not candidate_text.strip():
+        return None
+    for et in existing_texts:
+        if not et or not et.strip():
+            continue
+        try:
+            sim = vz.calc_similarity(candidate_text, et)
+            if sim >= threshold:
+                return et
+        except Exception:
+            continue
+    return None
+
+
 def generalize_cross_domain() -> list:
     """举一反三：跨域泛化（v3.7 多领域合并 + 迁移性证明）
     将一个领域的 domain_rule 合并泛化到其余全部领域
@@ -614,6 +648,22 @@ def generalize_from_patterns() -> list:
         rid = "pat_rule_" + p.id
         existing = engine.get_interception_by_id(rid)
         if existing:
+            continue
+        # 定稿第四章：语义距离阈值——候选与既有 staging 候选相似度≥0.7 → 伪泛化，不入 staging
+        _existing_staging_texts = [
+            (str(getattr(r, "trigger_condition", "") or "") + " " + str(getattr(r, "action", "") or ""))
+            for r in engine.get_interceptions(active_only=False)
+            if getattr(r, "lifecycle_status", "") == "staging"
+        ]
+        _cand_text = (cond + " " + str(getattr(p, "decision_logic", "") or ""))[:200]
+        _pseudo_sim = _is_pseudo_generalization(_cand_text, _existing_staging_texts)
+        if _pseudo_sim is not None:
+            # 伪泛化记录边界（去伪存真·证必可验）：不进入 staging
+            try:
+                _v = _get_vault_inst()
+                _v.record(rid, "skip", f"伪泛化拦截: 与既有staging候选语义相似度≥0.7", source="generalize_semantic_gate")
+            except Exception:
+                pass
             continue
         new_rule = InterceptionRule(
             id=rid,
@@ -1226,7 +1276,8 @@ def arbitrate(interceptions: List[InterceptionRule],
               mindol_hits: Optional[List[Dict]] = None,
               closure_state: Optional[Dict] = None,
               pace_channel: Optional[Dict] = None,
-              context: Optional[Dict] = None) -> Dict[str, Any]:
+              context: Optional[Dict] = None,
+              constancy_state: Optional[Dict] = None) -> Dict[str, Any]:
 
 
     """冲突仲裁 — 使用 arbiter.to_display() 对齐 AGENTS.md 裁决格式"""
@@ -1240,7 +1291,7 @@ def arbitrate(interceptions: List[InterceptionRule],
 
     result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits,
                                 closure_state=closure_state, pace_channel=pace_channel,
-                                context=context)
+                                context=context, constancy_state=constancy_state)
 
 
     display = arbiter_obj.to_display(result)
@@ -2732,15 +2783,86 @@ def closure_open(item_id, description, context=None):
     cg = _get_closure_inst()
     return cg.open(item_id, description, context)
 
-def closure_close(item_id, summary='', result='completed'):
-    """止观门：封存事项"""
+def closure_close(item_id, summary='', result='completed', status='completed',
+                 intent_summary='', completion_criteria='', pending_items=None,
+                 parent_task_id='', snapshot=None):
+    """止观门：封存事项（定稿四态 + 状态摘要 + 执行轨迹只读快照）"""
     cg = _get_closure_inst()
-    return cg.close(item_id, summary, result)
+    return cg.close(item_id, summary, result, status=status,
+                    intent_summary=intent_summary, completion_criteria=completion_criteria,
+                    pending_items=pending_items, parent_task_id=parent_task_id,
+                    snapshot=snapshot)
+
+def closure_readonly_snapshot(item_id):
+    """止观门：封存后只读豁免权——守三应急复盘只读访问执行轨迹快照"""
+    cg = _get_closure_inst()
+    return cg.export_readonly_snapshot(item_id)
 
 def closure_is_closed(item_id):
     """止观门：检查是否已封存"""
     cg = _get_closure_inst()
     return cg.is_closed(item_id)
+
+def get_constancy():
+    """获取恒常门（持存）实例"""
+    return _get_constancy_inst()
+
+def constancy_begin(intent_summary, completion_criteria="", pending_items=None,
+                    parent_task_id=None, context=None):
+    """恒常门：启而探——创建新任务（含嵌套深度≤3 溢出保护）"""
+    return _get_constancy_inst().begin(intent_summary, completion_criteria,
+                                       pending_items, parent_task_id, context)
+
+def constancy_recoverable():
+    """恒常门：续而接——检索可恢复任务（paused/blocked 且未超时）"""
+    return _get_constancy_inst().find_recoverable()
+
+def constancy_snapshot(task_id):
+    """恒常门：状态摘要快照"""
+    return _get_constancy_inst().snapshot(task_id)
+
+def constancy_suspend(task_id, reason=""):
+    """恒常门：断而存——任务中断/切换时挂起"""
+    return _get_constancy_inst().suspend(task_id, reason)
+
+def constancy_resume(task_id):
+    """恒常门：续而接——用户确认后恢复（completed/abandoned 永不自动恢复）"""
+    return _get_constancy_inst().resume(task_id)
+
+def constancy_complete(task_id):
+    """恒常门：标记完成"""
+    return _get_constancy_inst().complete(task_id)
+
+def constancy_abandon(task_id, reason=""):
+    """恒常门：标记用户放弃"""
+    return _get_constancy_inst().abandon(task_id, reason)
+
+def constancy_block(task_id, blocker_report):
+    """恒常门：子任务受阻上报（status=blocked，上报父任务）"""
+    return _get_constancy_inst().block(task_id, blocker_report)
+
+def get_self_mirror():
+    """获取自照镜（方向之镜）实例"""
+    return _get_self_mirror_inst()
+
+def mirror_tick():
+    """自照镜：每轮调用——轮次+1，勇气信号 ×0.6 半衰期衰减"""
+    return _get_self_mirror_inst().tick()
+
+def mirror_add_courage(amount=0.5, reason=""):
+    """自照镜：勇气信号——主动冒险获得超额收益 → P6 正面加权（对冲纠偏偏好）"""
+    return _get_self_mirror_inst().add_courage(amount, reason)
+
+def mirror_run_if_due():
+    """自照镜：跟随守三深度复盘频率（每10轮或每日）触发自照，未到期静默跳过"""
+    m = _get_self_mirror_inst()
+    if m.should_mirror():
+        return m.mirror()
+    return None
+
+def mirror_status():
+    """自照镜：状态查看"""
+    return _get_self_mirror_inst().get_status()
 
 def get_vault():
     """获取证据库实例"""

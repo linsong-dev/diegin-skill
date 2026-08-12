@@ -79,9 +79,72 @@ class EvidenceVault:
             "source": source,
             "context": context or {}
         }
+        # 定稿第五章：暂存区条目默认保留期 50轮/7天（先到者），超时未验证自动淘汰；
+        # 保留期内获得外部新证据可重置计时器一次
+        if verdict == "pending":
+            entry["stage"] = "staging"
+            entry["staging_created_at"] = entry["ts"]
+            entry["staging_round"] = self._bump_round()
+            entry["reset_count"] = 0
+            entry["expired"] = False
         self._trail.append(entry)
         self._save()
         return entry
+
+    def _bump_round(self) -> int:
+        """暂存区轮次计数（近似操作轮，用于 50 轮淘汰）"""
+        try:
+            _rp = os.path.join(os.path.dirname(self._log_path), "staging_round.json")
+            _r = 0
+            if os.path.exists(_rp):
+                with open(_rp, "r", encoding="utf-8") as f:
+                    _r = int(json.load(f).get("round", 0) or 0)
+            _r += 1
+            os.makedirs(os.path.dirname(_rp), exist_ok=True)
+            with open(_rp, "w", encoding="utf-8") as f:
+                json.dump({"round": _r}, f)
+            return _r
+        except Exception:
+            return 0
+
+    def staging_ttl_check(self, max_rounds: int = 50, max_days: int = 7) -> int:
+        """定稿第五章：暂存区 50轮/7天（先到者）超时自动淘汰"""
+        now = datetime.datetime.now()
+        _round = self._bump_round()
+        expired = 0
+        for e in self._trail:
+            if e.get("verdict") != "pending" or e.get("expired"):
+                continue
+            _expired = False
+            try:
+                _created = datetime.datetime.fromisoformat(e.get("staging_created_at", e.get("ts", "")))
+                if (now - _created).total_seconds() > max_days * 86400:
+                    _expired = True
+            except Exception:
+                pass
+            _sr = int(e.get("staging_round", 0) or 0)
+            if not _expired and _sr and (_round - _sr) >= max_rounds:
+                _expired = True
+            if _expired:
+                e["expired"] = True
+                e["expired_at"] = now.isoformat()
+                expired += 1
+        if expired:
+            self._save()
+        return expired
+
+    def reset_staging_timer(self, rule_id: str) -> bool:
+        """定稿第五章：保留期内获得外部新证据 → 重置计时器一次（仅一次）"""
+        for e in reversed(self._trail):
+            if e.get("rule_id") == rule_id and e.get("verdict") == "pending" and not e.get("expired"):
+                if int(e.get("reset_count", 0) or 0) >= 1:
+                    return False
+                e["reset_count"] = int(e.get("reset_count", 0) or 0) + 1
+                e["staging_created_at"] = datetime.datetime.now().isoformat()
+                e["staging_round"] = self._bump_round()
+                self._save()
+                return True
+        return False
 
     def get_recent(self, limit: int = 20) -> List[Dict]:
         return self._trail[-limit:]

@@ -22,6 +22,7 @@ diegin-evo 冲突仲裁器（对齐 AGENTS.md §二 裁决定义）
   保留内部类型（CONFIDENCE_WIN / HUMAN_REQUIRED / AUTO_DEGRADED）用于引擎内部流转
 """
 
+import re
 import time
 from typing import List, Dict, Optional, Any, Union
 from dataclasses import dataclass, field
@@ -82,6 +83,19 @@ class ConflictArbiter:
         """
         if not mindol_hits:
             return ""
+        # 定稿（2026-08-12 律令九章·预策）：P6 调权范围限定 ±0.3，单轮影响不超过 ±0.1。
+        # 实现：单条命中对单条规则增量 ±0.1；单条规则单轮累计绝对值达 0.1 后不再累加；
+        #       硬限幅 clamp 到 ±0.3（为多源/跨轮预留，实际单轮最多 0.1）。
+        P6_STEP = 0.1
+        P6_HARD_LIMIT = 0.3
+        P6_ROUND_LIMIT = 0.1
+
+        def _apply_delta(r, delta):
+            prev = getattr(r, "_mem_conf_adj", 0) or 0
+            if abs(prev) >= P6_ROUND_LIMIT:
+                return  # 单轮限幅已到，不再累加
+            setattr(r, "_mem_conf_adj", max(-P6_HARD_LIMIT, min(P6_HARD_LIMIT, prev + delta)))
+
         notes = []
         all_items = list(interceptions) + list(patterns or [])
         for hit in mindol_hits:
@@ -104,17 +118,15 @@ class ConflictArbiter:
                     is_pattern = isinstance(r, SuccessPattern)
                     # 规则ID或触发条件关键词与记忆文本重叠 → 视为相关
                     if (rid and rid.lower() in tl) or (cond and any(w in tl for w in cond.lower().split()[:3])):
-                        delta = -0.3 if is_pattern else 0.5
-                        setattr(r, "_mem_conf_adj", (getattr(r, "_mem_conf_adj", 0) or 0) + delta)
-                notes.append(f"[{hit_space}:{min(score, 1.0):.0%}]记忆支持拦截")
+                        _apply_delta(r, -P6_STEP if is_pattern else P6_STEP)
+                notes.append(f"[{hit_space}:{min(score, 1.0):.0%}]记忆支持拦截(单轮±0.1)")
             elif any(k in tl for k in ("allow", "pass", "放行", "通过", "success", "verified")):
                 for r in all_items:
                     rid = getattr(r, "id", "") or ""
                     is_pattern = isinstance(r, SuccessPattern)
                     if rid and rid.lower() in tl:
-                        delta = 0.5 if is_pattern else -0.3
-                        setattr(r, "_mem_conf_adj", (getattr(r, "_mem_conf_adj", 0) or 0) + delta)
-                notes.append(f"[{hit_space}:{min(score, 1.0):.0%}]记忆支持放行")
+                        _apply_delta(r, P6_STEP if is_pattern else -P6_STEP)
+                notes.append(f"[{hit_space}:{min(score, 1.0):.0%}]记忆支持放行(单轮±0.1)")
         return " ".join(notes)
 
     def to_display(self, result: ArbitrationResult) -> Dict[str, Any]:
@@ -158,23 +170,28 @@ class ConflictArbiter:
     # ──────────────────────────────────────────────────
 
     def resolve(self, interceptions, patterns, mindol_hits=None,
-                closure_state=None, pace_channel=None, context=None):
+                closure_state=None, pace_channel=None, context=None,
+                constancy_state=None):
         """
-        八元原则网络仲裁 · 按裁决律P0-P5优先级
+        九章原则网络仲裁 · 按预策律P0-P6优先级（2026-08-12 律令九章定稿）
 
         P0: 去伪存真无条件优先 → iron_wall_block
         P1: 一二不过三阻断指令优先 → block
         P2: 止观门事毕清零（真实输入 closure_state：closed/archived → 放行；open/pending → 不因止观门放行）
-        P3: 缓急律紧急分流（真实输入 pace_channel：fast_path/downtime → 快速通道；normal/full_path → 不跳过深度复盘）
+        P3: 恒常门任务恢复优先（真实输入 constancy_state：has_pending/resumed → 放行继续；恢复信号在"衡"中统一决策）
+            缓急律降级：仅作宕机/节奏工具保留（pace_channel fast_path/downtime → 快速通道），不入九章
         P4: 守三改进规则 vs 攻七成功模式 → 置信度裁决（delta>0.1 才判冲突，delta≤0.1 守三优先不误报）
         P5: 举一反三 staging 规则不参与实时仲裁
-        P6: Mindol 语义记忆权重（历史经验双向调节规则/模式置信度，仅影响 P4 与兜底，不凌驾 P0-P3）
+        P6: Mindol 语义记忆权重（历史经验双向调节规则/模式置信度，调权±0.3/单轮±0.1，仅影响 P4 与兜底，不凌驾 P0-P3）
         """
         if not interceptions:
             return ArbitrationResult(
                 decision=ResolutionType.ALLOW,
                 reason="无规则触发，默认放行"
             )
+
+        # 一二不过三·警觉落动作状态（本次仲裁内有效）
+        self._alerting_rules = []
 
         # v3.6: 审计型规则（action 含 audit_only/record_*）仅记录不阻断
         # 修复：P4 置信度裁决曾把审计规则当拦截指令，导致 pre_tool 场景误 block
@@ -258,14 +275,11 @@ class ConflictArbiter:
                         winning_rule=rule,
                         reason=f"[裁决律P1] 一二不过三阻断: {rule.id} | 同类错误已达阈值，系统强制拦截"
                     )
-            # alerting → escalate
+            # alerting → 警觉落动作（定稿第三章）：不触发阻断，
+            # 表现为预策权衡阶段对相关模式置信度下调 0.2（或风险权重上调一档）
             alerting = [r for r in groups["一二不过三"] if getattr(r, "lifecycle_status", "") == "alerting"]
             if alerting:
-                return ArbitrationResult(
-                    decision=ResolutionType.ESCALATE,
-                    winning_rule=alerting[0],
-                    reason=f"[裁决律P1] 一二不过三警告: {alerting[0].id} | 同类错误已出现第1次，请注意防范"
-                )
+                self._alerting_rules = alerting
 
         # ⭐ P2: 止观门事毕清零（真实输入优先）⭐
         # closure_state: {"status": "closed"|"archived"|"open"|"pending", "task_id": ...}
@@ -297,7 +311,22 @@ class ConflictArbiter:
                     reason=f"[裁决律P2] 止观门: {archived_items[0].id} 已归档，放行"
                 )
 
-        # ⭐ P3: 缓急律紧急分流（真实输入优先）⭐
+        # ⭐ P3: 恒常门任务恢复优先（定稿：恢复信号在"衡"中统一决策）⭐
+        if constancy_state and isinstance(constancy_state, dict):
+            _has_pending = bool(constancy_state.get("has_pending"))
+            _resumed = bool(constancy_state.get("resumed"))
+            if _has_pending or _resumed:
+                _r_tasks = constancy_state.get("tasks") or []
+                _first = _r_tasks[0].get("task_id", "") if _r_tasks else (constancy_state.get("resume_requested") or "")
+                _reason = "[裁决律P3] 恒常门: 检测到未完成任务，任务恢复优先，放行继续"
+                if _first:
+                    _reason += f" | task_id={str(_first)[:40]}"
+                return ArbitrationResult(
+                    decision=ResolutionType.ALLOW,
+                    winning_rule=None,
+                    reason=_reason
+                )
+        # 缓急律（运行版保留，不入九章）：宕机/紧急分流仍作为节奏工具生效
         # pace_channel: pacemaker.classify() 输出 {"channel": "fast_path"|"normal"|"full_path"|"downtime", ...}
         _urgent_channel = None
         if pace_channel and isinstance(pace_channel, dict):
@@ -341,6 +370,19 @@ class ConflictArbiter:
             best_pattern = max(active_patterns, key=lambda x: self._conf(x))
             int_conf = self._conf(best_interception)
             pat_conf = self._conf(best_pattern)
+            # 一二不过三·警觉落动作：alerting 规则存在且与模式相关 → 模式置信度 -0.2（不阻断）
+            _vigilance = ""
+            if getattr(self, "_alerting_rules", None):
+                _pat_text = (str(getattr(best_pattern, "trigger_scenario", "") or "") + " " +
+                             str(getattr(best_pattern, "trigger_condition", "") or "")).lower()
+                for _ar in self._alerting_rules:
+                    _ar_text = (str(getattr(_ar, "id", "") or "") + " " +
+                                str(getattr(_ar, "trigger_condition", "") or "")).lower()
+                    _ar_words = [w for w in re.split(r"[\W_]+", _ar_text) if len(w) >= 2]
+                    if _ar_words and any(w in _pat_text for w in _ar_words):
+                        pat_conf = max(0.0, pat_conf - 0.2)
+                        _vigilance = f" | 警觉落动作: 相关模式置信度-0.2({_ar.id})"
+                        break
             # 攻七强化 Q2: 同场景优先 - 模式与当前工具/操作同场景 → 置信度 +0.5
             _scene_bonus = ""
             if context and isinstance(context, dict):
@@ -371,6 +413,7 @@ class ConflictArbiter:
                     winning_rule=best_interception,
                     reason=f"[裁决律P4] 守三vs攻七置信度持平（delta={confidence_delta:.3f}≤0.1），守三负向纠错优先"
                            + _scene_bonus
+                           + _vigilance
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             if confidence_delta < 0.5:
@@ -397,6 +440,7 @@ class ConflictArbiter:
                     winning_rule=best_pattern,
                     reason=f"[裁决律P4] 攻七模式 {best_pattern.id} 置信度({pat_conf})高于守三规则，放行"
                            + _scene_bonus
+                           + _vigilance
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             else:
@@ -405,6 +449,7 @@ class ConflictArbiter:
                     winning_rule=best_interception,
                     reason=f"[裁决律P4] 守三规则 {best_interception.id} 置信度({int_conf})高于攻七模式，拦截"
                            + _scene_bonus
+                           + _vigilance
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
 

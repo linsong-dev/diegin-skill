@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "id": "meta_manual_regex_lazy_quantifier_20260809",
+    "insight": "正则中未转义的 ?? 会被解析为惰性量词（前一项出现 0-1 次），导致 [\\/]??[\\/] 实际等价于匹配任意单个 / 或 \\ —— 质量门 _noise_reason 因此把含斜杠/反斜杠的正常决策逻辑全部误判为'含乱码路径'，7 个攻七模式提升被拒。修复：re.escape('??') 后再拼正则；写正则前先验证元字符是否被解释为量词。",
+    "applicable_contexts": [
+      "正则编写与调试",
+      "自动质量门/校验器实现",
+      "文本特征检测"
+    ],
+    "action_binding": "拼接正则片段前先 re.escape；检测串含 ?、*、+ 等元字符时用 raw string + 显式转义；补回归测试覆盖'正常斜杠文本放行 + 真乱码拦截'。",
+    "source_review": "2026-08-09 接手会话",
+    "created_at": "2026-08-09T18:16:03",
+    "confidence": 4.8
+  },
+  {
+    "id": "meta_manual_ps_pipe_utf8_20260809",
+    "insight": "PowerShell 5.1 向原生进程管道传中文的乱码根因是 $OutputEncoding 默认 US-ASCII（中文被替换为 ?），而读取原生输出用 [Console]::OutputEncoding（默认 GBK，UTF-8 输出被解成乱码）。单改 Python 端解码（utf-8 errors=replace）无法恢复已丢字节。",
+    "applicable_contexts": [
+      "PS5.1 ↔ Python/原生进程中文传输",
+      "钩子脚本管道",
+      "日志与入库乱码排查"
+    ],
+    "action_binding": "钩子启动即强制 $OutputEncoding=[Console]::OutputEncoding=UTF-8(NoBOM)；Python 端 stdin 解码做 UTF-8→GBK 回退（_decode_stdin_bytes）；写 .ps1 保持 UTF-8 BOM；防 prompt 入库乱码与 JSON 解析失败。",
+    "source_review": "2026-08-09 接手会话",
+    "created_at": "2026-08-09T18:16:03",
+    "confidence": 4.8
+  }
+]

@@ -298,6 +298,66 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
 
+    # ========== 自照镜·每轮衰减 + 勇气信号记录（跟随守三深度复盘频率触发，静默跳过） ==========
+    mirror_report = None
+    try:
+        from evo.main import mirror_tick, mirror_add_courage, mirror_run_if_due
+        mirror_tick()
+        _courage = context.get("courage_signal")
+        if _courage:
+            try:
+                mirror_add_courage(float(_courage), reason="context 主动冒险信号")
+            except Exception:
+                pass
+        mirror_report = mirror_run_if_due()
+    except Exception:
+        pass
+
+    # ========== 恒常门·入口恢复检查（每次入口最先执行，恢复前需用户确认） ==========
+    constancy_recovery = None
+    try:
+        from evo.main import constancy_recoverable, constancy_resume
+        _resume_id = context.get("resume_task_id")
+        if _resume_id:
+            _resumed = constancy_resume(_resume_id)
+            constancy_recovery = {
+                "resume_requested": str(_resume_id)[:80],
+                "resumed": bool(_resumed),
+                "prompt": "已恢复任务，继续执行" if _resumed else "任务不可恢复（已完成/已放弃）"
+            }
+        else:
+            _rec = constancy_recoverable()
+            if _rec:
+                constancy_recovery = {
+                    "has_pending": True,
+                    "prompt": "检测到未完成的任务，是否继续？",
+                    "tasks": [{
+                        "task_id": t.get("task_id", ""),
+                        "status": t.get("status", "paused"),
+                        "summary": str(t.get("intent_summary", ""))[:50],
+                        "updated_at": t.get("updated_at", "")
+                    } for t in _rec[:5]]
+                }
+    except Exception:
+        pass
+
+    # ========== 预策·①汇：task_id 生成（如无）==========
+    # 基于任务文本稳定哈希生成；恢复任务沿用恢复出的 task_id
+    constancy_task_id = None
+    try:
+        if constancy_recovery and constancy_recovery.get("has_pending"):
+            _rec_tasks = constancy_recovery.get("tasks") or []
+            if _rec_tasks:
+                constancy_task_id = _rec_tasks[0].get("task_id")
+        if not constancy_task_id:
+            _task_text = str(context.get("task", context.get("cmd", context.get("message", ""))))[:100]
+            if _task_text:
+                import hashlib as _hl
+                _ts = datetime.now().strftime("%Y%m%d")
+                constancy_task_id = "task_%s_%s" % (_ts, _hl.sha256(_task_text.encode("utf-8")).hexdigest()[:8])
+    except Exception:
+        pass
+
     # ========== P3: 缓急律·优先分流 ==========
     from evo.main import pace_classify, should_skip_deep_review
     pace_result = pace_classify(context)
@@ -326,7 +386,8 @@ def pre_check(context: dict) -> dict:
             "display_line": "[DGEN] PASS (止观门: 已封存事项，跳过)",
             "reason": "止观门: 该任务已封存，不再重复处理",
             "pace_result": pace_result,
-            "closure_skip": True
+            "closure_skip": True,
+            "constancy_recovery": constancy_recovery
         }
 
     rules = get_rules_for_task(context)
@@ -356,6 +417,20 @@ def pre_check(context: dict) -> dict:
         mindol_context = memory_format_context(query=ctx_str, top_k=3)
     except Exception:
         pass
+    # 自照镜·勇气信号 → P6 语义记忆静默影响（定稿第九章；受 P6 调权±0.3/单轮±0.1 约束）
+    try:
+        from evo.main import mirror_status
+        _courage = float(mirror_status().get("courage", 0.0) or 0.0)
+        if _courage > 0:
+            mindol_hits = list(mindol_hits or []) + [{
+                "text": "主动冒险获得超额收益 放行 allow pass 继续推进",
+                "score": min(0.8, _courage),
+                "space": "codex",
+                "uid": "self_mirror_courage",
+                "source": "self_mirror",
+            }]
+    except Exception:
+        pass
 
     # ========== 裁决律真实输入：P2 止观门状态 + P3 缓急律通道 ==========
     closure_state = {"status": "open", "task_id": task_id}
@@ -365,7 +440,8 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
     result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
-                       closure_state=closure_state, pace_channel=pace_result, context=context)
+                       closure_state=closure_state, pace_channel=pace_result, context=context,
+                       constancy_state=constancy_recovery)
 
     # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
     try:
@@ -408,6 +484,59 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
 
+    # ========== 守三·应急触发检测（一二不过三连续3轮内≥2次阻断 → 强制深度复盘，不等定时周期） ==========
+    deep_review_required = False
+    try:
+        _et_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "var", "state", "emergency_track.json")
+        _et = {"round": 0, "recent_blocks": []}
+        if os.path.exists(_et_file):
+            with open(_et_file, "r", encoding="utf-8") as _f:
+                _et = json.load(_f)
+        _et["round"] = int(_et.get("round", 0) or 0) + 1
+        _cur_round = _et["round"]
+        if result.get("decision") in ("block", "iron_wall_block"):
+            _et.setdefault("recent_blocks", []).append(_cur_round)
+        _et["recent_blocks"] = [r for r in _et.get("recent_blocks", []) if _cur_round - r < 3]
+        os.makedirs(os.path.dirname(_et_file), exist_ok=True)
+        with open(_et_file, "w", encoding="utf-8") as _f:
+            json.dump(_et, _f, ensure_ascii=False)
+        if len(_et.get("recent_blocks", [])) >= 2:
+            deep_review_required = True
+    except Exception:
+        pass
+
+    # ========== 预策·③预：主动推进检查（仅当连续3轮无输入+无待恢复+staging非空才触发，只读建议不制造伪任务） ==========
+    proactive_proposal = None
+    try:
+        _pro_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "state", "constancy_proactive.json")
+        _pro = {"streak": 0}
+        if os.path.exists(_pro_file):
+            with open(_pro_file, "r", encoding="utf-8") as _f:
+                _pro = json.load(_f)
+        _has_input = bool(str(context.get("task", context.get("cmd", context.get("message", "")))).strip())
+        _no_pending = not (constancy_recovery and constancy_recovery.get("has_pending"))
+        if (not _has_input) and _no_pending:
+            _pro["streak"] = int(_pro.get("streak", 0) or 0) + 1
+        else:
+            _pro["streak"] = 0
+        os.makedirs(os.path.dirname(_pro_file), exist_ok=True)
+        with open(_pro_file, "w", encoding="utf-8") as _f:
+            json.dump(_pro, _f, ensure_ascii=False)
+        if _pro["streak"] >= 3 and _no_pending:
+            from evo.main import _get_engine
+            _eng = _get_engine()
+            _staging_rules = [r for r in _eng.get_interceptions(active_only=False)
+                              if getattr(r, "lifecycle_status", "") == "staging"]
+            if _staging_rules:
+                proactive_proposal = {
+                    "triggered": True,
+                    "prompt": "连续3轮无用户输入，检测到待验证的staging候选规则，可主动发起回归校验（需用户确认）",
+                    "staging_candidates": [getattr(r, "id", "") for r in _staging_rules[:5]],
+                }
+    except Exception:
+        proactive_proposal = None
+
     # ========== 攻七强化 Q1: 及时使用 - 高置信度模式优先推荐 ==========
     _suggestions = build_gongqi_suggestions(rules["patterns"])
     # display_line 升级：放行且有高置信度模式 → 显式推荐优先采用
@@ -430,6 +559,11 @@ def pre_check(context: dict) -> dict:
         "mindol_hits": len(mindol_hits),
         "suggestions": _suggestions,
         "strike_context": strike_context,
+        "constancy_recovery": constancy_recovery,
+        "constancy_task_id": constancy_task_id,
+        "proactive_proposal": proactive_proposal,
+        "deep_review_required": deep_review_required,
+        "mirror_report": mirror_report,
     }
 
 def post_review(task_context: dict, task_result: dict) -> dict:
