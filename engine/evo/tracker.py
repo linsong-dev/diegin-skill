@@ -12,6 +12,37 @@ from rule_engine import InterceptionRule, SuccessPattern, RuleEngine
 import os, json
 
 
+def check_emergency_deep_review(decision, state_file=None, round_span=3, min_blocks=2):
+    """守三·应急触发检测（定稿第二章）：一二不过三在连续 round_span 轮内
+    触发 ≥min_blocks 次阻断 → 强制深度复盘，不等定时周期。
+
+    decision: 本轮裁决结果（block / iron_wall_block 计为阻断）
+    state_file: emergency_track.json 路径（默认 diegin 根/var/state）
+    返回是否触发应急复盘；副作用：读+写状态文件。异常时静默返回 False。
+    """
+    try:
+        if state_file is None:
+            state_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                      "var", "state", "emergency_track.json")
+        et = {"round": 0, "recent_blocks": []}
+        if os.path.exists(state_file):
+            with open(state_file, "r", encoding="utf-8") as f:
+                et = json.load(f)
+        et["round"] = int(et.get("round", 0) or 0) + 1
+        cur = et["round"]
+        if str(decision) in ("block", "iron_wall_block"):
+            et.setdefault("recent_blocks", []).append(cur)
+        et["recent_blocks"] = [r for r in et.get("recent_blocks", []) if cur - r < round_span]
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(et, f, ensure_ascii=False)
+        return len(et.get("recent_blocks", [])) >= min_blocks
+    except Exception:
+        return False
+
+
+
+
 class BehaviorTracker:
     """隐性偏好追踪器"""
 

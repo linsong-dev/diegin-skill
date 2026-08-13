@@ -487,22 +487,8 @@ def pre_check(context: dict) -> dict:
     # ========== 守三·应急触发检测（一二不过三连续3轮内≥2次阻断 → 强制深度复盘，不等定时周期） ==========
     deep_review_required = False
     try:
-        _et_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "var", "state", "emergency_track.json")
-        _et = {"round": 0, "recent_blocks": []}
-        if os.path.exists(_et_file):
-            with open(_et_file, "r", encoding="utf-8") as _f:
-                _et = json.load(_f)
-        _et["round"] = int(_et.get("round", 0) or 0) + 1
-        _cur_round = _et["round"]
-        if result.get("decision") in ("block", "iron_wall_block"):
-            _et.setdefault("recent_blocks", []).append(_cur_round)
-        _et["recent_blocks"] = [r for r in _et.get("recent_blocks", []) if _cur_round - r < 3]
-        os.makedirs(os.path.dirname(_et_file), exist_ok=True)
-        with open(_et_file, "w", encoding="utf-8") as _f:
-            json.dump(_et, _f, ensure_ascii=False)
-        if len(_et.get("recent_blocks", [])) >= 2:
-            deep_review_required = True
+        from evo.tracker import check_emergency_deep_review
+        deep_review_required = check_emergency_deep_review(str(result.get("decision", "")))
     except Exception:
         pass
 
