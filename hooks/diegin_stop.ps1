@@ -146,6 +146,17 @@ if($integrity -eq "NO_STATE" -or -not $state){
 
 }
 
+# ── 恒常门：会话结束挂起最近任务（保活可恢复，写侧接线） ──
+try {
+    if (Test-Path $pythonExe) {
+        $constancyOut = & $pythonExe $enginePy constancy_suspend_latest 2>&1 | Out-String
+        $constancyOut = $constancyOut.Trim()
+        if ($constancyOut) { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] CONSTANCY $constancyOut" }
+    }
+} catch {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] CONSTANCY-ERROR $($_.Exception.Message)"
+}
+
 
 
 # ── 🧹 日志库自动清理（当 >200MB 时删 7 天前的 TRACE） ──

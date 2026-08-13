@@ -2841,6 +2841,26 @@ def constancy_block(task_id, blocker_report):
     """恒常门：子任务受阻上报（status=blocked，上报父任务）"""
     return _get_constancy_inst().block(task_id, blocker_report)
 
+def constancy_track_prompt(prompt, source="pre_reply"):
+    """恒常门·写侧接线：新用户意图 → begin；切换任务 → suspend 旧任务；同意图去重。
+    返回 {"ok": True, "action": "begin"|"extend"|"none", "task_id": ...} 或 {"ok": False}
+    """
+    try:
+        _txt = (prompt or "").strip()
+        if not _txt or len(_txt) <= 5:
+            return {"ok": True, "action": "none", "task_id": ""}
+        _rec = constancy_recoverable()
+        _latest = _rec[0] if _rec else None
+        if _latest and str(_latest.get("intent_summary", ""))[:50] == _txt[:50]:
+            return {"ok": True, "action": "extend", "task_id": _latest.get("task_id", "")}
+        if _latest:
+            constancy_suspend(_latest["task_id"], reason="切换到新任务")
+        _r = constancy_begin(_txt, completion_criteria="", context={"source": source})
+        return {"ok": bool(_r.get("ok")), "action": "begin",
+                "task_id": _r.get("task_id", "")}
+    except Exception:
+        return {"ok": False, "action": "none", "task_id": ""}
+
 def get_self_mirror():
     """获取自照镜（方向之镜）实例"""
     return _get_self_mirror_inst()

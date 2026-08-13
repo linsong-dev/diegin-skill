@@ -500,7 +500,22 @@ def pre_check(context: dict) -> dict:
         if os.path.exists(_pro_file):
             with open(_pro_file, "r", encoding="utf-8") as _f:
                 _pro = json.load(_f)
-        _has_input = bool(str(context.get("task", context.get("cmd", context.get("message", "")))).strip())
+        _probe = ""
+        for _k in ("task", "cmd", "message", "command", "text"):
+            _v = context.get(_k)
+            if _v:
+                _probe = _v
+                break
+        if not _probe:
+            try:
+                _t = context.get("tool")
+                if isinstance(_t, dict):
+                    _ti = _t.get("input")
+                    if isinstance(_ti, dict):
+                        _probe = _ti.get("command") or _ti.get("text") or ""
+            except Exception:
+                _probe = ""
+        _has_input = bool(str(_probe).strip())
         _no_pending = not (constancy_recovery and constancy_recovery.get("has_pending"))
         if (not _has_input) and _no_pending:
             _pro["streak"] = int(_pro.get("streak", 0) or 0) + 1
@@ -933,6 +948,19 @@ if __name__ == "__main__":
 
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
+    elif mode == "constancy_suspend_latest":
+        """恒常门：会话结束时挂起最近任务（保活可恢复），供 stop 钩子调用"""
+        try:
+            from evo.main import constancy_recoverable, constancy_suspend
+            _rec = constancy_recoverable()
+            _tid = ""
+            if _rec:
+                _tid = _rec[0]["task_id"]
+                constancy_suspend(_tid, reason="会话结束挂起")
+            print(json.dumps({"ok": True, "task_id": str(_tid)[:40]}))
+        except Exception as _e:
+            print(json.dumps({"ok": False, "error": str(_e)[:100]}))
+
     elif mode == "pre_reply":
         """UserPromptSubmit 聚合模式：一次引擎加载完成所有预检工作
         用法: echo '<prompt_json>' | python call_diegin.py pre_reply
@@ -979,6 +1007,13 @@ if __name__ == "__main__":
                 from mindol.diegin_integration import save_chat
                 import threading
                 _ = threading.Thread(target=save_chat, args=(prompt[:2000],), daemon=True).start()
+        except Exception:
+            pass
+
+        # 恒常门·任务落库（写侧接线）：新用户意图 → begin；切换任务 → suspend 旧任务
+        try:
+            from evo.main import constancy_track_prompt
+            constancy_track_prompt(prompt, source="pre_reply")
         except Exception:
             pass
 
