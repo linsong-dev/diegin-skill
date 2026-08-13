@@ -2593,6 +2593,24 @@ def run_maintenance():
     except Exception as _e:
         print(f"  [HEALTH] 健康看板跳过: {_e}")
 
+    # 恒常门：30天快照清理（paused/blocked 超时任务自动清理；completed/abandoned 永久保留）
+    try:
+        _cg = _get_constancy_inst()
+        _removed = _cg.cleanup_expired()
+        if _removed:
+            print(f"  [CLEAN] 恒常门超时任务快照清理: {_removed} 条")
+    except Exception as _ce:
+        print(f"  [CLEAN] 恒常门清理跳过: {_ce}")
+
+    # 去伪存真：暂存区 50轮/7天（先到者）超时自动淘汰（定稿第五章）
+    try:
+        _vault = get_vault()
+        _expired = _vault.staging_ttl_check()
+        if _expired:
+            print(f"  [CLEAN] 去伪存真暂存区超时淘汰: {_expired} 条")
+    except Exception as _ve:
+        print(f"  [CLEAN] 暂存区淘汰跳过: {_ve}")
+
     print("[OK] 定期维护完成")
 
     # 一击即中: strikes 过期清理（14 天无活动则归档）—— 自 evidence_record 死代码迁入
@@ -2807,11 +2825,28 @@ def get_constancy():
     """获取恒常门（持存）实例"""
     return _get_constancy_inst()
 
+def _constancy_archive(action, task_id, ok=True):
+    """恒常门：写操作后归档 Mindol codex（JSON↔Mindol 互为备份，单向重建 JSON→Mindol）"""
+    try:
+        if not ok or not task_id:
+            return
+        _t = _get_constancy_inst().snapshot(task_id)
+        dgen_archive("constancy", json.dumps(
+            {"action": action, "task_id": task_id,
+             "status": _t.get("status", ""), "intent_summary": str(_t.get("intent_summary", ""))[:200]},
+            ensure_ascii=False)[:1500], {})
+    except Exception:
+        pass
+
+
 def constancy_begin(intent_summary, completion_criteria="", pending_items=None,
                     parent_task_id=None, context=None):
     """恒常门：启而探——创建新任务（含嵌套深度≤3 溢出保护）"""
-    return _get_constancy_inst().begin(intent_summary, completion_criteria,
-                                       pending_items, parent_task_id, context)
+    _r = _get_constancy_inst().begin(intent_summary, completion_criteria,
+                                     pending_items, parent_task_id, context)
+    if _r.get("ok"):
+        _constancy_archive("begin", _r.get("task_id", ""))
+    return _r
 
 def constancy_recoverable():
     """恒常门：续而接——检索可恢复任务（paused/blocked 且未超时）"""
@@ -2823,39 +2858,101 @@ def constancy_snapshot(task_id):
 
 def constancy_suspend(task_id, reason=""):
     """恒常门：断而存——任务中断/切换时挂起"""
-    return _get_constancy_inst().suspend(task_id, reason)
+    _ok = _get_constancy_inst().suspend(task_id, reason)
+    if _ok:
+        _constancy_archive("suspend", task_id)
+    return _ok
 
 def constancy_resume(task_id):
     """恒常门：续而接——用户确认后恢复（completed/abandoned 永不自动恢复）"""
-    return _get_constancy_inst().resume(task_id)
+    _ok = _get_constancy_inst().resume(task_id)
+    if _ok:
+        _constancy_archive("resume", task_id)
+    return _ok
 
 def constancy_complete(task_id):
     """恒常门：标记完成"""
-    return _get_constancy_inst().complete(task_id)
+    _ok = _get_constancy_inst().complete(task_id)
+    if _ok:
+        _constancy_archive("complete", task_id)
+    return _ok
 
 def constancy_abandon(task_id, reason=""):
     """恒常门：标记用户放弃"""
-    return _get_constancy_inst().abandon(task_id, reason)
+    _ok = _get_constancy_inst().abandon(task_id, reason)
+    if _ok:
+        _constancy_archive("abandon", task_id)
+    return _ok
 
 def constancy_block(task_id, blocker_report):
     """恒常门：子任务受阻上报（status=blocked，上报父任务）"""
-    return _get_constancy_inst().block(task_id, blocker_report)
+    _ok = _get_constancy_inst().block(task_id, blocker_report)
+    if _ok:
+        _constancy_archive("block", task_id)
+    return _ok
 
-def constancy_track_prompt(prompt, source="pre_reply"):
-    """恒常门·写侧接线：新用户意图 → begin；切换任务 → suspend 旧任务；同意图去重。
+_CONSTANCY_SYSTEM_MARKERS = (
+    "memory writing agent",
+    "you are a memory writing",
+    "## memory writing",
+    "consolidate raw memories and rollout summaries",
+)
+
+
+def _derive_completion_criteria(text):
+    """轻量推导完成标准：取含完成语义的首句，否则全文截断"""
+    import re as _re
+    _sent = [_s.strip() for _s in _re.split(r"[。；;\n！？]", text) if _s.strip()]
+    _keys = ("完成", "实现", "修复", "直到", "确保", "全部", "交付", "产出", "最终", "验收")
+    for s in _sent:
+        if any(k in s for k in _keys):
+            return s[:2000]
+    return text[:2000]
+
+
+def _derive_pending_items(text):
+    """轻量推导待办清单：提取编号/步骤句（最多 20 条）"""
+    _items = []
+    import re as _re
+    for line in text.splitlines():
+        _l = line.strip()
+        if _re.match(r"^(\d+[.、]|[-*]\s|第一步|第二步|然后|接着|其次|最后)", _l):
+            _items.append(_l[:200])
+        if len(_items) >= 20:
+            break
+    return _items
+
+
+def constancy_track_prompt(prompt, source="pre_reply", current_task_id=None,
+                           turn_id=None):
+    """恒常门·写侧接线：新用户意图 → begin；切换任务 → suspend 旧任务；同意图去重；恢复续接 → extend。
     返回 {"ok": True, "action": "begin"|"extend"|"none", "task_id": ...} 或 {"ok": False}
     """
     try:
         _txt = (prompt or "").strip()
-        if not _txt or len(_txt) <= 5:
+        if not _txt or len(_txt) < 3:
             return {"ok": True, "action": "none", "task_id": ""}
+        # P2: 系统输入过滤（记忆代理等非用户输入不入库）
+        _low = _txt.lower()
+        if any(_m in _low for _m in _CONSTANCY_SYSTEM_MARKERS):
+            return {"ok": True, "action": "none", "task_id": ""}
+        _reg = _get_constancy_inst()
+        # 恢复续接：当前轮已恢复任务 → 不新建、不切换
+        if current_task_id and bool(_reg.snapshot(current_task_id)):
+            return {"ok": True, "action": "extend", "task_id": current_task_id}
         _rec = constancy_recoverable()
         _latest = _rec[0] if _rec else None
         if _latest and str(_latest.get("intent_summary", ""))[:50] == _txt[:50]:
             return {"ok": True, "action": "extend", "task_id": _latest.get("task_id", "")}
         if _latest:
             constancy_suspend(_latest["task_id"], reason="切换到新任务")
-        _r = constancy_begin(_txt, completion_criteria="", context={"source": source})
+        _criteria = _derive_completion_criteria(_txt)
+        _pending = _derive_pending_items(_txt)
+        _ctx = {"source": source}
+        if turn_id:
+            _ctx["turn_id"] = str(turn_id)[:80]
+        _r = constancy_begin(_txt, completion_criteria=_criteria,
+                             pending_items=_pending, context=_ctx)
         return {"ok": bool(_r.get("ok")), "action": "begin",
                 "task_id": _r.get("task_id", "")}
     except Exception:
@@ -2869,16 +2966,22 @@ def mirror_tick():
     """自照镜：每轮调用——轮次+1，勇气信号 ×0.6 半衰期衰减"""
     return _get_self_mirror_inst().tick()
 
-def mirror_add_courage(amount=0.5, reason=""):
+def mirror_add_courage(amount=0.5, reason="", pending=True):
     """自照镜：勇气信号——主动冒险获得超额收益 → P6 正面加权（对冲纠偏偏好）"""
-    return _get_self_mirror_inst().add_courage(amount, reason)
+    return _get_self_mirror_inst().add_courage(amount, reason, pending=pending)
 
-def mirror_run_if_due():
-    """自照镜：跟随守三深度复盘频率（每10轮或每日）触发自照，未到期静默跳过"""
+def mirror_run_if_due(emergency=False):
+    """自照镜：跟随守三深度复盘频率（每10轮或每日）触发自照，未到期静默跳过
+    emergency=True（守三应急复盘触发）：仅记录素材，不产出 P6 调权（定稿第九章）"""
     m = _get_self_mirror_inst()
     if m.should_mirror():
-        return m.mirror()
+        return m.mirror(emergency=emergency)
     return None
+
+
+def mirror_confirm_courage(confirmed=True):
+    """自照镜：勇气信号下一轮用户交互确认（定稿第九章）——未负面反馈且任务目标达成 → 生效；否则归零"""
+    return _get_self_mirror_inst().confirm_courage(bool(confirmed))
 
 def mirror_status():
     """自照镜：状态查看"""

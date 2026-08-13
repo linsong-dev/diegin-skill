@@ -71,6 +71,14 @@ class EvidenceVault:
                 "rejected": True,
                 "reject_reason": "evidence_validity_gate: 空壳 pass 或非真实规则 id 记录被拒绝",
             }
+        # 定稿第五章：谱系距离衰减——泛化规则验证 pass 时按推导链级数衰减证据权重，
+        # 支撑度<0.5 强制判定「暂存」（等待独立实证）
+        try:
+            _v = self.verify_with_genealogy(rule_id, verdict)
+            if _v != verdict:
+                verdict = _v
+        except Exception:
+            pass
         entry = {
             "ts": datetime.datetime.now().isoformat(),
             "rule_id": rule_id,
@@ -87,6 +95,12 @@ class EvidenceVault:
             entry["staging_round"] = self._bump_round()
             entry["reset_count"] = 0
             entry["expired"] = False
+        else:
+            # 非暂存判定（pass/fail/skip）= 该规则获得外部新证据 → 重置暂存计时器一次
+            try:
+                self.reset_staging_timer(rule_id)
+            except Exception:
+                pass
         self._trail.append(entry)
         self._save()
         return entry
@@ -145,6 +159,55 @@ class EvidenceVault:
                 self._save()
                 return True
         return False
+
+    def generalization_depth(self, rule_id: str, engine=None) -> int:
+        """去伪存真·谱系距离（定稿第五章）：泛化推导链级数
+        0=非泛化；1=直接泛化产物（generalize_from_patterns/cross_domain）；
+        2=二级泛化（源本身是泛化产物）"""
+        depth = 0
+        try:
+            if engine is None:
+                from evo.main import _get_engine
+                engine = _get_engine()
+            if engine is None:
+                return 0
+            r = engine.get_interception_by_id(rule_id) or engine.get_pattern_by_id(rule_id)
+            if r is None:
+                return 0
+            src = str(getattr(r, "source_review", "") or "")
+            rid = str(getattr(r, "id", "") or "")
+            is_gen = ("generalize_from_patterns" in src or "跨域" in src or "cross_domain" in src
+                      or rid.startswith("xdomain_") or rid.startswith("pat_rule_"))
+            if not is_gen:
+                return 0
+            depth = 1
+            _src_id = src.split(":")[-1].strip() if ":" in src else ""
+            if _src_id:
+                _src_r = engine.get_interception_by_id(_src_id) or engine.get_pattern_by_id(_src_id)
+                if _src_r is not None:
+                    _src_src = str(getattr(_src_r, "source_review", "") or "")
+                    if "generalize" in _src_src or "跨域" in _src_src:
+                        depth = 2
+        except Exception:
+            depth = 0
+        return depth
+
+    def verify_with_genealogy(self, rule_id: str, raw_verdict: str, engine=None) -> str:
+        """谱系距离衰减（定稿第五章）：泛化每+1级证据权重×0.8；
+        衰减后支撑度<0.5 → 强制判定「暂存」（等待独立实证）"""
+        if raw_verdict != "pass":
+            return raw_verdict
+        depth = self.generalization_depth(rule_id, engine=engine)
+        if depth <= 0:
+            return raw_verdict
+        weight = 0.8 ** depth
+        trail = [e for e in self._trail if e.get("rule_id") == rule_id]
+        passes = sum(1 for e in trail if e.get("verdict") == "pass")
+        total = sum(1 for e in trail if e.get("verdict") in ("pass", "fail"))
+        if total == 0:
+            return "pending"  # 无历史对比证据 → 支撑度不足 → 暂存
+        support = (passes * weight) / total
+        return raw_verdict if support >= 0.5 else "pending"
 
     def get_recent(self, limit: int = 20) -> List[Dict]:
         return self._trail[-limit:]

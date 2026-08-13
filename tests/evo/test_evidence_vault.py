@@ -73,3 +73,37 @@ def test_accept_skip_audit():
     r = ev.record("rule_staging_x", "skip", "staging规则证据不足(触发=0,置信度=4.1)", "evidence_filter")
     assert r.get("rejected") is None
     assert len(ev._trail) == 1
+
+def test_staging_ttl_expires():
+    """定稿第五章：暂存 7 天超时自动淘汰（50轮/7天先到者）"""
+    import datetime
+    ev = _make_vault()
+    ev._is_valid_evidence = lambda *a, **k: True
+    old = (datetime.datetime.now() - datetime.timedelta(days=8)).isoformat()
+    ev._trail.append({"rule_id": "r1", "verdict": "pending", "ts": old,
+                      "staging_created_at": old, "staging_round": 1,
+                      "reset_count": 0, "expired": False})
+    n = ev.staging_ttl_check()
+    assert n == 1
+    assert ev._trail[0]["expired"] is True
+
+
+def test_staging_reset_once():
+    """定稿第五章：保留期内新证据重置计时器一次，第二次拒绝"""
+    ev = _make_vault()
+    ev._is_valid_evidence = lambda *a, **k: True
+    ev.record("rx", "pending", "待验证", source="auto")
+    assert ev.reset_staging_timer("rx") is True
+    assert ev.reset_staging_timer("rx") is False
+    p = [e for e in ev._trail if e["rule_id"] == "rx" and e["verdict"] == "pending"][0]
+    assert p.get("reset_count") == 1
+
+
+def test_record_new_evidence_auto_reset():
+    """新证据（非 pending 判定）→ record 自动重置暂存计时器"""
+    ev = _make_vault()
+    ev._is_valid_evidence = lambda *a, **k: True
+    ev.record("ry", "pending", "待验证", source="auto")
+    ev.record("ry", "pass", "验证通过", source="external")
+    p = [e for e in ev._trail if e["rule_id"] == "ry" and e["verdict"] == "pending"][0]
+    assert p.get("reset_count") == 1

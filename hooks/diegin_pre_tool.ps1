@@ -454,6 +454,13 @@ try {
             } elseif ($sugText) {
                 Write-Output ("ℹ️ [迭进] 预检放行" + $sugText)
             }
+            # 守三·应急触发 AI 可见性（定稿第二章）：触发时显式提示立即深度复盘
+            if ($checkResult.deep_review_required) {
+                Write-Output ("")
+                Write-Output ("⚠️ [迭进] 守三应急复盘触发：连续3轮内≥2次阻断，建议立即执行深度复盘")
+                Write-Output ("")
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-EMERGENCY-REVIEW] triggered=true"
+            }
             if ($priorityText) {
                 Write-Output ("")
                 Write-Output ("✅ [迭进] 攻七·推荐优先采用: " + $priorityText)

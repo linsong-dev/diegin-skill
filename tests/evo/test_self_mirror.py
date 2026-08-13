@@ -57,3 +57,61 @@ def test_mirror_generates_report_and_archives(tmp_path, monkeypatch):
     assert "自照镜" in report
     assert m._state["last_mirror_round"] == 10
     assert len(m._state["reports"]) == 1
+
+
+def test_direction_calibration_conservative(tmp_path, monkeypatch):
+    """方向校准：无勇气事件 + 无 staging 候选 → 保守信号"""
+    m = _make_mirror(tmp_path, monkeypatch)
+    r = m.generate_report()
+    sig = r.get("direction_calibration", [])
+    assert any("保守" in s for s in sig)
+
+
+def test_direction_calibration_high_interrupt(tmp_path, monkeypatch):
+    """方向校准：中断率高 → 恢复优先信号"""
+    m = _make_mirror(tmp_path, monkeypatch)
+    report = {"攻七": {"入库模式数": 10, "平均置信度": 5.0},
+              "持存": {"中断率": 0.9},
+              "举一反三": {"staging池大小": 3},
+              "自照镜": {"累计勇气事件": 1}}
+    sig = m._build_direction_calibration(report)
+    assert any("中断率" in s for s in sig)
+    assert not any("保守" in s for s in sig)
+
+
+def test_report_has_all_principles(tmp_path, monkeypatch):
+    """自照报告素材：一二不过三/预策/持存/守三/去伪存真/自照镜 六块齐（注入状态文件）"""
+    import json
+    _sd = os.path.join(str(tmp_path), "strikes_db.json")
+    with open(_sd, "w", encoding="utf-8") as f:
+        json.dump({"image_url": {"count": 2}, "command_failure": {"count": 1}}, f)
+    _vt = os.path.join(str(tmp_path), "evidence_trail.json")
+    with open(_vt, "w", encoding="utf-8") as f:
+        json.dump([{"verdict": "真"}, {"verdict": "假"}, {"verdict": "暂存"}], f)
+    m = _make_mirror(tmp_path, monkeypatch)
+    r = m.generate_report()
+    for k in ("一二不过三", "预策", "持存", "守三", "去伪存真", "自照镜"):
+        assert k in r, f"缺少素材块: {k}"
+    assert "完成率" in r["持存"]
+    assert "升级阻断数" in r["预策"]
+    assert "累计触发次数" in r["一二不过三"]
+    assert r["一二不过三"]["累计触发次数"] == 3
+    assert r["去伪存真"]["验证请求数"] == 3
+
+
+def test_mirror_archives_direction_signal(tmp_path, monkeypatch):
+    """自照归档：方向信号非空时写 direction_calibration Mindol 条目"""
+    import sys, types
+    calls = []
+    _mod = types.ModuleType("mindol")
+    _di = types.ModuleType("mindol.diegin_integration")
+    _di.memory_archive = lambda space, text, *a, **k: calls.append((space, text))
+    _mod.diegin_integration = _di
+    sys.modules["mindol"] = _mod
+    sys.modules["mindol.diegin_integration"] = _di
+    m = _make_mirror(tmp_path, monkeypatch)
+    m._state["round"] = 10
+    m.mirror()
+    assert any(sp == "self_mirror" for sp, _ in calls)
+    # 保守环境应产生方向信号归档
+    assert any(sp == "direction_calibration" for sp, _ in calls)

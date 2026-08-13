@@ -432,6 +432,7 @@ class ConflictArbiter:
                     conflict_set=[best_interception, best_pattern],
                     reason=f"[裁决律P4] 守三vs攻七置信度接近（delta={confidence_delta:.3f}），需用户确认"
                            + _scene_bonus
+                           + _vigilance
                            + (f" | P6记忆: {memory_note}" if memory_note else "")
                 )
             elif pat_conf > int_conf:

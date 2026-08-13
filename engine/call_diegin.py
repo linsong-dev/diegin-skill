@@ -13,7 +13,8 @@ import sys, json, os, re
 import io
 from datetime import datetime
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
 from mindol.diegin_integration import memory_format_context, memory_archive
@@ -75,6 +76,125 @@ def _decode_stdin_bytes(_b: bytes) -> str:
     return _decode_stdin_bytes(_b).strip()
 
 
+def _constancy_age_text(updated_at: str) -> str:
+    """恒常门恢复提示：任务年龄（刚刚 / X分钟前 / X小时前 / X天前）"""
+    try:
+        import datetime as _dt
+        _t = _dt.datetime.fromisoformat(str(updated_at))
+        _mins = int((_dt.datetime.now() - _t).total_seconds() // 60)
+        if _mins < 1:
+            return "刚刚"
+        if _mins < 60:
+            return "%d分钟前" % _mins
+        _hours = _mins // 60
+        if _hours < 24:
+            return "%d小时前" % _hours
+        return "%d天前" % (_hours // 24)
+    except Exception:
+        return ""
+
+
+def _build_deep_review_report():
+    """守三·深度复盘：系统性回顾strike日志并生成改进建议"""
+    import json as _j, os as _o
+    import datetime as _dt
+
+    strikes_path = _o.path.join(_o.path.dirname(_o.path.dirname(__file__)), "var", "state", "strikes_db.json")
+    overrides_path = _o.path.join(_o.path.dirname(_o.path.dirname(__file__)), "var", "state", "dgen_overrides.json")
+
+    strikes = {}
+    if _o.path.exists(strikes_path):
+        with open(strikes_path, "r", encoding="utf-8") as f:
+            strikes = _j.load(f)
+
+    overrides = []
+    if _o.path.exists(overrides_path):
+        with open(overrides_path, "r", encoding="utf-8") as f:
+            _raw_ov = f.read().strip()
+        if _raw_ov:
+            _loaded_ov = _j.loads(_raw_ov)
+            overrides = _loaded_ov if isinstance(_loaded_ov, list) else (
+                [v for v in _loaded_ov.values() if isinstance(v, dict)] if isinstance(_loaded_ov, dict) else [])
+
+    # 分析
+    total_errors = len(strikes)
+    total_strikes = sum(e.get("count", 0) for e in strikes.values())
+    high_severity = sum(1 for e in strikes.values() if e.get("severity", "") in ("high", "critical"))
+    blocked = len(overrides)
+
+    # 按错误频率排序
+    sorted_errors = sorted(strikes.items(), key=lambda x: -x[1].get("count", 0))
+
+    # 生成改进建议
+    suggestions = []
+    for error_type, entry in sorted_errors:
+        count = entry.get("count", 0)
+        sev = entry.get("severity", "medium")
+        if count >= 3:
+            suggestions.append(f"[P0] {error_type}: 已触发{count}次(严重度:{sev})，建议: 推翻现有阻断方案，升级处理")
+        elif count >= 2:
+            suggestions.append(f"[P1] {error_type}: 已触发{count}次(严重度:{sev})，建议: 阻断已生效，持续监控")
+        elif count >= 1:
+            suggestions.append(f"[P2] {error_type}: 已触发{count}次(严重度:{sev})，建议: 保持警觉")
+
+    # 未阻断的高频错误
+    unblocked = []
+    for error_type, entry in sorted_errors:
+        count = entry.get("count", 0)
+        if count >= 2:
+            already_blocked = any(
+                o.get("blocked_error_type") == error_type for o in overrides
+            )
+            if not already_blocked:
+                unblocked.append(error_type)
+
+    # 定稿第八章：守三应急复盘只读访问止观执行轨迹快照（只读豁免权，不修改任务状态）
+    trajectory = []
+    try:
+        from evo.main import get_closure
+        _cg = get_closure()
+        _closed = list(_cg._closed_items or [])[-5:]
+        from evo.tracker import snapshot_age_days
+        for _ci in reversed(_closed):
+            _snap = _ci.get("readonly_snapshot") if isinstance(_ci, dict) else None
+            if _snap:
+                trajectory.append({
+                    "item_id": _ci.get("id", "?")[:60],
+                    "status": _ci.get("status", "?"),
+                    "closed_at": _ci.get("closed_at", ""),
+                    "age_days": snapshot_age_days(_ci.get("closed_at", "")),
+                    "block_records": _snap.get("block_records") or [],
+                    "tool_call_sequence": _snap.get("tool_call_sequence") or [],
+                    "arbitration_log": str(_snap.get("arbitration_log") or "")[:500],
+                })
+    except Exception:
+        pass
+
+    report = {
+        "generated_at": _dt.datetime.now().isoformat(),
+        "principle": "守三·深度复盘",
+        "statistics": {
+            "total_error_types": total_errors,
+            "total_strikes": total_strikes,
+            "high_severity_count": high_severity,
+            "blocked_count": blocked,
+            "unblocked_high_count": len(unblocked),
+            "max_snapshot_age_days": max([t.get("age_days", 0) for t in trajectory], default=0),
+        },
+        "error_ranking": [
+            {"error_type": et, "count": e.get("count", 0), "severity": e.get("severity", "medium")}
+            for et, e in sorted_errors[:10]
+        ],
+        "suggestions": suggestions,
+        "unblocked_high_risk": unblocked,
+        "trajectory": trajectory,
+        "next_step": "建议执行 deep_review_apply 应用本次复盘结果" if unblocked else "系统状态良好"
+    }
+
+    return report
+
+
+
 def load_principle_rules(context: dict, record_strike: bool = True) -> list:
     """Load strike (一二不过三) + staging (举一反三) rules into arbitration pipeline"""
     engine = _get_engine()
@@ -111,8 +231,8 @@ def load_principle_rules(context: dict, record_strike: bool = True) -> list:
             if not isinstance(strikes_db, dict):
                 strikes_db = {}
             for error_type, entry in strikes_db.items():
-                count = entry.get("count", 0)
-                if count < 2:
+                count = int(entry.get("count", 0) or 0)
+                if count < 1:
                     continue
                 rule_id = "self_error_" + error_type
                 if rule_id in seen_ids:
@@ -124,20 +244,38 @@ def load_principle_rules(context: dict, record_strike: bool = True) -> list:
                 if not engine._match_condition(temp_trigger, context):
                     continue
                 from evo.rule_engine import InterceptionRule as _IR
-                nr = _IR(
-                    id=rule_id,
-                    trigger_condition=temp_trigger,
-                    action="block_operation",
-                    severity="high",
-                    tags=["self_error", "one-two-no-three", "auto_block"],
-                    logic_score=4.5,
-                    outcome_score=3.5,
-                    confidence=4.5,
-                    source="auto_self_error_tracker",
-                    lifecycle_status="active",
-                    created_at=entry.get("first_seen", ""),
-                    triggered_count=count
-                )
+                if count == 1:
+                    # 定稿第三章·警觉窗口：第 1 次 strike → alerting 警觉规则（不阻断，
+                    # 仲裁 P4 对相关攻七模式置信度 -0.2；第 2 次起才升级为阻断）
+                    nr = _IR(
+                        id=rule_id,
+                        trigger_condition=temp_trigger,
+                        action="alert; monitor",
+                        severity="low",
+                        tags=["self_error", "one-two-no-three", "alerting"],
+                        logic_score=4.5,
+                        outcome_score=3.5,
+                        confidence=4.5,
+                        source="auto_self_error_tracker",
+                        lifecycle_status="alerting",
+                        created_at=entry.get("first_seen", ""),
+                        triggered_count=count
+                    )
+                else:
+                    nr = _IR(
+                        id=rule_id,
+                        trigger_condition=temp_trigger,
+                        action="block_operation",
+                        severity="high",
+                        tags=["self_error", "one-two-no-three", "auto_block"],
+                        logic_score=4.5,
+                        outcome_score=3.5,
+                        confidence=4.5,
+                        source="auto_self_error_tracker",
+                        lifecycle_status="active",
+                        created_at=entry.get("first_seen", ""),
+                        triggered_count=count
+                    )
                 extra.append(nr)
                 seen_ids.add(rule_id)
     except Exception as e:
@@ -298,27 +436,21 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
 
-    # ========== 自照镜·每轮衰减 + 勇气信号记录（跟随守三深度复盘频率触发，静默跳过） ==========
-    mirror_report = None
-    try:
-        from evo.main import mirror_tick, mirror_add_courage, mirror_run_if_due
-        mirror_tick()
-        _courage = context.get("courage_signal")
-        if _courage:
-            try:
-                mirror_add_courage(float(_courage), reason="context 主动冒险信号")
-            except Exception:
-                pass
-        mirror_report = mirror_run_if_due()
-    except Exception:
-        pass
-
     # ========== 恒常门·入口恢复检查（每次入口最先执行，恢复前需用户确认） ==========
     constancy_recovery = None
     try:
         from evo.main import constancy_recoverable, constancy_resume
+        _current_tid = context.get("constancy_current_task_id") or ""
         _resume_id = context.get("resume_task_id")
-        if _resume_id:
+        _resumed_tid = context.get("constancy_resumed_task_id") or ""
+        if _resumed_tid:
+            # pre_reply 外层已恢复 → 直接呈现恢复结果，不再重复查 recoverable
+            constancy_recovery = {
+                "resume_requested": str(_resumed_tid)[:80],
+                "resumed": True,
+                "prompt": "已恢复任务，继续执行"
+            }
+        elif _resume_id:
             _resumed = constancy_resume(_resume_id)
             constancy_recovery = {
                 "resume_requested": str(_resume_id)[:80],
@@ -327,6 +459,9 @@ def pre_check(context: dict) -> dict:
             }
         else:
             _rec = constancy_recoverable()
+            # 排除当前轮任务（pre_reply 已落库，避免同轮自指：恢复提示不应含刚创建的任务）
+            if _current_tid:
+                _rec = [t for t in _rec if t.get("task_id") != _current_tid]
             if _rec:
                 constancy_recovery = {
                     "has_pending": True,
@@ -335,17 +470,19 @@ def pre_check(context: dict) -> dict:
                         "task_id": t.get("task_id", ""),
                         "status": t.get("status", "paused"),
                         "summary": str(t.get("intent_summary", ""))[:50],
-                        "updated_at": t.get("updated_at", "")
+                        "updated_at": t.get("updated_at", ""),
+                        "cold_stored": bool(t.get("cold_stored", False)),
+                        "bulk_hint": str(t.get("bulk_hint", "")) if t.get("cold_stored") else ""
                     } for t in _rec[:5]]
                 }
     except Exception:
         pass
 
     # ========== 预策·①汇：task_id 生成（如无）==========
-    # 基于任务文本稳定哈希生成；恢复任务沿用恢复出的 task_id
-    constancy_task_id = None
+    # 优先沿用 pre_reply 已落库/已恢复的任务 id；否则基于任务文本稳定哈希生成
+    constancy_task_id = context.get("constancy_current_task_id") or None
     try:
-        if constancy_recovery and constancy_recovery.get("has_pending"):
+        if not constancy_task_id and constancy_recovery and constancy_recovery.get("has_pending"):
             _rec_tasks = constancy_recovery.get("tasks") or []
             if _rec_tasks:
                 constancy_task_id = _rec_tasks[0].get("task_id")
@@ -486,9 +623,48 @@ def pre_check(context: dict) -> dict:
 
     # ========== 守三·应急触发检测（一二不过三连续3轮内≥2次阻断 → 强制深度复盘，不等定时周期） ==========
     deep_review_required = False
+    deep_review_report = None
     try:
         from evo.tracker import check_emergency_deep_review
         deep_review_required = check_emergency_deep_review(str(result.get("decision", "")))
+        # 定稿第二章·应急触发「立即强制执行」：自动执行只读深度复盘报告（不写规则库）
+        # deep_review_apply（写 override 阻断）保持人工确认，避免自动误阻断
+        deep_review_report = None
+        if deep_review_required:
+            try:
+                deep_review_report = _build_deep_review_report()
+                _append_audit("[EMERGENCY-REVIEW] auto_deep_review 已自动执行深度复盘报告 statistics=%s" % (
+                    json.dumps(deep_review_report.get("statistics", {}), ensure_ascii=False)[:200]))
+            except Exception as _dre:
+                _append_audit("[EMERGENCY-REVIEW] auto_deep_review 失败 %s" % str(_dre)[:120])
+                deep_review_report = None
+    except Exception:
+        pass
+    except Exception:
+        pass
+
+    # ========== 自照镜·每轮衰减 + 勇气信号记录（跟随守三深度复盘频率触发；应急期仅记录不产出P6调权） ==========
+    mirror_report = None
+    try:
+        from evo.main import mirror_tick, mirror_add_courage, mirror_run_if_due
+        mirror_tick()
+        _courage = context.get("courage_signal")
+        if _courage:
+            try:
+                mirror_add_courage(float(_courage), reason="context 主动冒险信号")
+            except Exception:
+                pass
+        mirror_report = mirror_run_if_due(emergency=deep_review_required)
+        if mirror_report:
+            try:
+                _dir = mirror_report.get("direction_calibration") or []
+                _append_audit("[MIRROR] r%s 自照完成%s%s" % (
+                    mirror_report.get("round", "?"),
+                    (" | 方向信号: " + "; ".join(str(x) for x in _dir)) if _dir else "",
+                    (" | 应急抑制" if mirror_report.get("emergency_suppressed") else "") + 
+                    (" | 同向熔断静默" if mirror_report.get("same_dir_silenced") else "")))
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -548,6 +724,18 @@ def pre_check(context: dict) -> dict:
         if _rec and "攻七" not in _display_line:
             _display_line = (_display_line + " | ✅ 攻七优先采用: " + _rec).strip()
 
+    # ========== 守三·应急触发 AI 可见性（定稿第二章）：audit + reason + display_line 三面接线 ==========
+    if deep_review_required:
+        try:
+            from evo.tracker import EMERGENCY_REVIEW_FLAG, emergency_review_notice
+            _append_audit("[EMERGENCY-REVIEW] triggered=true 连续3轮内>=2次阻断，强制深度复盘提前")
+            _reason = str(result.get("reason", ""))
+            if "守三应急" not in _reason:
+                result["reason"] = (_reason + " | " + EMERGENCY_REVIEW_FLAG).strip()
+            _display_line = emergency_review_notice(True, _display_line)
+        except Exception:
+            pass
+
     return {
         "matched_interceptions": len(rules["interceptions"]),
         "matched_patterns": len(rules["patterns"]),
@@ -564,6 +752,7 @@ def pre_check(context: dict) -> dict:
         "constancy_task_id": constancy_task_id,
         "proactive_proposal": proactive_proposal,
         "deep_review_required": deep_review_required,
+        "deep_review_report": deep_review_report,
         "mirror_report": mirror_report,
     }
 
@@ -1010,12 +1199,51 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # 恒常门·任务落库（写侧接线）：新用户意图 → begin；切换任务 → suspend 旧任务
+        # 自照镜·勇气信号下一轮用户交互确认（定稿第九章）：负面反馈 → 归零；否则生效
         try:
-            from evo.main import constancy_track_prompt
-            constancy_track_prompt(prompt, source="pre_reply")
+            from evo.main import mirror_confirm_courage
+            _neg_words = ("不满意", "不对", "错了", "不是这样", "失败", "不行", "停止", "取消", "别", "不要", "拒绝", "有问题", "bug", "回退")
+            _confirmed = not any(_w in (prompt or "") for _w in _neg_words)
+            mirror_confirm_courage(confirmed=_confirmed)
         except Exception:
             pass
+
+        # 恒常门·恢复意图解析 + 任务落库（先解析恢复，再落库，避免同轮自指）
+        constancy_current_task_id = ""
+        try:
+            from evo.main import constancy_track_prompt, constancy_resume, constancy_recoverable
+            _rec_tasks = constancy_recoverable()
+            _rec_ids = {t.get("task_id") for t in _rec_tasks}
+            _cand = input_data.get("resume_task_id", "") or ""
+            if not _cand:
+                import re as _re
+                _m = _re.search(r"(?:resume_task_id|恢复|继续)\s*[:=]?\s*(task_\w+)", prompt or "")
+                if _m:
+                    _cand = _m.group(1)
+            if _cand and _cand in _rec_ids:
+                try:
+                    if constancy_resume(_cand):
+                        constancy_current_task_id = _cand
+                        ctx["constancy_resumed_task_id"] = _cand
+                except Exception:
+                    pass
+            _trk = constancy_track_prompt(prompt, source="pre_reply",
+                                          current_task_id=constancy_current_task_id or None,
+                                          turn_id=turn_id)
+            if not constancy_current_task_id and _trk and _trk.get("task_id"):
+                constancy_current_task_id = _trk["task_id"]
+            # 恒常门·完成自动信号：用户明确结束语 → 标记当前任务完成
+            if constancy_current_task_id:
+                _low_p = (prompt or "").lower()
+                if any(_w in _low_p for _w in ("完成了", "搞定了", "任务完成", "本任务完成", "收工")):
+                    try:
+                        from evo.main import constancy_complete
+                        constancy_complete(constancy_current_task_id)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        ctx["constancy_current_task_id"] = constancy_current_task_id
 
         # 1. 预检
         check_result = pre_check(ctx)
@@ -1149,6 +1377,46 @@ if __name__ == "__main__":
         if strike_context:
             strike_str = "\n" + strike_context
         output_text = marker_str + " PASS" + mindol_str + suggestions_text + strike_str
+        # 恒常门·恢复/主动推进提示（用户可见；恢复前用户确认，摘要≤50字）
+        constancy_recovery = check_result.get("constancy_recovery") or None
+        proactive_proposal = check_result.get("proactive_proposal") or None
+        _constancy_hint = ""
+        try:
+            if constancy_recovery and constancy_recovery.get("has_pending"):
+                _lines = ["\n[恒常门] 检测到未完成任务:"]
+                for _t in (constancy_recovery.get("tasks") or [])[:3]:
+                    _age = _constancy_age_text(_t.get("updated_at", ""))
+                    _age_s = "（%s）" % _age if _age else ""
+                    _bulk = " (信息量大，恢复后分批加载)" if _t.get("cold_stored") and _t.get("bulk_hint") else ""
+                    _lines.append("  - %s [%s] %s%s%s" % (
+                        _t.get("task_id", ""), _t.get("status", "paused"),
+                        str(_t.get("summary", ""))[:24], _age_s, _bulk))
+                _lines.append("如需继续请回复: 继续 <task_id>")
+                _constancy_hint = "\n".join(_lines)
+            elif constancy_recovery and constancy_recovery.get("resumed"):
+                _constancy_hint = "\n[恒常门] 已恢复任务 %s，继续执行" % str(constancy_recovery.get("resume_requested", ""))[:40]
+            if not _constancy_hint and proactive_proposal and proactive_proposal.get("triggered"):
+                _constancy_hint = "\n[恒常门] 连续3轮无输入，有staging候选规则待验证，可主动回归校验（需用户确认）"
+            if _constancy_hint:
+                output_text += _constancy_hint
+            # 一二不过三·人工介入/静默锁止可见性（定稿第三章升级三步③）
+            try:
+                _trk = _get_tracker()
+                _lockdown = _trk.check_human_escalation()
+                _esc = _trk.get_escalation_status()
+                _esc_lines = []
+                for _a in (_esc.get("awaiting") or []):
+                    _esc_lines.append("  - 待人工介入 %s（截止 %s）" % (
+                        _a.get("error_type", ""), str(_a.get("deadline", ""))[:19]))
+                for _l in (_esc.get("locked") or []):
+                    _esc_lines.append("  - 静默锁止 %s（%s）" % (
+                        _l.get("error_type", ""), str(_l.get("locked_at", ""))[:19]))
+                if _esc_lines:
+                    output_text += "\n[一二不过三] 升级事件需人工介入:\n" + "\n".join(_esc_lines)
+            except Exception:
+                pass
+        except Exception:
+            pass
         output_text += "\n\n=== PROTOCOL ==="
         output_text += "\nFirst tool command MUST contain: " + marker_str
         output_text += "\n=== END PROTOCOL ==="
@@ -1181,6 +1449,9 @@ if __name__ == "__main__":
             "display_text": output_text,
             "mindol_context": mindol_ctx,
             "strike_context": strike_context,
+            "constancy_recovery": constancy_recovery,
+            "constancy_task_id": constancy_current_task_id,
+            "proactive_proposal": proactive_proposal,
         }
         print(json.dumps(output, ensure_ascii=False))
 
@@ -1194,6 +1465,10 @@ if __name__ == "__main__":
 
         tool_name = sys.argv[2] if len(sys.argv) > 2 else "unknown"
         method = sys.argv[3] if len(sys.argv) > 3 else ""
+        _rs_intent = ""
+        _rs_result = ""
+        _rs_user_negative = None
+        _rs_tool_ok = None
         # v3.6.6 修复：PowerShell 传参会拆分含引号/分号的命令 → 支持 stdin JSON 传 method（无损）
         if not method and not sys.stdin.isatty():
             try:
@@ -1205,6 +1480,10 @@ if __name__ == "__main__":
                     if isinstance(_j, dict):
                         tool_name = _j.get("tool_name", tool_name) or tool_name
                         method = _j.get("method", "") or ""
+                        _rs_intent = _j.get("intent_summary") or ""
+                        _rs_result = _j.get("result_text") or ""
+                        _rs_user_negative = _j.get("user_negative")
+                        _rs_tool_ok = _j.get("tool_ok")
             except Exception:
                 pass
         _tn = tool_name.lower()
@@ -1257,6 +1536,25 @@ if __name__ == "__main__":
             pass
 
         # 通过阈值：保存成功模式（v3.6.1 带方法内容实质化）
+        # 定稿第一章·成功三重判定：工具成功/用户未不满/意图一致性≥0.7，至少两重。
+        # hook 场景无意图上下文时保持单重兼容（降级：工具成功即记），完整信号时启用三重门。
+        try:
+            from evo.verdict_anchor import judge_success, intent_consistency_score
+            _cons = intent_consistency_score(_rs_intent, _rs_result) if (_rs_intent or _rs_result) else None
+            _ok = True
+            if _rs_intent or _rs_result or _rs_user_negative is not None:
+                _tool_ok = (True if _rs_tool_ok is None else bool(_rs_tool_ok))
+                # user_negative=false → 用户未表示不满意（judge_success 的 user_not_negative 语义）
+                _user_not_neg = None if _rs_user_negative is None else (not bool(_rs_user_negative))
+                _ok, _reasons = judge_success(_tool_ok, _user_not_neg, _cons)
+                if not _ok:
+                    _r = {"action": "rejected_triple_anchor", "tool": tool_name,
+                          "reasons": _reasons, "consistency": _cons}
+                    print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+                    sys.exit(0)
+        except Exception:
+            pass
+
         from evo.main import auto_sandwich_trigger
         result = auto_sandwich_trigger("tool_" + tool_name.replace(".", "_"), positive=[tool_name], negative=[], method=method)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
@@ -1495,6 +1793,15 @@ if __name__ == "__main__":
             error_type = _in.get("error_type", _in.get("type", "unknown"))
             detail = _in.get("detail", _in.get("error", ""))
             severity = _in.get("severity", "high")
+        # 恒常门联动：工具失败 → 阻塞最近可恢复任务（blocker_report 上报，父任务可决策）
+        try:
+            from evo.main import constancy_recoverable, constancy_block
+            _rec = constancy_recoverable()
+            if _rec:
+                constancy_block(_rec[0]["task_id"],
+                                blocker_report="工具失败: %s (%s)" % (error_type, str(detail)[:200]))
+        except Exception:
+            pass
         result = ensure_three_strikes(error_type, detail, severity)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     elif mode == "arbitrate_detail":
@@ -1723,6 +2030,7 @@ if __name__ == "__main__":
         if len(sys.argv) > 2:
             item_id = sys.argv[2]
             summary = sys.argv[3] if len(sys.argv) > 3 else ""
+            _snap = None
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
@@ -1730,8 +2038,22 @@ if __name__ == "__main__":
             item_id = _in.get("item_id", _in.get("id", "unknown"))
             summary = _in.get("summary", _in.get("description", ""))
             learnings = _in.get("learnings", None)
+            _snap = _in.get("snapshot") if isinstance(_in.get("snapshot"), dict) else None
         cg = get_closure()
-        result = cg.close(item_id, summary, learnings=learnings)
+        result = cg.close(item_id, summary, learnings=learnings, snapshot=_snap)
+        # 恒常门联动：封存时显式传入 constancy_task_id → 标记恒常门任务完成
+        try:
+            _cid = ""
+            if len(sys.argv) > 2:
+                _cid = sys.argv[4] if len(sys.argv) > 4 else ""
+            else:
+                _cid = _in.get("constancy_task_id", "") or ""
+            if _cid:
+                from evo.main import constancy_complete
+                if constancy_complete(_cid):
+                    result["constancy_completed"] = _cid
+        except Exception:
+            pass
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
     elif mode == "closure_status":
@@ -1809,6 +2131,27 @@ if __name__ == "__main__":
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+
+    elif mode == "dgen_escalation_status":
+        """一二不过三·人工介入/静默锁止状态查询"""
+        try:
+            _trk = _get_tracker()
+            _trk.check_human_escalation()
+            print(json.dumps(_trk.get_escalation_status(), ensure_ascii=False, indent=2))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "dgen_human_confirm":
+        """一二不过三·人工介入确认：python call_diegin.py dgen_human_confirm <error_type> [note]"""
+        if len(sys.argv) < 3:
+            print(json.dumps({"error": "usage: dgen_human_confirm <error_type> [note]"}, ensure_ascii=False))
+        else:
+            _et = sys.argv[2]
+            _note = sys.argv[3] if len(sys.argv) > 3 else ""
+            try:
+                print(json.dumps(_get_tracker().human_confirm(_et, _note), ensure_ascii=False, indent=2))
+            except Exception as _e:
+                print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
 
     elif mode == "dgen_check":
 
@@ -2020,75 +2363,8 @@ if __name__ == "__main__":
 
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     elif mode == "deep_review":
-        """守三·深度复盘：系统性回顾strike日志并生成改进建议"""
-        import json as _j, os as _o
-        import datetime as _dt
-
-        strikes_path = _o.path.join(_o.path.dirname(_o.path.dirname(__file__)), "var", "state", "strikes_db.json")
-        overrides_path = _o.path.join(_o.path.dirname(_o.path.dirname(__file__)), "var", "state", "dgen_overrides.json")
-
-        strikes = {}
-        if _o.path.exists(strikes_path):
-            with open(strikes_path, "r", encoding="utf-8") as f:
-                strikes = _j.load(f)
-
-        overrides = []
-        if _o.path.exists(overrides_path):
-            with open(overrides_path, "r", encoding="utf-8") as f:
-                overrides = _j.load(f)
-
-        # 分析
-        total_errors = len(strikes)
-        total_strikes = sum(e.get("count", 0) for e in strikes.values())
-        high_severity = sum(1 for e in strikes.values() if e.get("severity", "") in ("high", "critical"))
-        blocked = len(overrides)
-
-        # 按错误频率排序
-        sorted_errors = sorted(strikes.items(), key=lambda x: -x[1].get("count", 0))
-
-        # 生成改进建议
-        suggestions = []
-        for error_type, entry in sorted_errors:
-            count = entry.get("count", 0)
-            sev = entry.get("severity", "medium")
-            if count >= 3:
-                suggestions.append(f"[P0] {error_type}: 已触发{count}次(严重度:{sev})，建议: 推翻现有阻断方案，升级处理")
-            elif count >= 2:
-                suggestions.append(f"[P1] {error_type}: 已触发{count}次(严重度:{sev})，建议: 阻断已生效，持续监控")
-            elif count >= 1:
-                suggestions.append(f"[P2] {error_type}: 已触发{count}次(严重度:{sev})，建议: 保持警觉")
-
-        # 未阻断的高频错误
-        unblocked = []
-        for error_type, entry in sorted_errors:
-            count = entry.get("count", 0)
-            if count >= 2:
-                already_blocked = any(
-                    o.get("blocked_error_type") == error_type for o in overrides
-                )
-                if not already_blocked:
-                    unblocked.append(error_type)
-
-        report = {
-            "generated_at": _dt.datetime.now().isoformat(),
-            "principle": "守三·深度复盘",
-            "statistics": {
-                "total_error_types": total_errors,
-                "total_strikes": total_strikes,
-                "high_severity_count": high_severity,
-                "blocked_count": blocked,
-                "unblocked_high_count": len(unblocked),
-            },
-            "error_ranking": [
-                {"error_type": et, "count": e.get("count", 0), "severity": e.get("severity", "medium")}
-                for et, e in sorted_errors[:10]
-            ],
-            "suggestions": suggestions,
-            "unblocked_high_risk": unblocked,
-            "next_step": "建议执行 deep_review_apply 应用本次复盘结果" if unblocked else "系统状态良好"
-        }
-
-        print(_j.dumps(report, ensure_ascii=False, indent=2, default=str))
+        """守三·深度复盘：系统性回顾 strike 日志并生成改进建议（只读报告，不写规则库）"""
+        print(json.dumps(_build_deep_review_report(), ensure_ascii=False, indent=2, default=str))
 
     elif mode == "deep_review_apply":
         """守三·深度复盘：执行复盘结果——自动补全未阻断的高频错误"""
@@ -2108,6 +2384,18 @@ if __name__ == "__main__":
             with open(overrides_path, "r", encoding="utf-8") as f:
                 overrides = _j2.load(f)
 
+        # 守三·快照时间戳衰减（定稿第二章）：恢复复盘产出规则的置信度增量衰减系数
+        _max_age = 0
+        try:
+            from evo.main import get_closure as _get_closure_apply
+            from evo.tracker import snapshot_age_days as _sad
+            _cg_a = _get_closure_apply()
+            for _ci_a in list(_cg_a._closed_items or [])[-5:]:
+                if isinstance(_ci_a, dict) and _ci_a.get("readonly_snapshot"):
+                    _max_age = max(_max_age, _sad(_ci_a.get("closed_at", "")))
+        except Exception:
+            pass
+
         # 为所有count>=2但未阻断的错误新建阻断
         new_blocks = []
         for error_type, entry in strikes.items():
@@ -2117,6 +2405,9 @@ if __name__ == "__main__":
                     o.get("blocked_error_type") == error_type for o in overrides
                 )
                 if not already_blocked:
+                    from evo.tracker import snapshot_age_decay as _sad_decay
+                    _decay = _sad_decay(_max_age)
+                    _decay_note = f"（快照年龄衰减×{_decay}）" if _decay < 1.0 else ""
                     new_entry = {
                         "blocked_error_type": error_type,
                         "strike_count": count,
@@ -2124,7 +2415,8 @@ if __name__ == "__main__":
                         "last_detail": entry.get("last_detail", ""),
                         "cause": {"verdict": "internal", "reason": "守三·深度复盘自动补全"},
                         "escalated": True if count >= 3 else False,
-                        "reason": f"守三·深度复盘: {error_type} 已触发{count}次，自动创建阻断"
+                        "confidence_decay": _decay,
+                        "reason": f"守三·深度复盘: {error_type} 已触发{count}次，自动创建阻断{_decay_note}"
                     }
                     overrides.append(new_entry)
                     new_blocks.append(error_type)

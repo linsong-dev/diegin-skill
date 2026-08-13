@@ -41,6 +41,43 @@ def check_emergency_deep_review(decision, state_file=None, round_span=3, min_blo
         return False
 
 
+EMERGENCY_REVIEW_FLAG = "⚠️ 守三应急复盘触发：连续3轮内≥2次阻断，建议立即执行深度复盘(deep_review)"
+
+
+def snapshot_age_days(closed_at: str) -> int:
+    """止观快照封存年龄（天）：解析失败返回 0"""
+    try:
+        from datetime import datetime
+        _dt = datetime.fromisoformat(str(closed_at or ""))
+        if _dt.tzinfo is not None:
+            _dt = _dt.replace(tzinfo=None)
+        return max(0, (datetime.now() - _dt).days)
+    except Exception:
+        return 0
+
+
+def snapshot_age_decay(age_days: int, base: float = 0.95, grace_days: int = 7) -> float:
+    """守三·快照时间戳衰减（定稿第二章）：封存超过 grace_days 天，
+    产出规则的置信度增量每超过1天 ×base 衰减；未超期返回 1.0"""
+    if int(age_days) <= int(grace_days):
+        return 1.0
+    return round(float(base) ** (int(age_days) - int(grace_days)), 4)
+
+
+def emergency_review_notice(triggered, display_line=""):
+    """守三·应急触发 AI 可见性（定稿第二章）：触发时在 display_line 追加应急复盘提示（不重复追加）；
+    未触发或已含提示时原样返回。纯函数，可测。
+    """
+    if not triggered:
+        return display_line
+    dl = str(display_line or "")
+    if not dl:
+        return EMERGENCY_REVIEW_FLAG
+    if "守三应急" in dl:
+        return dl
+    return (dl + " | " + EMERGENCY_REVIEW_FLAG).strip()
+
+
 
 
 class BehaviorTracker:
@@ -570,7 +607,154 @@ class BehaviorTracker:
         return False
 
 
-    def record_self_error(self, error_type, detail='', task_context=None):
+    # ── 定稿第三章·升级三步：dgen_fatal_errors 永久记录 + 人工介入通知 + 24h 静默锁止 ──
+    def _fatal_errors_path(self):
+        return self._strikes_db_path().replace("strikes_db.json", "dgen_fatal_errors.json")
+
+    def _human_escalation_path(self):
+        return self._strikes_db_path().replace("strikes_db.json", "dgen_human_escalation.json")
+
+    def _silent_lockdown_path(self):
+        return self._strikes_db_path().replace("strikes_db.json", "dgen_silent_lockdown.json")
+
+    @staticmethod
+    def _load_json_safe(path, default):
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data is not None:
+                    return data
+        except Exception:
+            pass
+        return default
+
+    @staticmethod
+    def _save_json_safe(path, data):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, path)
+            return True
+        except Exception:
+            return False
+
+    def _record_fatal_error(self, error_type, rule, detail, now):
+        """升级三步①：将该错误类型的原型模式写入 dgen_fatal_errors 永久记录"""
+        fatal = self._load_json_safe(self._fatal_errors_path(), {})
+        if not isinstance(fatal, dict):
+            fatal = {}
+        fatal[error_type] = {
+            "error_type": error_type,
+            "prototype": {
+                "rule_id": rule.id if rule else ("self_error_" + error_type),
+                "action": rule.action if rule else "self_check_and_avoid",
+                "trigger": (rule.trigger_condition or "") if rule else ("error_type==" + repr(error_type)),
+                "severity": rule.severity if rule else "high",
+            },
+            "strike_count": 3,
+            "first_seen": self._load_strikes_db().get(error_type, {}).get("first_seen", now),
+            "last_seen": now,
+            "last_detail": str(detail)[:200],
+            "permanent": True,
+            "confidence": 0.0,
+        }
+        self._save_json_safe(self._fatal_errors_path(), fatal)
+
+    def _escalate_human(self, error_type, detail, now):
+        """升级三步③：生成异常报告 + 触发人工介入通知（24 小时内无响应 → 静默锁止）"""
+        from datetime import timedelta
+        esc = self._load_json_safe(self._human_escalation_path(), {})
+        if not isinstance(esc, dict):
+            esc = {}
+        esc[error_type] = {
+            "error_type": error_type,
+            "status": "awaiting_human",
+            "notified_at": now,
+            "deadline": (datetime.fromisoformat(now) + timedelta(hours=24)).isoformat(),
+            "detail": str(detail)[:200],
+            "escalation_report": ("一二不过三第3次升级：%s 阻断后仍出现第3次，已推翻原阻断方案、"
+                                  "置信度归零、原型模式写入 dgen_fatal_errors。"
+                                  "请人工复核根因并在24小时内响应（确认或调整策略），否则系统进入静默锁止。") % error_type,
+        }
+        self._save_json_safe(self._human_escalation_path(), esc)
+
+    def check_human_escalation(self):
+        """升级三步③续：24 小时无人工响应 → 系统进入静默锁止状态"""
+        from datetime import timedelta
+        now = datetime.now()
+        esc = self._load_json_safe(self._human_escalation_path(), {})
+        lockdown = self._load_json_safe(self._silent_lockdown_path(), {})
+        if not isinstance(esc, dict):
+            esc = {}
+        if not isinstance(lockdown, dict):
+            lockdown = {}
+        changed = False
+        for et, e in list(esc.items()):
+            if e.get("status") != "awaiting_human":
+                continue
+            try:
+                deadline = datetime.fromisoformat(str(e.get("deadline", "")))
+            except Exception:
+                continue
+            if now > deadline:
+                e["status"] = "silent_locked"
+                e["locked_at"] = now.isoformat()
+                lockdown[et] = {
+                    "error_type": et,
+                    "status": "locked",
+                    "locked_at": now.isoformat(),
+                    "reason": "人工介入24小时内无响应，系统进入静默锁止（不再自动修复/生成规则/输出到攻七）",
+                }
+                changed = True
+        if changed:
+            self._save_json_safe(self._human_escalation_path(), esc)
+            self._save_json_safe(self._silent_lockdown_path(), lockdown)
+        return lockdown
+
+    def human_confirm(self, error_type, note=""):
+        """升级三步③：人工介入确认 → 清除 escalation 等待态 + 解除静默锁止"""
+        now = datetime.now().isoformat()
+        esc = self._load_json_safe(self._human_escalation_path(), {})
+        lockdown = self._load_json_safe(self._silent_lockdown_path(), {})
+        if not isinstance(esc, dict):
+            esc = {}
+        if not isinstance(lockdown, dict):
+            lockdown = {}
+        confirmed = False
+        if error_type in esc:
+            esc[error_type]["status"] = "confirmed"
+            esc[error_type]["confirmed_at"] = now
+            esc[error_type]["note"] = str(note)[:200]
+            confirmed = True
+            self._save_json_safe(self._human_escalation_path(), esc)
+        if error_type in lockdown:
+            lockdown.pop(error_type, None)
+            self._save_json_safe(self._silent_lockdown_path(), lockdown)
+        return {"confirmed": confirmed, "error_type": error_type, "confirmed_at": now}
+
+    def get_escalation_status(self):
+        """查询人工介入/锁止状态（供 pre_check 输出给 AI 可见）"""
+        esc = self._load_json_safe(self._human_escalation_path(), {})
+        lockdown = self._load_json_safe(self._silent_lockdown_path(), {})
+        if not isinstance(esc, dict):
+            esc = {}
+        if not isinstance(lockdown, dict):
+            lockdown = {}
+        return {
+            "awaiting": [{"error_type": et, "deadline": e.get("deadline", ""),
+                          "detail": str(e.get("detail", ""))[:80]}
+                         for et, e in esc.items() if e.get("status") == "awaiting_human"],
+            "locked": [{"error_type": et, "locked_at": v.get("locked_at", "")}
+                       for et, v in lockdown.items()],
+            "confirmed": [{"error_type": et, "confirmed_at": e.get("confirmed_at", "")}
+                          for et, e in esc.items() if e.get("status") == "confirmed"],
+        }
+
+    def record_self_error(self, error_type, detail='', task_context=None,
+                              intent_summary='', result_text='', user_negative=None):
         """
         一二不过三·三错阀（v3.4.1 增强）
         第1次：警告+警觉+立改 → 写 dgen_warning.json + dgen_fix_plan.json（修复方案），规则标记 alerting
@@ -609,6 +793,21 @@ class BehaviorTracker:
         entry['count'] += 1
         entry['last_seen'] = now
         entry['last_detail'] = detail
+        # 定稿第二章·失败三重判定证据：工具失败/用户不满/意图一致性<0.5（至少一重即触发）
+        if intent_summary or result_text or user_negative is not None:
+            try:
+                from evo.verdict_anchor import judge_failure, intent_consistency_score
+                _cons = intent_consistency_score(intent_summary, result_text) if (intent_summary or result_text) else None
+                _tf = True  # 本函数由错误信号驱动，工具失败视为第一重
+                _anchor_ok, _reasons = judge_failure(_tf, user_negative, _cons)
+                entry['triple_anchor'] = {
+                    "verdict": "strike" if _anchor_ok else "anchor_miss",
+                    "consistency": _cons,
+                    "user_negative": user_negative,
+                    "reasons": _reasons,
+                }
+            except Exception:
+                pass
         if len(entry.get('details', [])) < 10:
             entry.setdefault('details', []).append({'ts': now, 'detail': detail[:60]})
         self._save_strikes_db(db)
@@ -819,6 +1018,12 @@ class BehaviorTracker:
         # 封顶：升级后下次不再处理
         if rule:
             self.rule_engine.update_interception(rule.id, lifecycle_status="alerting", confidence=0.0)
+        # 定稿第三章·升级三步：① dgen_fatal_errors 永久记录 ② 置信度归零(已做) ③ 人工介入通知+24h静默锁止
+        try:
+            self._record_fatal_error(error_type, rule, detail, now)
+            self._escalate_human(error_type, detail, now)
+        except Exception:
+            pass
 
         # ③三错根因分析 + 修复 + 复检提醒（v3.4.1 增强；位于封顶之后，修复结果不被封顶覆盖）
         root_causes = []

@@ -257,6 +257,9 @@ if ($genCount -ge 5) {
     if (Test-Path $pythonExe) {
         $genResult = & $pythonExe $enginePy generalize_cross_domain 2>&1
         Add-NoBOMLog -Path $auditLog -Message "$time 举一反三 generalize_result=$genResult"
+        # 攻七·泛化提速：从成功模式泛化为拦截规则（门槛 复用≥2次 或 conf≥4.5，函数内已过滤）
+        $genPatResult = & $pythonExe $enginePy generalize_patterns 2>&1
+        Add-NoBOMLog -Path $auditLog -Message "$time 攻七 generalize_patterns_result=$genPatResult"
     }
 }
 
@@ -349,11 +352,34 @@ try {
             $learnings += ("error: " + $lkErr)
         }
         if ($detectJson.error) { $learnings += ("detect: " + $detectJson.error) }
+        # 定稿第八章：执行轨迹只读快照（阻断记录/工具调用序列/裁决日志摘要）→ 供守三应急复盘只读访问
+        $snapBlock = @()
+        if ($analyzeText -match '"error"') {
+            $sb = "tool=" + $toolName + " exit=" + $toolExitCode
+            if ($toolError) { $sb += " err=" + $toolError }
+            if ($sb.Length -gt 500) { $sb = $sb.Substring(0, 500) }
+            $snapBlock += $sb
+        }
+        $snapSeq = @()
+        if ($toolName) {
+            $sq = $toolName
+            if ($toolCmd) { $sq += ": " + $toolCmd }
+            if ($sq.Length -gt 500) { $sq = $sq.Substring(0, 500) }
+            $snapSeq += $sq
+        }
+        $snapArb = "exit=" + $toolExitCode + " decision=" + $decision + " matched=" + $matched
+        if ($toolError) { $snapArb += " error=" + $toolError }
+        if ($snapArb.Length -gt 2000) { $snapArb = $snapArb.Substring(0, 2000) }
         $closureCtx = @{
             item_id = $closureId
             summary = $closeSummary
             learnings = $learnings
-        } | ConvertTo-Json -Compress
+            snapshot = @{
+                block_records = $snapBlock
+                tool_call_sequence = $snapSeq
+                arbitration_log = $snapArb
+            }
+        } | ConvertTo-Json -Compress -Depth 6
         $closeResult = $closureCtx | & $pythonExe $enginePy closure_close 2>&1
         $flatClose = $closeResult.Replace("`n", " ").Replace("`r", "")
         Add-NoBOMLog -Path $auditLog -Message "$time [CLOSURE] post_tool close id=$closureId learnings=$($learnings.Count) result=$flatClose"

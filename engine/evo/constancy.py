@@ -26,6 +26,8 @@ def _get_tasks_path() -> str:
 MAX_NEST_DEPTH = 3          # 嵌套深度不超过3层
 SNAPSHOT_RETENTION_DAYS = 30  # 封存包保留30天
 USER_SUMMARY_MAX_CHARS = 50   # 用户可见摘要≤50字
+SNAPSHOT_TOKEN_LIMIT = 16000      # 活跃恢复快照 Token 上限（可配置）
+SNAPSHOT_FULL_KEEP = 30         # 快照全集保留 30 个任务，更早归档冷存储
 
 _RECOVERABLE_STATUSES = ("paused", "blocked")
 _TERMINAL_STATUSES = ("completed", "abandoned")
@@ -53,8 +55,10 @@ class TaskRegistry:
     def _save(self) -> None:
         try:
             os.makedirs(os.path.dirname(self._path), exist_ok=True)
-            with open(self._path, "w", encoding="utf-8") as f:
+            tmp = self._path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._tasks, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self._path)  # 原子替换：并发读写一致性（定稿第七章·并发隔离）
         except Exception:
             pass
 
@@ -130,6 +134,92 @@ class TaskRegistry:
         self._save()
         return {"ok": True, "task_id": task_id, "task": task}
 
+    # ── 冷存储与快照分级（定稿第七章：Token 上限 16k + 快照全集 30 个 + 冷存储指针）──
+    def _cold_store_path(self) -> str:
+        return self._path.replace("constancy_tasks.json", "constancy_cold_store.json")
+
+    def _load_cold_store(self) -> Dict[str, Dict[str, Any]]:
+        try:
+            if os.path.exists(self._cold_store_path()):
+                with open(self._cold_store_path(), "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {}
+
+    def _save_cold_store(self, store: Dict[str, Dict[str, Any]]) -> None:
+        try:
+            os.makedirs(os.path.dirname(self._cold_store_path()), exist_ok=True)
+            tmp = self._cold_store_path() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(store, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, self._cold_store_path())
+        except Exception:
+            pass
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """中文 1 字 ≈ 1 token，英文按 4 字符 ≈ 1 token（16k 上限的可配置近似）"""
+        if not text:
+            return 0
+        cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+        other = len(text) - cjk
+        return cjk + other // 4
+
+    def snapshot_token_count(self, task_id: str) -> int:
+        """活跃恢复快照 token 估算（intent + criteria + pending + blocker + context）"""
+        t = self._tasks.get(task_id)
+        if not t:
+            return 0
+        parts = [
+            t.get("intent_summary", "") or "",
+            t.get("completion_criteria", "") or "",
+            " ".join(t.get("pending_items") or []),
+            t.get("blocker_report", "") or "",
+            json.dumps(t.get("context") or {}, ensure_ascii=False),
+        ]
+        return sum(self._estimate_tokens(x) for x in parts)
+
+    def archive_old_snapshots(self, full_keep: int = SNAPSHOT_FULL_KEEP) -> int:
+        """快照全集保留最近 full_keep 个任务；更早快照压缩为核心字段并归档冷存储。
+        压缩保留 task_id / intent_summary(50字) / status / completion_criteria，完整快照存入冷存储。"""
+        store = self._load_cold_store()
+        ordered = sorted(self._tasks.items(),
+                         key=lambda kv: kv[1].get("updated_at", kv[1].get("created_at", "")),
+                         reverse=True)
+        archived = 0
+        for tid, t in ordered[full_keep:]:
+            if t.get("cold_stored"):
+                continue
+            store[tid] = dict(t)
+            self._tasks[tid] = {
+                "task_id": tid,
+                "intent_summary": (t.get("intent_summary") or "")[:50],
+                "status": t.get("status", "paused"),
+                "completion_criteria": (t.get("completion_criteria") or "")[:2000],
+                "cold_stored": True,
+                "archived_at": self._now_iso(),
+            }
+            archived += 1
+        if archived:
+            self._save_cold_store(store)
+            self._save()
+        return archived
+
+    def _cold_pointer(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """冷存储指针：仅加载核心字段（详细日志按需 RAG 检索）"""
+        return {
+            "task_id": task.get("task_id", ""),
+            "intent_summary": (task.get("intent_summary") or "")[:50],
+            "status": task.get("status", "paused"),
+            "completion_criteria": (task.get("completion_criteria") or "")[:2000],
+            "cold_stored": True,
+            "token_count": self.snapshot_token_count(task.get("task_id", "")),
+            "bulk_hint": "任务信息量较大，恢复后可能需要分批加载",
+        }
+
     def find_recoverable(self) -> List[Dict[str, Any]]:
         """续而接：检索未完成且未超时的 task_id"""
         now = datetime.datetime.now()
@@ -144,7 +234,11 @@ class TaskRegistry:
                 age = 0
             if age > SNAPSHOT_RETENTION_DAYS:
                 continue
-            out.append(dict(t))
+            t_copy = dict(t)
+            # 定稿第七章：活跃恢复快照 Token 上限 → 超限自动转为冷存储指针（仅加载摘要）
+            if self.snapshot_token_count(tid) > SNAPSHOT_TOKEN_LIMIT:
+                t_copy = self._cold_pointer(t_copy)
+            out.append(t_copy)
         out.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return out
 
