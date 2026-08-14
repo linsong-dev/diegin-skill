@@ -173,8 +173,32 @@ try {
 # 攻七：记录工具调用成功（v3.6.1 传递命令文本，实质化模式库）
 try {
     if ($toolName -and (Test-Path $pythonExe)) {
+        # 预策·③：三重判定意图上下文——读取 pre_reply 落盘的 current_intent.json（60分钟内有效）
+        $intentSummary = ""
+        $intentNegative = $null
+        $resultText = ""
+        try {
+            $intentFile = Join-Path $stateDir "current_intent.json"
+            if (Test-Path $intentFile) {
+                $ii = Get-Content $intentFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                $iiAgeMin = 999
+                try {
+                    $iiTs = [DateTime]::Parse([string]$ii.ts)
+                    $iiAgeMin = ((Get-Date) - $iiTs).TotalMinutes
+                } catch {}
+                if ($iiAgeMin -le 60) {
+                    $intentSummary = [string]$ii.intent_summary
+                    if ($null -ne $ii.user_negative) { $intentNegative = [bool]$ii.user_negative }
+                }
+            }
+            if ($hookInput.tool_response) {
+                $resultText = [string]$hookInput.tool_response
+                if ($resultText.Length -gt 800) { $resultText = $resultText.Substring(0, 800) }
+            }
+        } catch {}
+        $toolOkFlag = ($null -eq $toolExitCode -or $toolExitCode -eq 0)
         # v3.6.6 修复：PowerShell argv 会拆分含引号/分号的命令 → 改 stdin JSON 传递（无损）
-        $rsJson = @{tool_name=$toolName; method=$toolCmd} | ConvertTo-Json -Compress
+        $rsJson = @{tool_name=$toolName; method=$toolCmd; intent_summary=$intentSummary; result_text=$resultText; user_negative=$intentNegative; tool_ok=$toolOkFlag} | ConvertTo-Json -Compress
         $recResult = $rsJson | & $pythonExe $enginePy record_success 2>&1
         if ($LASTEXITCODE -eq 0) {
             Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"

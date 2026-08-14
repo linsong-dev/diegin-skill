@@ -28,6 +28,8 @@ MIRROR_EVERY_ROUNDS = 10   # 跟随守三深度复盘频率：每10轮或每日
 MIRROR_EVERY_DAYS = 1
 COURAGE_DEFAULT = 0.5      # 单次勇气信号默认强度
 COURAGE_MAX = 0.8          # P6 采信上限（score≥0.8 才采信；勇气信号封顶 0.8 保证进入 P6）
+WARM_START_SKIPS = 5        # 温启动：连续跳过≥5次 → 下次强制轻量校准模式
+WARM_START_DAYS = 3         # 或距上次运行≥3天
 
 
 class SelfMirror:
@@ -45,6 +47,7 @@ class SelfMirror:
             "pending_courage": 0.0,
             "pending_courage_round": 0,
             "same_dir_streak": 0,
+            "consecutive_skips": 0,
             "last_dir_kind": "",
             "reports": [],
         }
@@ -271,6 +274,31 @@ class SelfMirror:
             pass
         return _sig
 
+    def note_skip(self) -> int:
+        """温启动（运维手册 2.1）：记录一次未触发的跳过"""
+        self._state["consecutive_skips"] = int(self._state.get("consecutive_skips", 0) or 0) + 1
+        self._save()
+        return self._state["consecutive_skips"]
+
+    def reset_skip(self) -> None:
+        """触发运行后清零跳过计数"""
+        if self._state.get("consecutive_skips"):
+            self._state["consecutive_skips"] = 0
+            self._save()
+
+    def warm_start_due(self) -> bool:
+        """连续跳过≥WARM_START_SKIPS 或距上次≥WARM_START_DAYS → 强制轻量校准"""
+        if int(self._state.get("consecutive_skips", 0) or 0) >= WARM_START_SKIPS:
+            return True
+        _last = self._state.get("last_mirror_at", "")
+        if _last:
+            try:
+                if (datetime.datetime.now() - datetime.datetime.fromisoformat(_last)).days >= WARM_START_DAYS:
+                    return True
+            except Exception:
+                pass
+        return False
+
     def should_mirror(self) -> bool:
         """跟随守三深度复盘频率：每10轮或每日触发；且距上次运行至少≥3轮或≥1小时（定稿第九章最小间隔），未触发静默跳过"""
         _r = int(self._state.get("round", 0) or 0)
@@ -306,7 +334,7 @@ class SelfMirror:
             return "up"
         return "none"
 
-    def mirror(self, emergency: bool = False) -> Dict[str, Any]:
+    def mirror(self, emergency: bool = False, light: bool = False) -> Dict[str, Any]:
         """执行自照：生成报告 → 归档 Mindol → 更新轮次（静默跳过逻辑由调用方判断）
         emergency=True（守三应急复盘触发）：仅记录照镜素材，不产出 P6 调权信号（定稿第九章约束）。
         同向熔断：连续两次对同一方向（下调/上调）干扰 → 本次静默，中断递归循环。"""
@@ -320,7 +348,11 @@ class SelfMirror:
         self._state["same_dir_streak"] = _streak
         self._state["last_dir_kind"] = _kind
         _silent = _streak >= 2
-        _suppress = bool(emergency) or _silent
+        _suppress = bool(emergency) or _silent or bool(light)
+        if light:
+            # 温启动·轻量校准模式：仅统计报告，不产出 P6 调权（运维手册 2.1）
+            report["warm_start"] = True
+            report["wakeup_report"] = "系统长期未自照，已进入轻量校准模式：仅对任务完成率/中断率做统计对比，不产出P6调权"
         if _suppress:
             report["direction_calibration"] = []
             report["emergency_suppressed"] = bool(emergency)

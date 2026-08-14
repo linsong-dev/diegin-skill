@@ -1037,6 +1037,39 @@ class BehaviorTracker:
                 "root_causes": root_causes,
                 "warning": "一二不过三阻断失效: " + error_type + " 在阻断后仍出现第" + str(sn) + "次。已推翻原阻断方案并降低规则优先级"}
 
+    # ── 运维手册 2.9 · 参数调整记录 + 参数扰动警告 ──
+    def _param_adjust_path(self):
+        return self._strikes_db_path().replace("strikes_db.json", "param_adjustments.json")
+
+    def record_param_adjustment(self, what, reason="", expected_impact=""):
+        """记录一次运维参数调整（调整人/时间/原因/预期影响）"""
+        now = datetime.now().isoformat()
+        data = self._load_json_safe(self._param_adjust_path(), [])
+        if not isinstance(data, list):
+            data = []
+        data.append({
+            "what": str(what)[:100],
+            "reason": str(reason)[:200],
+            "expected_impact": str(expected_impact)[:200],
+            "adjusted_at": now,
+        })
+        data = data[-100:]  # 最多保留 100 条
+        self._save_json_safe(self._param_adjust_path(), data)
+        return {"ok": True, "count": len(data)}
+
+    def param_adjustment_warning(self, max_per_month=3, days=30):
+        """近 days 天内参数调整次数 > max_per_month → 参数扰动警告（自照报告标注）"""
+        from datetime import timedelta
+        data = self._load_json_safe(self._param_adjust_path(), [])
+        if not isinstance(data, list):
+            return {"warning": False, "count": 0, "note": ""}
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        recent = [d for d in data if str(d.get("adjusted_at", "")) >= cutoff]
+        count = len(recent)
+        note = "参数调整频繁（%d次/%d天，上限%d），建议评估累积影响" % (count, days, max_per_month) if count > max_per_month else ""
+        return {"warning": count > max_per_month, "count": count,
+                "window_days": days, "max_per_month": max_per_month, "note": note}
+
     def record_user_feedback(self, rule_id: str, feedback: str, user_action: Optional[str] = None) -> Dict[str, Any]:
         """
         用户反馈三态模型 + 沉默+一二不过三完整决策树

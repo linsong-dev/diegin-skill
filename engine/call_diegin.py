@@ -58,6 +58,29 @@ def _append_audit(msg: str) -> None:
 
 
 
+
+def write_current_intent(prompt: str = "", task_id: str = "", turn_id: str = "", user_negative=None) -> str:
+    """预策·③：将当前用户意图落盘 current_intent.json（post_tool record_success 三重判定读取）
+    返回落盘路径；异常返回空串（不阻塞主流程）。"""
+    try:
+        _p = os.path.join(os.path.dirname(__file__), "..", "var", "state", "current_intent.json")
+        _d = os.path.dirname(_p)
+        if _d and not os.path.exists(_d):
+            os.makedirs(_d, exist_ok=True)
+        with open(_p, "w", encoding="utf-8") as _f:
+            json.dump({
+                "prompt": str(prompt or "")[:400],
+                "intent_summary": str(prompt or "")[:200],
+                "task_id": str(task_id or "")[:80],
+                "turn_id": str(turn_id or "")[:80],
+                "user_negative": (bool(user_negative) if user_negative is not None else None),
+                "ts": datetime.now().isoformat(),
+            }, _f, ensure_ascii=False)
+        return _p
+    except Exception:
+        return ""
+
+
 def _decode_stdin_bytes(_b: bytes) -> str:
     """[2026-08-09] PS5.1 管道中文加固：UTF-8 优先，失败回退 GBK，去 BOM。
     PS5.1 默认 $OutputEncoding=ASCII/GBK 会把中文变成 ? 或 GBK 字节，
@@ -188,11 +211,177 @@ def _build_deep_review_report():
         "suggestions": suggestions,
         "unblocked_high_risk": unblocked,
         "trajectory": trajectory,
-        "next_step": "建议执行 deep_review_apply 应用本次复盘结果" if unblocked else "系统状态良好"
+        "next_step": "候选已自动进入 staging（deep_review_staging.json），确认后执行 deep_review_apply --confirm 应用" if unblocked else "系统状态良好"
     }
 
     return report
 
+
+def _deep_review_candidates(strikes: dict, overrides: list) -> list:
+    """守三·深度复盘写侧：候选阻断清单（count>=2 且未被 override 阻断）——纯计算可测"""
+    blocked = {str(o.get("blocked_error_type", "")) for o in (overrides or [])}
+    candidates = []
+    for error_type, entry in (strikes or {}).items():
+        count = int(entry.get("count", 0) or 0)
+        if count < 2:
+            continue
+        if error_type in blocked:
+            continue
+        candidates.append({
+            "error_type": str(error_type),
+            "count": count,
+            "severity": str(entry.get("severity", "medium")),
+            "last_seen": str(entry.get("last_seen", "")),
+            "last_detail": str(entry.get("last_detail", ""))[:200],
+        })
+    candidates.sort(key=lambda c: -c["count"])
+    return candidates
+
+
+def _deep_review_state_dir(state_dir=None) -> str:
+    if state_dir:
+        return state_dir
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "state")
+
+
+def stage_deep_review_candidates(state_dir=None) -> dict:
+    """守三·深度复盘写侧·自动生成：扫描 strikes → staging 候选文件（幂等，不写 override）
+    返回 {"ok", "new_staged", "total_staged", "candidates"}；应急触发时由 pre_check 自动调用。"""
+    _sd = _deep_review_state_dir(state_dir)
+    _strikes_path = os.path.join(_sd, "strikes_db.json")
+    _ov_path = os.path.join(_sd, "dgen_overrides.json")
+    _stg_path = os.path.join(_sd, "deep_review_staging.json")
+    strikes, overrides = {}, []
+    try:
+        if os.path.exists(_strikes_path):
+            with open(_strikes_path, "r", encoding="utf-8") as f:
+                strikes = json.load(f) or {}
+    except Exception:
+        strikes = {}
+    try:
+        if os.path.exists(_ov_path):
+            _raw = io.open(_ov_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                overrides = _loaded if isinstance(_loaded, list) else (
+                    [v for v in _loaded.values() if isinstance(v, dict)] if isinstance(_loaded, dict) else [])
+    except Exception:
+        overrides = []
+    existing = []
+    try:
+        if os.path.exists(_stg_path):
+            _raw = io.open(_stg_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                existing = _loaded if isinstance(_loaded, list) else []
+    except Exception:
+        existing = []
+    existing_map = {}
+    for e in existing:
+        if isinstance(e, dict) and e.get("error_type"):
+            existing_map[e["error_type"]] = e
+    now = datetime.now().isoformat()
+    new_staged = 0
+    for c in _deep_review_candidates(strikes, overrides):
+        et = c["error_type"]
+        if et in existing_map:
+            existing_map[et].update({"count": c["count"], "last_seen": c["last_seen"],
+                                     "last_detail": c["last_detail"], "staged_at": now})
+        else:
+            c["staged_at"] = now
+            existing_map[et] = c
+            new_staged += 1
+    merged = list(existing_map.values())
+    try:
+        os.makedirs(_sd, exist_ok=True)
+        with open(_stg_path, "w", encoding="utf-8") as f:
+            json.dump(merged, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return {"ok": True, "new_staged": new_staged, "total_staged": len(merged), "candidates": merged}
+
+
+def apply_deep_review_staging(state_dir=None, confirm: bool = False) -> dict:
+    """守三·深度复盘写侧·人工确认：把 staging 候选写入 override（confirm=False 只读列出待确认）
+    应急自动执行仅到 stage（候选生成）；转 active 需人工一步确认（deep_review_apply --confirm）。"""
+    _sd = _deep_review_state_dir(state_dir)
+    _stg_path = os.path.join(_sd, "deep_review_staging.json")
+    _ov_path = os.path.join(_sd, "dgen_overrides.json")
+    _legacy_path = os.path.join(_sd, "dgen_override.json")
+    candidates = []
+    try:
+        if os.path.exists(_stg_path):
+            _raw = io.open(_stg_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                candidates = _loaded if isinstance(_loaded, list) else []
+    except Exception:
+        candidates = []
+    if not confirm:
+        return {"action": "requires_confirm", "principle": "守三·深度复盘-应用",
+                "pending": candidates, "pending_count": len(candidates),
+                "hint": "候选已自动进入 staging（不生效）；确认后执行 deep_review_apply --confirm 应用"}
+    overrides = []
+    try:
+        if os.path.exists(_ov_path):
+            _raw = io.open(_ov_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                overrides = _loaded if isinstance(_loaded, list) else (
+                    [v for v in _loaded.values() if isinstance(v, dict)] if isinstance(_loaded, dict) else [])
+    except Exception:
+        overrides = []
+    _max_age = 0
+    try:
+        from evo.main import get_closure as _get_closure_apply
+        from evo.tracker import snapshot_age_days as _sad
+        _cg_a = _get_closure_apply()
+        for _ci_a in list(_cg_a._closed_items or [])[-5:]:
+            if isinstance(_ci_a, dict) and _ci_a.get("readonly_snapshot"):
+                _max_age = max(_max_age, _sad(_ci_a.get("closed_at", "")))
+    except Exception:
+        pass
+    new_blocks = []
+    for c in candidates:
+        error_type = str(c.get("error_type", ""))
+        count = int(c.get("count", 0) or 0)
+        if not error_type or count < 2:
+            continue
+        if any(str(o.get("blocked_error_type", "")) == error_type for o in overrides):
+            continue
+        from evo.tracker import snapshot_age_decay as _sad_decay
+        _decay = _sad_decay(_max_age)
+        _decay_note = f"（快照年龄衰减×{_decay}）" if _decay < 1.0 else ""
+        overrides.append({
+            "blocked_error_type": error_type,
+            "strike_count": count,
+            "blocked_at": c.get("last_seen", ""),
+            "last_detail": c.get("last_detail", ""),
+            "cause": {"verdict": "internal", "reason": "守三·深度复盘人工确认应用"},
+            "escalated": True if count >= 3 else False,
+            "confidence_decay": _decay,
+            "reason": f"守三·深度复盘: {error_type} 已触发{count}次，人工确认后创建阻断{_decay_note}"
+        })
+        new_blocks.append(error_type)
+    if new_blocks:
+        try:
+            with open(_ov_path, "w", encoding="utf-8") as f:
+                json.dump(overrides, f, ensure_ascii=False, indent=2)
+            if overrides:
+                legacy = overrides[0]
+                for o in overrides:
+                    if o.get("escalated"):
+                        legacy = o
+                        break
+                with open(_legacy_path, "w", encoding="utf-8") as f:
+                    json.dump(legacy, f, ensure_ascii=False, indent=2)
+            with open(_stg_path, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return {"action": "applied", "principle": "守三·深度复盘-应用",
+            "new_blocks_created": len(new_blocks), "blocked_types": new_blocks,
+            "total_overrides": len(overrides)}
 
 
 def load_principle_rules(context: dict, record_strike: bool = True) -> list:
@@ -438,6 +627,9 @@ def pre_check(context: dict) -> dict:
 
     # ========== 恒常门·入口恢复检查（每次入口最先执行，恢复前需用户确认） ==========
     constancy_recovery = None
+    intent_drift = None
+    decision_timeout = False
+    decision_elapsed_ms = 0.0
     try:
         from evo.main import constancy_recoverable, constancy_resume
         _current_tid = context.get("constancy_current_task_id") or ""
@@ -576,9 +768,17 @@ def pre_check(context: dict) -> dict:
             closure_state["status"] = "closed"
     except Exception:
         pass
+    import time as _arb_t
+    _arb_start = _arb_t.time()
     result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
                        closure_state=closure_state, pace_channel=pace_result, context=context,
                        constancy_state=constancy_recovery)
+    _arb_elapsed = _arb_t.time() - _arb_start
+    decision_elapsed_ms = round(_arb_elapsed * 1000, 1)
+    # 运维手册 2.3 · 决策超时熔断：衡步骤耗时>2秒 → 标记降级为 P0-P3 快速通道（本次仅提示，不重算）
+    if _arb_elapsed > 2.0:
+        decision_timeout = True
+        _append_audit("[DECISION-TIMEOUT] 衡耗时 %.1fs > 2s，建议采用 P0-P3 快速通道" % _arb_elapsed)
 
     # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
     try:
@@ -635,6 +835,13 @@ def pre_check(context: dict) -> dict:
                 deep_review_report = _build_deep_review_report()
                 _append_audit("[EMERGENCY-REVIEW] auto_deep_review 已自动执行深度复盘报告 statistics=%s" % (
                     json.dumps(deep_review_report.get("statistics", {}), ensure_ascii=False)[:200]))
+                # 写侧验证门·第一段（自动生成，不生效）：应急触发时自动将候选阻断写入 staging
+                try:
+                    _stg = stage_deep_review_candidates()
+                    if _stg.get("new_staged"):
+                        _append_audit("[EMERGENCY-REVIEW] auto_stage 新增%d条候选/共%d条（待人工确认）" % (_stg.get("new_staged", 0), _stg.get("total_staged", 0)))
+                except Exception as _stge:
+                    _append_audit("[EMERGENCY-REVIEW] auto_stage 失败 %s" % str(_stge)[:120])
             except Exception as _dre:
                 _append_audit("[EMERGENCY-REVIEW] auto_deep_review 失败 %s" % str(_dre)[:120])
                 deep_review_report = None
@@ -669,6 +876,31 @@ def pre_check(context: dict) -> dict:
         pass
 
     # ========== 预策·③预：主动推进检查（仅当连续3轮无输入+无待恢复+staging非空才触发，只读建议不制造伪任务） ==========
+    # ========== 运维手册 2.2 · 用户意图温度计：当前输入与最近 pending 任务意图相似度 <0.5 → 意图漂移信号 ==========
+    try:
+        _drift_text = ""
+        for _dk in ("task", "cmd", "message", "command", "text"):
+            _dv = context.get(_dk)
+            if _dv:
+                _drift_text = _dv
+                break
+        if _drift_text and constancy_recovery and constancy_recovery.get("has_pending"):
+            from evo.verdict_anchor import intent_consistency_score
+            _dtasks = constancy_recovery.get("tasks") or []
+            if _dtasks:
+                _recent = str(_dtasks[0].get("intent_summary") or _dtasks[0].get("summary") or "")[:200]
+                _score = intent_consistency_score(_recent, str(_drift_text)[:200])
+                if _score < 0.5:
+                    intent_drift = {
+                        "triggered": True,
+                        "score": _score,
+                        "recent_task": str(_recent)[:50],
+                        "prompt": "检测到意图漂移（与最近任务语义相似度<0.5），预策衡阶段已将其视为意图切换信号",
+                    }
+                    _append_audit("[INTENT-THERMOMETER] drift score=%.2f recent=%s" % (_score, str(_recent)[:40]))
+    except Exception:
+        pass
+
     proactive_proposal = None
     try:
         _pro_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "state", "constancy_proactive.json")
@@ -709,7 +941,9 @@ def pre_check(context: dict) -> dict:
                 proactive_proposal = {
                     "triggered": True,
                     "prompt": "连续3轮无用户输入，检测到待验证的staging候选规则，可主动发起回归校验（需用户确认）",
-                    "staging_candidates": [getattr(r, "id", "") for r in _staging_rules[:5]],
+                    "staging_candidates": [getattr(r, "id", "") for r in _staging_rules[:1]],
+                    "staging_total": len(_staging_rules),
+                    "pace_note": "每次最多验证1条staging规则；超过1条分轮次验证（每轮间隔>=3轮空闲窗口）" if len(_staging_rules) > 1 else "",
                 }
     except Exception:
         proactive_proposal = None
@@ -753,6 +987,9 @@ def pre_check(context: dict) -> dict:
         "proactive_proposal": proactive_proposal,
         "deep_review_required": deep_review_required,
         "deep_review_report": deep_review_report,
+        "intent_drift": intent_drift,
+        "decision_timeout": decision_timeout,
+        "decision_elapsed_ms": decision_elapsed_ms,
         "mirror_report": mirror_report,
     }
 
@@ -1200,11 +1437,12 @@ if __name__ == "__main__":
             pass
 
         # 自照镜·勇气信号下一轮用户交互确认（定稿第九章）：负面反馈 → 归零；否则生效
+        _user_negative = None
         try:
             from evo.main import mirror_confirm_courage
             _neg_words = ("不满意", "不对", "错了", "不是这样", "失败", "不行", "停止", "取消", "别", "不要", "拒绝", "有问题", "bug", "回退")
-            _confirmed = not any(_w in (prompt or "") for _w in _neg_words)
-            mirror_confirm_courage(confirmed=_confirmed)
+            _user_negative = bool(any(_w in (prompt or "") for _w in _neg_words))
+            mirror_confirm_courage(confirmed=not _user_negative)
         except Exception:
             pass
 
@@ -1244,6 +1482,12 @@ if __name__ == "__main__":
         except Exception:
             pass
         ctx["constancy_current_task_id"] = constancy_current_task_id
+
+        # 预策·③：用户意图上下文落盘（post_tool record_success 三重判定读取；异常不阻塞主流程）
+        try:
+            write_current_intent(prompt, constancy_current_task_id, turn_id, _user_negative)
+        except Exception:
+            pass
 
         # 1. 预检
         check_result = pre_check(ctx)
@@ -2132,6 +2376,26 @@ if __name__ == "__main__":
 
 
 
+    elif mode == "dgen_param_adjust":
+        """运维手册 2.9 · 记录参数调整：python call_diegin.py dgen_param_adjust <what> [reason] [expected_impact]"""
+        if len(sys.argv) < 3:
+            print(json.dumps({"error": "usage: dgen_param_adjust <what> [reason] [expected_impact]"}, ensure_ascii=False))
+        else:
+            _what = sys.argv[2]
+            _reason = sys.argv[3] if len(sys.argv) > 3 else ""
+            _impact = sys.argv[4] if len(sys.argv) > 4 else ""
+            try:
+                print(json.dumps(_get_tracker().record_param_adjustment(_what, _reason, _impact), ensure_ascii=False, indent=2))
+            except Exception as _e:
+                print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "dgen_param_status":
+        """运维手册 2.9 · 参数扰动警告状态"""
+        try:
+            print(json.dumps(_get_tracker().param_adjustment_warning(), ensure_ascii=False, indent=2))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
     elif mode == "dgen_escalation_status":
         """一二不过三·人工介入/静默锁止状态查询"""
         try:
@@ -2366,81 +2630,23 @@ if __name__ == "__main__":
         """守三·深度复盘：系统性回顾 strike 日志并生成改进建议（只读报告，不写规则库）"""
         print(json.dumps(_build_deep_review_report(), ensure_ascii=False, indent=2, default=str))
 
-    elif mode == "deep_review_apply":
-        """守三·深度复盘：执行复盘结果——自动补全未阻断的高频错误"""
-        import json as _j2, os as _o2
-
-        strikes_path = _o2.path.join(_o2.path.dirname(_o2.path.dirname(__file__)), "var", "state", "strikes_db.json")
-        overrides_path = _o2.path.join(_o2.path.dirname(_o2.path.dirname(__file__)), "var", "state", "dgen_overrides.json")
-        legacy_path = _o2.path.join(_o2.path.dirname(_o2.path.dirname(__file__)), "var", "state", "dgen_override.json")
-
-        strikes = {}
-        if _o2.path.exists(strikes_path):
-            with open(strikes_path, "r", encoding="utf-8") as f:
-                strikes = _j2.load(f)
-
-        overrides = []
-        if _o2.path.exists(overrides_path):
-            with open(overrides_path, "r", encoding="utf-8") as f:
-                overrides = _j2.load(f)
-
-        # 守三·快照时间戳衰减（定稿第二章）：恢复复盘产出规则的置信度增量衰减系数
-        _max_age = 0
+    elif mode == "deep_review_stage":
+        """守三·深度复盘写侧·自动生成 staging 候选（幂等，不写 override；应急触发时已自动执行）
+        用法: python call_diegin.py deep_review_stage"""
         try:
-            from evo.main import get_closure as _get_closure_apply
-            from evo.tracker import snapshot_age_days as _sad
-            _cg_a = _get_closure_apply()
-            for _ci_a in list(_cg_a._closed_items or [])[-5:]:
-                if isinstance(_ci_a, dict) and _ci_a.get("readonly_snapshot"):
-                    _max_age = max(_max_age, _sad(_ci_a.get("closed_at", "")))
-        except Exception:
-            pass
+            print(json.dumps(stage_deep_review_candidates(), ensure_ascii=False, indent=2, default=str))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
 
-        # 为所有count>=2但未阻断的错误新建阻断
-        new_blocks = []
-        for error_type, entry in strikes.items():
-            count = entry.get("count", 0)
-            if count >= 2:
-                already_blocked = any(
-                    o.get("blocked_error_type") == error_type for o in overrides
-                )
-                if not already_blocked:
-                    from evo.tracker import snapshot_age_decay as _sad_decay
-                    _decay = _sad_decay(_max_age)
-                    _decay_note = f"（快照年龄衰减×{_decay}）" if _decay < 1.0 else ""
-                    new_entry = {
-                        "blocked_error_type": error_type,
-                        "strike_count": count,
-                        "blocked_at": entry.get("last_seen", ""),
-                        "last_detail": entry.get("last_detail", ""),
-                        "cause": {"verdict": "internal", "reason": "守三·深度复盘自动补全"},
-                        "escalated": True if count >= 3 else False,
-                        "confidence_decay": _decay,
-                        "reason": f"守三·深度复盘: {error_type} 已触发{count}次，自动创建阻断{_decay_note}"
-                    }
-                    overrides.append(new_entry)
-                    new_blocks.append(error_type)
-
-        if new_blocks:
-            with open(overrides_path, "w", encoding="utf-8") as f:
-                _j2.dump(overrides, f, ensure_ascii=False, indent=2)
-            # 同步 legacy
-            if overrides:
-                legacy = overrides[0]
-                for o in overrides:
-                    if o.get("escalated"):
-                        legacy = o
-                        break
-                with open(legacy_path, "w", encoding="utf-8") as f:
-                    _j2.dump(legacy, f, ensure_ascii=False, indent=2)
-
-        result = {
-            "principle": "守三·深度复盘-应用",
-            "new_blocks_created": len(new_blocks),
-            "blocked_types": new_blocks,
-            "total_overrides": len(overrides),
-        }
-        print(_j2.dumps(result, ensure_ascii=False, indent=2, default=str))
+    elif mode == "deep_review_apply":
+        """守三·深度复盘写侧·人工一步确认：把 staging 候选写入 override
+        用法: python call_diegin.py deep_review_apply            # 只读列出待确认候选
+              python call_diegin.py deep_review_apply --confirm  # 确认应用（转 active）"""
+        _confirm = "--confirm" in sys.argv
+        try:
+            print(json.dumps(apply_deep_review_staging(confirm=_confirm), ensure_ascii=False, indent=2, default=str))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
 
     elif mode == "audit":
 

@@ -2971,11 +2971,17 @@ def mirror_add_courage(amount=0.5, reason="", pending=True):
     return _get_self_mirror_inst().add_courage(amount, reason, pending=pending)
 
 def mirror_run_if_due(emergency=False):
-    """自照镜：跟随守三深度复盘频率（每10轮或每日）触发自照，未到期静默跳过
-    emergency=True（守三应急复盘触发）：仅记录素材，不产出 P6 调权（定稿第九章）"""
+    """自照镜：跟随守三深度复盘频率（每10轮或每日）触发自照，未到期静默跳过。
+    emergency=True（守三应急复盘触发）：仅记录素材，不产出 P6 调权（定稿第九章）。
+    温启动（运维手册 2.1）：连续跳过≥5次 或 距上次≥3天 → 强制轻量校准模式（仅统计，不产 P6 调权）。"""
     m = _get_self_mirror_inst()
     if m.should_mirror():
+        m.reset_skip()
         return m.mirror(emergency=emergency)
+    m.note_skip()
+    if m.warm_start_due():
+        m.reset_skip()
+        return m.mirror(emergency=True, light=True)
     return None
 
 
