@@ -84,8 +84,53 @@ def test_integration():
     shutil.rmtree(os.path.join(os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex")), "mindol"), ignore_errors=True)
     print("  [PASS] mindol integration")
 
+
+def test_state_dynamics_v37():
+    """v3.7 最小步：四字段 + 强度权重 + 休眠过滤 + 老库迁移"""
+    import sqlite3, shutil
+    clean()
+    core = Mindol(storage_path=DB, persist=True)
+    # 强度初始（importance 驱动）
+    u1 = core.add_unit(text="high importance rec", source="chat", uid="s1", space="codex", metadata={"importance": 0.9})
+    u2 = core.add_unit(text="normal rec", source="chat", uid="s2", space="codex")
+    assert abs(u1.strength - 0.95) < 1e-6
+    assert u2.strength == 1.0 and u2.status == "active"
+    assert u1.access_count == 0 and u1.last_accessed > 0
+    core.save(); core.close()
+    # 重载保持
+    core = Mindol(storage_path=DB, persist=True)
+    assert abs(core.get_unit("s1").strength - 0.95) < 1e-6
+    # 强度权重排序 + 使用痕迹
+    core.add_unit(text="term zzzqqq high", source="chat", uid="s3", space="codex", metadata={"importance": 1.0})
+    core.add_unit(text="term zzzqqq low", source="chat", uid="s4", space="codex", metadata={"importance": 0.1})
+    r = core.retrieve("zzzqqq", top_k=3)
+    assert len(r) >= 2
+    assert r[0][0].uid == "s3"
+    assert core.get_unit("s3").access_count == 1
+    # 休眠过滤
+    d = core.get_unit("s4"); d.status = "dormant"
+    core._persist_unit(d, "codex"); core.save()
+    r2 = core.retrieve("zzzqqq", top_k=5)
+    assert all(u.uid != "s4" for u, _ in r2)
+    core.close(); clean()
+    # 老库迁移
+    legacy_dir = os.path.join(os.path.dirname(__file__), "_legacy_db")
+    if os.path.exists(legacy_dir): shutil.rmtree(legacy_dir, ignore_errors=True)
+    os.makedirs(legacy_dir, exist_ok=True)
+    c = sqlite3.connect(os.path.join(legacy_dir, "memory.db"))
+    c.execute("CREATE TABLE memory_units (uid TEXT PRIMARY KEY, space TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, path TEXT DEFAULT '', metadata TEXT DEFAULT '{}', timestamp REAL DEFAULT 0, embedding BLOB)")
+    c.execute("INSERT INTO memory_units (uid, space, text, source, timestamp) VALUES ('old1','codex','legacy rec','chat',1000.0)")
+    c.execute("CREATE TABLE relations (source_uid TEXT NOT NULL, target_uid TEXT NOT NULL, relation_type TEXT NOT NULL, weight REAL DEFAULT 1.0, PRIMARY KEY (source_uid, target_uid, relation_type))")
+    c.commit(); c.close()
+    core = Mindol(storage_path=legacy_dir, persist=True)
+    old = core.get_unit("old1")
+    assert old is not None and old.strength == 1.0 and old.status == "active" and old.last_accessed == 1000.0
+    core.close()
+    shutil.rmtree(legacy_dir, ignore_errors=True)
+    print("  [PASS] state dynamics v3.7")
+
 if __name__ == "__main__":
     print("=== Mindol Test Suite ===\n")
-    for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration]:
+    for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration, test_state_dynamics_v37]:
         fn()
     print("\n=== ALL TESTS PASSED ===")

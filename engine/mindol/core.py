@@ -43,11 +43,18 @@ class Mindol:
         os.makedirs(self._storage_path, exist_ok=True)
         db_path = os.path.join(self._storage_path, "memory.db")
         self._db = sqlite3.connect(db_path, check_same_thread=False, timeout=10.0)
-        self._db.execute("CREATE TABLE IF NOT EXISTS memory_units (uid TEXT PRIMARY KEY, space TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, path TEXT DEFAULT '', metadata TEXT DEFAULT '{}', timestamp REAL DEFAULT 0, embedding BLOB)")
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.execute("CREATE TABLE IF NOT EXISTS memory_units (uid TEXT PRIMARY KEY, space TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL, path TEXT DEFAULT '', metadata TEXT DEFAULT '{}', timestamp REAL DEFAULT 0, embedding BLOB, strength REAL DEFAULT 1.0, status TEXT DEFAULT 'active', last_accessed REAL DEFAULT 0, access_count INTEGER DEFAULT 0)")
+        # v3.7 增量·最小步：老库平滑迁移（加列带默认，零行为变化）
+        _cols = {r[1] for r in self._db.execute("PRAGMA table_info(memory_units)").fetchall()}
+        for _col, _ddl in (("strength", "REAL DEFAULT 1.0"), ("status", "TEXT DEFAULT 'active'"),
+                           ("last_accessed", "REAL DEFAULT 0"), ("access_count", "INTEGER DEFAULT 0")):
+            if _col not in _cols:
+                self._db.execute("ALTER TABLE memory_units ADD COLUMN %s %s" % (_col, _ddl))
+        self._db.execute("UPDATE memory_units SET last_accessed = timestamp WHERE last_accessed = 0 AND timestamp > 0")
         self._db.execute("CREATE TABLE IF NOT EXISTS relations (source_uid TEXT NOT NULL, target_uid TEXT NOT NULL, relation_type TEXT NOT NULL, weight REAL DEFAULT 1.0, PRIMARY KEY (source_uid, target_uid, relation_type))")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_uid)")
         self._db.execute("CREATE INDEX IF NOT EXISTS idx_units_space ON memory_units(space)")
-        self._db.execute("PRAGMA journal_mode=WAL")
         self._db.commit()
 
     def add_unit(self, text: str, source: str, uid: str = "",
@@ -57,8 +64,13 @@ class Mindol:
             if not uid: uid = hashlib.sha256(text.encode()).hexdigest()[:16]
             if not space: space = self._classify_space(source)
             vec = self._vectorizer.embed(text)
+            meta = metadata or {}
+            imp = float(meta.get("importance", 1.0))
+            now = time.time()
             unit = MemoryUnit(uid=uid, text=text, source=source, space=space, path=path,
-                              metadata=metadata or {}, timestamp=time.time(), embedding=vec)
+                              metadata=meta, timestamp=now, embedding=vec,
+                              strength=max(0.1, min(1.0, 0.5 + 0.5 * imp)),
+                              status="active", last_accessed=now, access_count=0)
             sp = self._spaces[space]
             if uid in sp.uid_to_idx:
                 sp.memory_units[sp.uid_to_idx[uid]] = unit
@@ -94,10 +106,13 @@ class Mindol:
     def _persist_unit(self, unit: MemoryUnit, space: str):
         # 性能优化 v3.6.6: 去掉逐条 commit（每条 ~30ms），由 save()/close() 统一 commit
         emb = unit.embedding.tobytes() if unit.embedding is not None else b""
-        _mem_sql = "INSERT OR REPLACE INTO memory_units VALUES (?,?,?,?,?,?,?,?)"
+        _mem_sql = ("INSERT OR REPLACE INTO memory_units "
+                    "(uid, space, text, source, path, metadata, timestamp, embedding, strength, status, last_accessed, access_count) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
         self._db.execute(_mem_sql,
                          (unit.uid, space, unit.text, unit.source, unit.path,
-                          json.dumps(unit.metadata, ensure_ascii=False), unit.timestamp, emb))
+                          json.dumps(unit.metadata, ensure_ascii=False), unit.timestamp, emb,
+                          unit.strength, unit.status, unit.last_accessed, unit.access_count))
 
     def retrieve(self, query: str, top_k: int = 10, spaces: List[str] = None) -> List[Tuple[MemoryUnit, float]]:
         qvec = self._vectorizer.embed(query)
@@ -139,8 +154,10 @@ class Mindol:
                 indices = np.argpartition(-sims, top_k)[:top_k]
                 indices = indices[np.argsort(-sims[indices])]
             for idx in indices:
-                score = float(sims[idx]) * w
-                if score > 0: candidates.append((sp.memory_units[idx], score))
+                u = sp.memory_units[idx]
+                if u.status == "dormant": continue
+                score = float(sims[idx]) * w * u.strength
+                if score > 0: candidates.append((u, score))
         ext = self._relation_extend(candidates, top_k)
         candidates.extend(ext)
         pri = {"trade": 0, "pattern": 1, "rule": 2, "codex": 3, "raw_chat": 3, "raw_file": 3, "abstract": 4}
@@ -149,7 +166,16 @@ class Mindol:
             if u.uid not in seen:
                 seen.add(u.uid); results.append((u, s))
             if len(results) >= top_k * 3: break
-        return results[:top_k]
+        results = results[:top_k]
+        # 使用痕迹：命中即记录（last_accessed/access_count），供后续衰减/提取即刷新
+        if self._db and results:
+            now = time.time()
+            for u, _ in results:
+                u.last_accessed = now
+                u.access_count += 1
+                self._db.execute("UPDATE memory_units SET last_accessed=?, access_count=? WHERE uid=?",
+                                 (now, u.access_count, u.uid))
+        return results
 
     def _relation_extend(self, candidates, top_k):
         ext = []
@@ -162,7 +188,9 @@ class Mindol:
                 for sn, sp in self._spaces.items():
                     oidx = sp.uid_to_idx.get(oid)
                     if oidx is not None:
-                        ext.append((sp.memory_units[oidx], s * rel.weight * 0.7))
+                        ou = sp.memory_units[oidx]
+                        if ou.status == "dormant": break
+                        ext.append((ou, s * rel.weight * 0.7 * ou.strength))
                         seen.add(oid); break
         return ext
 
@@ -214,12 +242,16 @@ class Mindol:
     def _load(self):
         if not self._db: return
         try:
-            for row in self._db.execute("SELECT uid, space, text, source, path, metadata, timestamp, embedding FROM memory_units").fetchall():
-                uid, space, text, source, path, mj, ts, emb = row
+            for row in self._db.execute("SELECT uid, space, text, source, path, metadata, timestamp, embedding, strength, status, last_accessed, access_count FROM memory_units").fetchall():
+                uid, space, text, source, path, mj, ts, emb, strength, status, last_accessed, access_count = row
                 meta = json.loads(mj) if mj else {}
                 vec = np.frombuffer(emb, dtype=np.float32) if emb else None
                 u = MemoryUnit(uid=uid, text=text, source=source, space=space, path=path,
-                               metadata=meta, timestamp=ts or 0.0, embedding=vec)
+                               metadata=meta, timestamp=ts or 0.0, embedding=vec,
+                               strength=float(strength) if strength is not None else 1.0,
+                               status=status or "active",
+                               last_accessed=float(last_accessed) if last_accessed else (ts or 0.0),
+                               access_count=int(access_count) if access_count else 0)
                 sp = self._spaces.get(space)
                 if sp is not None:
                     sp.uid_to_idx[uid] = len(sp.memory_units); sp.memory_units.append(u)
