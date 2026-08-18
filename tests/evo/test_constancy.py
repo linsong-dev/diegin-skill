@@ -97,3 +97,44 @@ def test_cleanup_expired_removes_stale(tmp_path, monkeypatch):
     assert removed == 1
     assert a["task_id"] not in reg._tasks
     assert b["task_id"] in reg._tasks
+def test_find_by_intent_fuzzy_match(tmp_path, monkeypatch):
+    """v3.9.1 模糊恢复：自然语言按意图检索可恢复任务（无 task_id）"""
+    reg = _make_registry(tmp_path, monkeypatch)
+    a = reg.begin("A股资金增值模拟盘：15万到50万年度目标")
+    reg.suspend(a["task_id"])
+    b = reg.begin("三角洲行动游戏优化与ROG散热配置")
+    reg.suspend(b["task_id"])
+    c = reg.begin("已完成任务不参与匹配")
+    reg.complete(c["task_id"])
+
+    r1 = reg.find_by_intent("恢复 A股模拟盘那个任务")
+    assert r1 and r1[0]["task_id"] == a["task_id"]
+    assert r1[0]["score"] > 0
+    assert len(r1[0]["summary"]) <= USER_SUMMARY_MAX_CHARS
+
+    r2 = reg.find_by_intent("继续三角洲游戏优化")
+    assert r2 and r2[0]["task_id"] == b["task_id"]
+
+    r3 = reg.find_by_intent("已完成任务")
+    assert all(t["task_id"] != c["task_id"] for t in r3)
+
+    assert reg.find_by_intent("") == []
+    assert reg.find_by_intent("   ") == []
+
+
+def test_find_by_intent_score_order_and_topk(tmp_path, monkeypatch):
+    """v3.9.1 模糊恢复：分数降序 + top_k 截断 + 最相似排前"""
+    reg = _make_registry(tmp_path, monkeypatch)
+    t1 = reg.begin("交易系统开发与首板回测验证")
+    reg.suspend(t1["task_id"])
+    t2 = reg.begin("交易纪律与仓位管理规则梳理")
+    reg.suspend(t2["task_id"])
+    t3 = reg.begin("开发文档整理与知识层对齐")
+    reg.suspend(t3["task_id"])
+
+    r = reg.find_by_intent("交易 系统 开发", top_k=2)
+    assert len(r) <= 2
+    assert r[0]["score"] >= r[-1]["score"]
+    assert r[0]["task_id"] == t1["task_id"]
+    assert r[0]["task_id"] in (t1["task_id"], t2["task_id"])
+

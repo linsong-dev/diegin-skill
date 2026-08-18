@@ -2859,6 +2859,13 @@ def constancy_begin(intent_summary, completion_criteria="", pending_items=None,
         _constancy_archive("begin", _r.get("task_id", ""))
     return _r
 
+def constancy_find_by_intent(text, top_k=3):
+    """恒常门·模糊查找：按意图检索可恢复任务（自然语言恢复，无 task_id 时）"""
+    try:
+        return _get_constancy_inst().find_by_intent(text, top_k=top_k)
+    except Exception:
+        return []
+
 def constancy_recoverable():
     """恒常门：续而接——检索可恢复任务（paused/blocked 且未超时）"""
     return _get_constancy_inst().find_recoverable()

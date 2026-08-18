@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime
+import difflib
 import json
 import os
 import uuid
@@ -241,6 +242,77 @@ class TaskRegistry:
             out.append(t_copy)
         out.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return out
+
+    _FUZZY_STOP_WORDS = ("恢复", "继续", "那个", "这个", "请", "帮我", "把", "去",
+                       "一下", "任务", "然后", "再", "接着", "我们", "我", "要")
+
+    @classmethod
+    def _intent_score(cls, query: str, text: str) -> float:
+        """轻量意图相似度（零依赖）：连续词块覆盖度 75% + 序列相似度 25%。
+
+        覆盖度 = 查询中被目标文本以 ≥2 字符连续片段命中的字符占比；
+        先剔除引导停用词（恢复/继续/那个/任务等），减少噪音稀释。
+        """
+        if not query or not text:
+            return 0.0
+        q = query.lower()
+        t = text.lower()[:300]  # 截断防超长文本拖慢 O(n*m)
+        for w in cls._FUZZY_STOP_WORDS:
+            q = q.replace(w, " ")
+        q = "".join(q.split())
+        if not q:
+            return 0.0
+        n, m = len(q), len(t)
+        covered = [False] * n
+        for i in range(n):
+            if covered[i]:
+                continue
+            best = 0
+            for j in range(m):
+                k = 0
+                while i + k < n and j + k < m and q[i + k] == t[j + k]:
+                    k += 1
+                if k > best:
+                    best = k
+            if best >= 2:
+                for x in range(best):
+                    if i + x < n:
+                        covered[i + x] = True
+        cov = sum(covered) / n if n else 0.0
+        seq = difflib.SequenceMatcher(None, q, t).ratio()
+        return round(0.75 * cov + 0.25 * seq, 3)
+
+    def find_by_intent(self, text: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """续而接·模糊查找：按意图关键词/相似度检索可恢复任务（paused/blocked 未超时）。
+
+        用于自然语言恢复（无 task_id 时）：用户说「恢复 A股模拟盘任务」，
+        依 intent_summary 打分返回 top 候选；是否真正恢复由调用方按置信度+用户确认裁决。
+        """
+        if not text or not text.strip():
+            return []
+        now = datetime.datetime.now()
+        scored = []
+        for tid, t in self._tasks.items():
+            if t.get("status") not in _RECOVERABLE_STATUSES:
+                continue
+            updated = t.get("updated_at", "")
+            try:
+                age = (now - datetime.datetime.fromisoformat(updated)).days
+            except Exception:
+                age = 0
+            if age > SNAPSHOT_RETENTION_DAYS:
+                continue
+            summary = t.get("intent_summary", "") or ""
+            criteria = t.get("completion_criteria", "") or ""
+            match_text = (summary + " " + criteria).strip()
+            score = self._intent_score(text, match_text)
+            if score <= 0:
+                continue
+            scored.append({"task_id": tid,
+                           "summary": summary[:USER_SUMMARY_MAX_CHARS],
+                           "score": score})
+        scored.sort(key=lambda x: (-x["score"], x["task_id"]))
+        return scored[:top_k]
 
     def snapshot(self, task_id: str) -> Dict[str, Any]:
         """状态摘要（含完成标准、阻塞报告、待办清单）"""

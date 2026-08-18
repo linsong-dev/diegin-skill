@@ -1448,8 +1448,9 @@ if __name__ == "__main__":
 
         # 恒常门·恢复意图解析 + 任务落库（先解析恢复，再落库，避免同轮自指）
         constancy_current_task_id = ""
+        _fuzzy_candidates = []
         try:
-            from evo.main import constancy_track_prompt, constancy_resume, constancy_recoverable
+            from evo.main import constancy_track_prompt, constancy_resume, constancy_recoverable, constancy_find_by_intent
             _rec_tasks = constancy_recoverable()
             _rec_ids = {t.get("task_id") for t in _rec_tasks}
             _cand = input_data.get("resume_task_id", "") or ""
@@ -1458,6 +1459,22 @@ if __name__ == "__main__":
                 _m = _re.search(r"(?:resume_task_id|恢复|继续)\s*[:=]?\s*(task_\w+)", prompt or "")
                 if _m:
                     _cand = _m.group(1)
+                else:
+                    # v3.9.1 模糊恢复：无 task_id 但含恢复/继续意图 → 按意图检索可恢复任务
+                    _p = (prompt or "").strip()
+                    if _re.search(r"(?:恢复|继续)", _p):
+                        try:
+                            _fuzzy = constancy_find_by_intent(_p, top_k=3) or []
+                            if _fuzzy:
+                                _best = _fuzzy[0]
+                                _second = _fuzzy[1] if len(_fuzzy) > 1 else None
+                                # 唯一高置信（≥0.30 且与次名差 ≥0.15）→ 自动恢复；否则列候选待确认
+                                if _best["score"] >= 0.30 and (not _second or _best["score"] - _second["score"] >= 0.15):
+                                    _cand = _best["task_id"]
+                                else:
+                                    _fuzzy_candidates = _fuzzy
+                        except Exception:
+                            _fuzzy_candidates = []
             if _cand and _cand in _rec_ids:
                 try:
                     if constancy_resume(_cand):
@@ -1639,6 +1656,13 @@ if __name__ == "__main__":
                 _constancy_hint = "\n".join(_lines)
             elif constancy_recovery and constancy_recovery.get("resumed"):
                 _constancy_hint = "\n[恒常门] 已恢复任务 %s，继续执行" % str(constancy_recovery.get("resume_requested", ""))[:40]
+            if not _constancy_hint and _fuzzy_candidates:
+                _lines = ["\n[恒常门] 检测到多个可能任务，请确认要恢复哪个:"]
+                for _f in _fuzzy_candidates[:3]:
+                    _lines.append("  - %s %s（匹配度 %.0f%%）" % (
+                        _f.get("task_id", ""), str(_f.get("summary", ""))[:24], (_f.get("score", 0) or 0) * 100))
+                _lines.append("回复: 继续 <task_id> 以确认")
+                _constancy_hint = "\n".join(_lines)
             if not _constancy_hint and proactive_proposal and proactive_proposal.get("triggered"):
                 _constancy_hint = "\n[恒常门] 连续3轮无输入，有staging候选规则待验证，可主动回归校验（需用户确认）"
             if _constancy_hint:
