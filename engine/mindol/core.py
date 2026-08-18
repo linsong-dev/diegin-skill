@@ -16,6 +16,8 @@ class Mindol:
     SPACE_TRADE = "trade"
     SPACE_CODEX = "codex"
     SPACE_STATE = "state"
+    STRENGTH_MAX = 1.0
+    BOOST_REFRESH = 0.05
 
     def __init__(self, storage_path: str = "", vectorizer: Any = None,
                  persist: bool = True, text_clean: bool = True):
@@ -167,14 +169,15 @@ class Mindol:
                 seen.add(u.uid); results.append((u, s))
             if len(results) >= top_k * 3: break
         results = results[:top_k]
-        # 使用痕迹：命中即记录（last_accessed/access_count），供后续衰减/提取即刷新
+        # 提取即刷新（v3.7.1）：命中即记录使用痕迹 + 强度小幅提升（上限对齐初始化 1.0）
         if self._db and results:
             now = time.time()
             for u, _ in results:
                 u.last_accessed = now
                 u.access_count += 1
-                self._db.execute("UPDATE memory_units SET last_accessed=?, access_count=? WHERE uid=?",
-                                 (now, u.access_count, u.uid))
+                u.strength = min(self.STRENGTH_MAX, u.strength + self.BOOST_REFRESH)
+                self._db.execute("UPDATE memory_units SET strength=?, last_accessed=?, access_count=? WHERE uid=?",
+                                 (u.strength, now, u.access_count, u.uid))
         return results
 
     def _relation_extend(self, candidates, top_k):

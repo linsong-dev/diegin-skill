@@ -112,6 +112,15 @@ def test_state_dynamics_v37():
     core._persist_unit(d, "codex"); core.save()
     r2 = core.retrieve("zzzqqq", top_k=5)
     assert all(u.uid != "s4" for u, _ in r2)
+    # 提取即刷新（v3.7.1）：命中即 strength+0.05，上限对齐 1.0
+    core.add_unit(text="term boost_kw_rf 低强度", source="chat", uid="s5", space="codex", metadata={"importance": 0.2})
+    assert abs(core.get_unit("s5").strength - 0.6) < 1e-6
+    core.retrieve("boost_kw_rf", top_k=3)
+    assert abs(core.get_unit("s5").strength - 0.65) < 1e-6
+    cap = core.get_unit("s5"); cap.strength = 0.98
+    core._persist_unit(cap, "codex"); core.save()
+    core.retrieve("boost_kw_rf", top_k=3)
+    assert abs(core.get_unit("s5").strength - 1.0) < 1e-6
     core.close(); clean()
     # 老库迁移
     legacy_dir = os.path.join(os.path.dirname(__file__), "_legacy_db")
