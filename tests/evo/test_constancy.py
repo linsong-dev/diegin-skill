@@ -132,9 +132,84 @@ def test_find_by_intent_score_order_and_topk(tmp_path, monkeypatch):
     t3 = reg.begin("开发文档整理与知识层对齐")
     reg.suspend(t3["task_id"])
 
+
     r = reg.find_by_intent("交易 系统 开发", top_k=2)
     assert len(r) <= 2
     assert r[0]["score"] >= r[-1]["score"]
     assert r[0]["task_id"] == t1["task_id"]
     assert r[0]["task_id"] in (t1["task_id"], t2["task_id"])
+
+
+def test_find_by_intent_hollow_downweight(tmp_path, monkeypatch):
+    """v3.9.2 空壳降权：自动立项快照（intent==criteria 且无待办）分数 ×0.5，
+    真实任务不被本对话消息快照抢占。"""
+    reg = _make_registry(tmp_path, monkeypatch)
+    _hollow_text = "迭进 推广 用迭进的 恢复率 0 关联 进行试试"
+    hollow = reg.begin(_hollow_text, completion_criteria=_hollow_text)  # 自动立项快照：criteria==原话
+    reg.suspend(hollow["task_id"])
+    real = reg.begin("迭进推广 v2（九章版）：更新推广计划书",
+                     completion_criteria="推广计划书九章化+发布",
+                     pending_items=["更新计划书"])
+    reg.suspend(real["task_id"])
+    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3, mindol_fallback=False)
+    assert r and r[0]["task_id"] == real["task_id"]
+    hollow_score = next(t["score"] for t in r if t["task_id"] == hollow["task_id"])
+    real_score = next(t["score"] for t in r if t["task_id"] == real["task_id"])
+    assert real_score > hollow_score
+
+
+def test_find_by_intent_mindol_fallback_no_high_conf(tmp_path, monkeypatch):
+    """v3.9.2 Mindol 兜底：无高置信任务候选时降级返回记忆片段
+    （kind=memory、无 task_id，调用方只能提示不可自动恢复）"""
+    reg = _make_registry(tmp_path, monkeypatch)
+    a = reg.begin("完全无关的任务XYZ")
+    reg.suspend(a["task_id"])
+    monkeypatch.setattr(constancy.TaskRegistry, "_mindol_fallback",
+                        staticmethod(lambda text, top_k=3: [{
+                            "kind": "memory", "task_id": "", "summary": "迭进推广相关内容片段",
+                            "text": "迭进推广相关内容片段", "space": "raw_chat", "score": 0.55}]))
+    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3)
+    assert r and r[0]["kind"] == "memory"
+    assert r[0]["task_id"] == ""
+
+
+def test_find_by_intent_skips_fallback_when_high_conf(tmp_path, monkeypatch):
+    """v3.9.2 Mindol 兜底：唯一高置信任务候选存在时不触发降级检索"""
+    reg = _make_registry(tmp_path, monkeypatch)
+    a = reg.begin("迭进推广 v2（九章版）：更新推广计划书并执行",
+                  completion_criteria="推广计划书九章化+发布",
+                  pending_items=["更新"])
+    reg.suspend(a["task_id"])
+    called = {"n": 0}
+    def _fb(*args, **kwargs):
+        called["n"] += 1
+        return []
+    monkeypatch.setattr(constancy.TaskRegistry, "_mindol_fallback", staticmethod(_fb))
+    r = reg.find_by_intent("恢复 迭进推广 v2 任务", top_k=3)
+    assert r and r[0]["task_id"] == a["task_id"]
+    assert called["n"] == 0
+
+
+def test_mindol_fallback_parses_hits(tmp_path, monkeypatch):
+    """v3.9.2 _mindol_fallback：解析 memory_search 命中（过滤空片段/非 dict）"""
+    import types
+    pkg = types.ModuleType("mindol")
+    pkg.__path__ = []
+    mi = types.ModuleType("mindol.diegin_integration")
+    def _fake_search(query, max_results=5):
+        return [
+            {"text": "A股模拟盘任务记录", "score": 0.8, "space": "raw_chat"},
+            {"text": "A股模拟盘任务记录", "score": 0.9, "space": "codex"},  # 双空间重复 → 去重
+            {"text": "  ", "score": 0.9, "space": "codex"},
+            {"text": "决策记录片段", "score": 0.6},
+            "not-a-dict",
+        ]
+    mi.memory_search = _fake_search
+    monkeypatch.setitem(sys.modules, "mindol", pkg)
+    monkeypatch.setitem(sys.modules, "mindol.diegin_integration", mi)
+    out = constancy.TaskRegistry._mindol_fallback("模拟盘", top_k=3)
+    assert len(out) == 2
+    assert out[0]["kind"] == "memory" and out[0]["space"] == "raw_chat"
+    assert out[1]["space"] == "codex"
+    assert all(t["task_id"] == "" for t in out)
 

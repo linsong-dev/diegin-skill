@@ -282,11 +282,14 @@ class TaskRegistry:
         seq = difflib.SequenceMatcher(None, q, t).ratio()
         return round(0.75 * cov + 0.25 * seq, 3)
 
-    def find_by_intent(self, text: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def find_by_intent(self, text: str, top_k: int = 3,
+                       mindol_fallback: bool = True) -> List[Dict[str, Any]]:
         """续而接·模糊查找：按意图关键词/相似度检索可恢复任务（paused/blocked 未超时）。
 
         用于自然语言恢复（无 task_id 时）：用户说「恢复 A股模拟盘任务」，
         依 intent_summary 打分返回 top 候选；是否真正恢复由调用方按置信度+用户确认裁决。
+        v3.9.2：空壳任务（自动立项目快照）降权 ×0.5；无高置信候选时降级 Mindol
+        语义检索（kind=memory 片段候选，仅供定位意图，不自动恢复）。
         """
         if not text or not text.strip():
             return []
@@ -308,11 +311,56 @@ class TaskRegistry:
             score = self._intent_score(text, match_text)
             if score <= 0:
                 continue
+            # v3.9.2 空壳降权：自动立项快照（intent==criteria 且无待办）≠ 真实可恢复任务
+            if summary.strip() == criteria.strip() and not (t.get("pending_items") or []):
+                score = round(score * 0.5, 3)
             scored.append({"task_id": tid,
                            "summary": summary[:USER_SUMMARY_MAX_CHARS],
                            "score": score})
         scored.sort(key=lambda x: (-x["score"], x["task_id"]))
+        # v3.9.2 Mindol 兜底：无高置信候选时降级语义检索（raw_chat/codex 空间）
+        if mindol_fallback:
+            _high_conf = False
+            if scored:
+                _best = scored[0]
+                _high_conf = (_best["score"] >= 0.30 and
+                              (len(scored) < 2 or _best["score"] - scored[1]["score"] >= 0.15))
+            if not _high_conf:
+                scored.extend(self._mindol_fallback(text, top_k))
+                scored.sort(key=lambda x: (-x["score"], x.get("task_id", "")))
         return scored[:top_k]
+
+    @staticmethod
+    def _mindol_fallback(text: str, top_k: int = 3) -> List[Dict[str, Any]]:
+        """Mindol 语义检索兜底（v3.9.2）：模糊匹配无高置信任务候选时，检索
+        raw_chat/codex 空间命中片段作为候选上下文提示（kind=memory、无 task_id，
+        调用方只可提示、不可自动恢复）。失败/超时返回空，不阻塞主流程。
+        """
+        try:
+            from mindol.diegin_integration import memory_search
+            hits = memory_search(text, max_results=top_k) or []
+        except Exception:
+            return []
+        out = []
+        seen = set()
+        for h in hits:
+            if not isinstance(h, dict):
+                continue
+            snippet = str(h.get("text", "")).strip()
+            if not snippet:
+                continue
+            # raw_chat/codex 双空间会命中同一聊天快照 → 按文本去重（保留首个更高分）
+            if snippet in seen:
+                continue
+            seen.add(snippet)
+            out.append({"kind": "memory",
+                        "task_id": "",
+                        "summary": snippet[:USER_SUMMARY_MAX_CHARS],
+                        "text": snippet[:120],
+                        "space": str(h.get("space", "codex"))[:16],
+                        "score": round(float(h.get("score", 0) or 0), 3)})
+        out.sort(key=lambda x: (-x["score"], x.get("task_id", "")))
+        return out[:top_k]
 
     def snapshot(self, task_id: str) -> Dict[str, Any]:
         """状态摘要（含完成标准、阻塞报告、待办清单）"""

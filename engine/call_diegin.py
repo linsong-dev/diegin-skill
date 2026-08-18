@@ -117,6 +117,23 @@ def _constancy_age_text(updated_at: str) -> str:
         return ""
 
 
+def _constancy_core_trio(task_id: str) -> list:
+    """v3.9.2 快照裁剪：恢复注入仅保留核心三件套（intent/completion_criteria/pending_items），
+    省 token 且不带 context/blocker 等重字段。失败返回空（不阻塞恢复流程）。"""
+    try:
+        from evo.main import constancy_snapshot
+        _t = constancy_snapshot(task_id) or {}
+        _items = _t.get("pending_items") or []
+        return [{
+            "task_id": str(task_id)[:80],
+            "intent_summary": str(_t.get("intent_summary", ""))[:200],
+            "completion_criteria": str(_t.get("completion_criteria", ""))[:400],
+            "pending_items": [str(x)[:120] for x in _items][:8],
+        }]
+    except Exception:
+        return []
+
+
 def _build_deep_review_report():
     """守三·深度复盘：系统性回顾strike日志并生成改进建议"""
     import json as _j, os as _o
@@ -640,14 +657,16 @@ def pre_check(context: dict) -> dict:
             constancy_recovery = {
                 "resume_requested": str(_resumed_tid)[:80],
                 "resumed": True,
-                "prompt": "已恢复任务，继续执行"
+                "prompt": "已恢复任务，继续执行",
+                "tasks": _constancy_core_trio(_resumed_tid)
             }
         elif _resume_id:
             _resumed = constancy_resume(_resume_id)
             constancy_recovery = {
                 "resume_requested": str(_resume_id)[:80],
                 "resumed": bool(_resumed),
-                "prompt": "已恢复任务，继续执行" if _resumed else "任务不可恢复（已完成/已放弃）"
+                "prompt": "已恢复任务，继续执行" if _resumed else "任务不可恢复（已完成/已放弃）",
+                "tasks": _constancy_core_trio(_resume_id) if _resumed else []
             }
         else:
             _rec = constancy_recoverable()
@@ -1461,6 +1480,7 @@ if __name__ == "__main__":
                     _cand = _m.group(1)
                 else:
                     # v3.9.1 模糊恢复：无 task_id 但含恢复/继续意图 → 按意图检索可恢复任务
+                    # v3.9.2：空壳降权 + Mindol 兜底（kind=memory 片段仅提示，永不自动恢复）
                     _p = (prompt or "").strip()
                     if _re.search(r"(?:恢复|继续)", _p):
                         try:
@@ -1469,7 +1489,8 @@ if __name__ == "__main__":
                                 _best = _fuzzy[0]
                                 _second = _fuzzy[1] if len(_fuzzy) > 1 else None
                                 # 唯一高置信（≥0.30 且与次名差 ≥0.15）→ 自动恢复；否则列候选待确认
-                                if _best["score"] >= 0.30 and (not _second or _best["score"] - _second["score"] >= 0.15):
+                                if (_best.get("task_id") and _best["score"] >= 0.30 and
+                                        (not _second or _best["score"] - _second["score"] >= 0.15)):
                                     _cand = _best["task_id"]
                                 else:
                                     _fuzzy_candidates = _fuzzy
@@ -1655,13 +1676,35 @@ if __name__ == "__main__":
                 _lines.append("如需继续请回复: 继续 <task_id>")
                 _constancy_hint = "\n".join(_lines)
             elif constancy_recovery and constancy_recovery.get("resumed"):
-                _constancy_hint = "\n[恒常门] 已恢复任务 %s，继续执行" % str(constancy_recovery.get("resume_requested", ""))[:40]
+                _lines = ["\n[恒常门] 已恢复任务 %s，继续执行" % str(constancy_recovery.get("resume_requested", ""))[:40]]
+                for _t in (constancy_recovery.get("tasks") or [])[:1]:
+                    _i = str(_t.get("intent_summary", ""))[:120]
+                    _c = str(_t.get("completion_criteria", ""))[:200]
+                    _p = _t.get("pending_items") or []
+                    if _i:
+                        _lines.append("  目标: %s" % _i)
+                    if _c:
+                        _lines.append("  完成标准: %s" % _c)
+                    if _p:
+                        _lines.append("  待办: %s" % " | ".join(str(x) for x in _p)[:200])
+                _constancy_hint = "\n".join(_lines)
             if not _constancy_hint and _fuzzy_candidates:
-                _lines = ["\n[恒常门] 检测到多个可能任务，请确认要恢复哪个:"]
-                for _f in _fuzzy_candidates[:3]:
-                    _lines.append("  - %s %s（匹配度 %.0f%%）" % (
-                        _f.get("task_id", ""), str(_f.get("summary", ""))[:24], (_f.get("score", 0) or 0) * 100))
-                _lines.append("回复: 继续 <task_id> 以确认")
+                _task_cands = [_f for _f in _fuzzy_candidates if _f.get("kind") != "memory"]
+                _mem_cands = [_f for _f in _fuzzy_candidates if _f.get("kind") == "memory"]
+                _lines = []
+                if _task_cands:
+                    _lines.append("\n[恒常门] 检测到多个可能任务，请确认要恢复哪个:")
+                    for _f in _task_cands[:3]:
+                        _lines.append("  - %s %s（匹配度 %.0f%%）" % (
+                            _f.get("task_id", ""), str(_f.get("summary", ""))[:24], (_f.get("score", 0) or 0) * 100))
+                    _lines.append("回复: 继续 <task_id> 以确认")
+                if _mem_cands:
+                    _lines.append("\n[恒常门] 未匹配到明确任务，Mindol 记忆相关片段（供定位意图，不自动恢复）:")
+                    for _m in _mem_cands[:3]:
+                        _lines.append("  - [%s %.0f%%] %s" % (
+                            _m.get("space", "codex"), (_m.get("score", 0) or 0) * 100,
+                            str(_m.get("summary", ""))[:60]))
+                    _lines.append("请补充任务描述或回复: 继续 <task_id>")
                 _constancy_hint = "\n".join(_lines)
             if not _constancy_hint and proactive_proposal and proactive_proposal.get("triggered"):
                 _constancy_hint = "\n[恒常门] 连续3轮无输入，有staging候选规则待验证，可主动回归校验（需用户确认）"
