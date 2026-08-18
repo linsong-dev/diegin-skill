@@ -1,6 +1,6 @@
 """mindol.core — Mindol 曼兜 语义记忆引擎（替代 MemPalace）"""
 from __future__ import annotations
-import json, os, re, sqlite3, threading, time, hashlib
+import json, os, re, sqlite3, threading, time, hashlib, math
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from .vectorizer import SimpleVectorizer
@@ -18,6 +18,10 @@ class Mindol:
     SPACE_STATE = "state"
     STRENGTH_MAX = 1.0
     BOOST_REFRESH = 0.05
+    # v3.7.2 记忆代谢：仅经验类空间衰减（对话/模式/抽象），权威空间豁免
+    DECAY_SPACES = (SPACE_RAW_CHAT, SPACE_CODEX, SPACE_PATTERN, SPACE_ABSTRACT)
+    DECAY_RATE_DAILY = 0.02
+    DORMANCY_THRESHOLD = 0.1
 
     def __init__(self, storage_path: str = "", vectorizer: Any = None,
                  persist: bool = True, text_clean: bool = True):
@@ -220,6 +224,48 @@ class Mindol:
             return False
 
     
+    def decay_and_dormancy(self, now=None, decay_rate=DECAY_RATE_DAILY,
+                           dormancy_threshold=DORMANCY_THRESHOLD) -> dict:
+        """记忆代谢（v3.7.2）：经验类空间按 last_accessed 时间衰减，低于阈值置 dormant。
+
+        设计要点：
+        - 只作用于 DECAY_SPACES（raw_chat/codex/pattern/abstract）——对话/行为/模式属经验，允许自然代谢；
+          rule/trade/state 为权威/纪律内容，豁免衰减。
+        - 强度公式：strength = strength * exp(-decay_rate * Δ天)，与提取即刷新（+0.05）形成涨跌平衡。
+        - 休眠非删除：status=dormant 保留数据、不参与检索；幂等——dormant 单元不再衰减，重复调用无副作用。
+        - 返回统计 {decayed, dormant, skipped}。
+        """
+        if not self._db:
+            return {"decayed": 0, "dormant": 0, "skipped": 0}
+        now = now if now is not None else time.time()
+        stats = {"decayed": 0, "dormant": 0, "skipped": 0}
+        with self._lock:
+            updates = []
+            for sn, sp in self._spaces.items():
+                if sn not in self.DECAY_SPACES:
+                    continue
+                for u in sp.memory_units:
+                    if u.status == "dormant":
+                        stats["skipped"] += 1
+                        continue
+                    ref_ts = u.last_accessed or u.timestamp or now
+                    dt_days = max(0.0, (now - ref_ts) / 86400.0)
+                    if dt_days <= 0.0:
+                        continue
+                    new_s = u.strength * math.exp(-decay_rate * dt_days)
+                    u.strength = new_s
+                    if new_s < dormancy_threshold:
+                        u.status = "dormant"
+                        stats["dormant"] += 1
+                    else:
+                        stats["decayed"] += 1
+                    updates.append((u.strength, u.status, u.uid))
+            if updates:
+                self._db.executemany(
+                    "UPDATE memory_units SET strength=?, status=? WHERE uid=?", updates)
+                self._db.commit()
+        return stats
+
     def flush(self):
         """轻量提交：仅 commit 当前未提交事务（权威存储必须即时落盘，防止进程退出丢失）"""
         if not self._db:

@@ -2657,6 +2657,17 @@ def run_maintenance():
     except Exception as _e2:
         print(f"  [DGEN] dgen_evolve 接入跳过: {_e2}")
 
+    # v3.7.2 记忆代谢：Mindol 经验类空间时间衰减 + 自动休眠（权威空间豁免）
+    try:
+        _evo_dir2 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if _evo_dir2 not in sys.path:
+            sys.path.insert(0, _evo_dir2)
+        from mindol.diegin_integration import memory_decay
+        _decay_stats = memory_decay()
+        print(f"  [MINDOL] 记忆代谢: {_decay_stats}")
+    except Exception as _e3:
+        print(f"  [MINDOL] 记忆代谢异常: {_e3}")
+
 
 def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: List[str] = None, method: str = ""):
 

@@ -108,6 +108,16 @@ def memory_format_context(query: str = "", top_k: int = 3) -> str:
         return a.format_context(r)
     except Exception: return ""
 
+def memory_decay() -> Dict:
+    """记忆代谢（v3.7.2）：时间衰减 + 自动休眠，供每日维护调用。
+
+    返回统计 {decayed, dormant, skipped}；失败返回空字典（不阻断维护任务）。
+    """
+    try:
+        return _get_adapter()._ensure_core().decay_and_dormancy()
+    except Exception:
+        return {}
+
 def get_memory_stats() -> Dict[str, int]:
     """获取各空间统计"""
     try: return _get_adapter().stats()

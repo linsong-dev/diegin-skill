@@ -138,8 +138,46 @@ def test_state_dynamics_v37():
     shutil.rmtree(legacy_dir, ignore_errors=True)
     print("  [PASS] state dynamics v3.7")
 
+
+def test_decay_dormancy_v372():
+    """v3.7.2 记忆代谢：时间衰减公式 + 阈值休眠 + 权威空间豁免 + 幂等"""
+    import math, time
+    clean()
+    core = Mindol(storage_path=DB, persist=True)
+    now = time.time()
+    # 经验空间：30 天未访问 -> 强度按 exp(-0.02*30) 衰减
+    core.add_unit(text="old chat memory", source="chat", uid="d1", space="codex")
+    u1 = core.get_unit("d1"); u1.last_accessed = now - 30*86400.0; u1.strength = 1.0
+    # 经验空间：120 天未访问 -> 低于阈值休眠
+    core.add_unit(text="very old chat memory", source="chat", uid="d2", space="codex")
+    u2 = core.get_unit("d2"); u2.last_accessed = now - 120*86400.0; u2.strength = 1.0
+    # 权威空间：rule 放超旧数据，应豁免不衰减
+    core.add_unit(text="authoritative rule", source="rule", uid="d3", space="rule")
+    u3 = core.get_unit("d3"); u3.last_accessed = now - 120*86400.0; u3.strength = 1.0
+    stats = core.decay_and_dormancy(now=now)
+    u1 = core.get_unit("d1"); u2 = core.get_unit("d2"); u3 = core.get_unit("d3")
+    expect1 = math.exp(-0.02 * 30.0)
+    assert abs(u1.strength - expect1) < 1e-6, (u1.strength, expect1)
+    assert u1.status == "active"
+    assert u2.status == "dormant" and u2.strength < 0.1
+    assert u3.status == "active" and u3.strength == 1.0  # 权威豁免
+    assert stats["dormant"] == 1
+    # 幂等：dormant 不再衰减（skipped>=1）；active 按同间隔再次衰减符合幂进公式
+    stats2 = core.decay_and_dormancy(now=now)
+    assert stats2["skipped"] >= 1
+    assert core.get_unit("d2").status == "dormant"
+    expect2 = expect1 * math.exp(-0.02 * 30.0)
+    assert abs(core.get_unit("d1").strength - expect2) < 1e-6
+    # 落库保持
+    core.save(); core.close()
+    core = Mindol(storage_path=DB, persist=True)
+    assert core.get_unit("d2").status == "dormant"
+    assert abs(core.get_unit("d1").strength - expect2) < 1e-6
+    core.close(); clean()
+    print("  [PASS] decay & dormancy v3.7.2")
+
 if __name__ == "__main__":
     print("=== Mindol Test Suite ===\n")
-    for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration, test_state_dynamics_v37]:
+    for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration, test_state_dynamics_v37, test_decay_dormancy_v372]:
         fn()
     print("\n=== ALL TESTS PASSED ===")
