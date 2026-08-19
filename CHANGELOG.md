@@ -1,5 +1,21 @@
 # Changelog · Diegin 迭进
 
+## 3.9.3 (2026-08-19)
+
+- fix: 桌面版钩子注入——UserPromptSubmit 输出 hookSpecificOutput.additionalContext JSON 信封，注入实测生效（A）
+- feat: 恒常门恢复提示三件套——find_by_intent 多候选 + 完成标准/待办前 2 条随恢复提示返回（A2）
+- docs: SKILL.md 新增规则 0-1a「任务恢复纪律」+ 版本声明对齐完整终版 v3.9.3（B）
+- chore: 版本一致性补全——plugin.json/README 徽章/CHANGELOG 统一 3.9.3；hooks.json 模板化去除个人绝对路径
+
+## 3.9.2 (2026-08-18)
+
+- feat: 恒常门模糊恢复增强——Mindol 语义检索兜底通道（意图匹配 + 多候选）
+- docs: 推广 v2 恢复实证——README 实战案例刷新 + 计划书三端状态更新
+
+## 3.9.1 (2026-08-18)
+
+- feat: 恒常门模糊恢复——task_id 缺失时按意图召回候选，恢复率 0 场景兜底
+
 ## 3.9.0 (2026-08-12)
 
 - feat: 律令九章全量实施——八元结构重组为九章（四律三门一锁一镜）：

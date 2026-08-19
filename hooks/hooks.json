@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"E:\\项目\\Codex_便携版\\.codex\\diegin\\hooks\\diegin_session_start.ps1\"",
+            "command": "powershell -ExecutionPolicy Bypass -File \"{{CODEX_HOME}}\\diegin\\hooks\\diegin_session_start.ps1\"",
             "statusMessage": "⚡ DGEN SessionStart",
             "timeout": 30
           }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"E:\\项目\\Codex_便携版\\.codex\\diegin\\hooks\\diegin_pre_tool.ps1\"",
+            "command": "powershell -ExecutionPolicy Bypass -File \"{{CODEX_HOME}}\\diegin\\hooks\\diegin_pre_tool.ps1\"",
             "statusMessage": "⚡ DGEN PreToolUse",
             "timeout": 30
           }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"E:\\项目\\Codex_便携版\\.codex\\diegin\\hooks\\diegin_pre_reply.ps1\"",
+            "command": "powershell -ExecutionPolicy Bypass -File \"{{CODEX_HOME}}\\diegin\\hooks\\diegin_pre_reply.ps1\"",
             "statusMessage": "⚡ DGEN PreReply+Review",
             "timeout": 60
           }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"E:\\项目\\Codex_便携版\\.codex\\diegin\\hooks\\diegin_post_tool.ps1\"",
+            "command": "powershell -ExecutionPolicy Bypass -File \"{{CODEX_HOME}}\\diegin\\hooks\\diegin_post_tool.ps1\"",
             "statusMessage": "⚡ DGEN PostToolUse",
             "timeout": 30
           }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -ExecutionPolicy Bypass -File \"E:\\项目\\Codex_便携版\\.codex\\diegin\\hooks\\diegin_stop.ps1\"",
+            "command": "powershell -ExecutionPolicy Bypass -File \"{{CODEX_HOME}}\\diegin\\hooks\\diegin_stop.ps1\"",
             "statusMessage": "⚡ DGEN StopReport",
             "timeout": 30
           }
