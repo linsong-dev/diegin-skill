@@ -683,7 +683,10 @@ def pre_check(context: dict) -> dict:
                         "summary": str(t.get("intent_summary", ""))[:50],
                         "updated_at": t.get("updated_at", ""),
                         "cold_stored": bool(t.get("cold_stored", False)),
-                        "bulk_hint": str(t.get("bulk_hint", "")) if t.get("cold_stored") else ""
+                        "bulk_hint": str(t.get("bulk_hint", "")) if t.get("cold_stored") else "",
+                        # v3.9.3 入口常驻恢复提示附带三件套，助手无需翻文件重建上下文
+                        "completion_criteria": str(t.get("completion_criteria", ""))[:120],
+                        "pending_items": [str(x)[:60] for x in (t.get("pending_items") or [])][:3]
                     } for t in _rec[:5]]
                 }
     except Exception:
@@ -1670,9 +1673,17 @@ if __name__ == "__main__":
                     _age = _constancy_age_text(_t.get("updated_at", ""))
                     _age_s = "（%s）" % _age if _age else ""
                     _bulk = " (信息量大，恢复后分批加载)" if _t.get("cold_stored") and _t.get("bulk_hint") else ""
-                    _lines.append("  - %s [%s] %s%s%s" % (
+                    _line = "  - %s [%s] %s%s%s" % (
                         _t.get("task_id", ""), _t.get("status", "paused"),
-                        str(_t.get("summary", ""))[:24], _age_s, _bulk))
+                        str(_t.get("summary", ""))[:24], _age_s, _bulk)
+                    # v3.9.3 附带完成标准+待办（三件套），恢复前即可见任务全貌
+                    _c = str(_t.get("completion_criteria", ""))[:80]
+                    _p = [str(x)[:40] for x in (_t.get("pending_items") or [])][:2]
+                    if _c:
+                        _line += "\n      完成标准: %s" % _c
+                    if _p:
+                        _line += "\n      待办: %s" % " | ".join(_p)[:80]
+                    _lines.append(_line)
                 _lines.append("如需继续请回复: 继续 <task_id>")
                 _constancy_hint = "\n".join(_lines)
             elif constancy_recovery and constancy_recovery.get("resumed"):
@@ -1695,8 +1706,17 @@ if __name__ == "__main__":
                 if _task_cands:
                     _lines.append("\n[恒常门] 检测到多个可能任务，请确认要恢复哪个:")
                     for _f in _task_cands[:3]:
-                        _lines.append("  - %s %s（匹配度 %.0f%%）" % (
-                            _f.get("task_id", ""), str(_f.get("summary", ""))[:24], (_f.get("score", 0) or 0) * 100))
+                        _i = str(_f.get("summary", ""))[:50]
+                        _c = str(_f.get("completion_criteria", ""))[:80]
+                        _p = _f.get("pending_items") or []
+                        _p_s = " | ".join(str(x)[:40] for x in _p[:2])[:80]
+                        _line = "  - %s %s（匹配度 %.0f%%）" % (
+                            _f.get("task_id", ""), _i, (_f.get("score", 0) or 0) * 100)
+                        if _c:
+                            _line += "\n      完成标准: %s" % _c
+                        if _p_s:
+                            _line += "\n      待办: %s" % _p_s
+                        _lines.append(_line)
                     _lines.append("回复: 继续 <task_id> 以确认")
                 if _mem_cands:
                     _lines.append("\n[恒常门] 未匹配到明确任务，Mindol 记忆相关片段（供定位意图，不自动恢复）:")

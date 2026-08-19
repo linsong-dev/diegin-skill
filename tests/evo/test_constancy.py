@@ -158,6 +158,31 @@ def test_find_by_intent_hollow_downweight(tmp_path, monkeypatch):
     assert real_score > hollow_score
 
 
+
+def test_find_by_intent_candidate_three_tuple(tmp_path, monkeypatch):
+    """v3.9.3 候选附带三件套：summary + completion_criteria + pending_items，
+    供多候选待确认时直接展示任务全貌，避免助手翻文件重建上下文。"""
+    reg = _make_registry(tmp_path, monkeypatch)
+    real = reg.begin("迭进推广 v2（九章版）：按律令九章更新推广计划书并执行推广",
+                     completion_criteria="推广计划书九章化+发布+README案例章节",
+                     pending_items=["更新计划书九章版", "整理实战数据包", "发布技术文"])
+    reg.suspend(real["task_id"])
+    other = reg.begin("A股模拟盘交易任务")
+    reg.suspend(other["task_id"])
+    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3, mindol_fallback=False)
+    assert r and r[0]["task_id"] == real["task_id"]
+    assert "completion_criteria" in r[0]
+    assert "pending_items" in r[0]
+    assert "推广计划书九章化" in r[0]["completion_criteria"]
+    assert "更新计划书九章版" in r[0]["pending_items"][0]
+    # 裁剪控制：completion_criteria ≤120 字、pending 单条 ≤60 字、最多 3 条
+    assert len(r[0]["completion_criteria"]) <= 120
+    assert all(len(x) <= 60 for x in r[0]["pending_items"])
+    assert len(r[0]["pending_items"]) <= 3
+    # 记忆候选（kind=memory）不要求三件套
+    for cand in r:
+        if cand.get("kind") == "memory":
+            assert "completion_criteria" not in cand
 def test_find_by_intent_mindol_fallback_no_high_conf(tmp_path, monkeypatch):
     """v3.9.2 Mindol 兜底：无高置信任务候选时降级返回记忆片段
     （kind=memory、无 task_id，调用方只能提示不可自动恢复）"""

@@ -314,9 +314,13 @@ class TaskRegistry:
             # v3.9.2 空壳降权：自动立项快照（intent==criteria 且无待办）≠ 真实可恢复任务
             if summary.strip() == criteria.strip() and not (t.get("pending_items") or []):
                 score = round(score * 0.5, 3)
+            # v3.9.3 候选附带核心三件套（summary + completion_criteria + pending_items），
+            # 供调用方在「多候选待确认」时直接展示任务全貌，避免助手翻文件重建上下文
             scored.append({"task_id": tid,
                            "summary": summary[:USER_SUMMARY_MAX_CHARS],
-                           "score": score})
+                           "score": score,
+                           "completion_criteria": criteria[:120],
+                           "pending_items": [str(x)[:60] for x in (t.get("pending_items") or [])][:3]})
         scored.sort(key=lambda x: (-x["score"], x["task_id"]))
         # v3.9.2 Mindol 兜底：无高置信候选时降级语义检索（raw_chat/codex 空间）
         if mindol_fallback:
