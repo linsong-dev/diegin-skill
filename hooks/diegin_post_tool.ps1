@@ -36,9 +36,17 @@ function Add-NoBOMLog {
     $mtx = New-Object System.Threading.Mutex($false, "Global\DieginLogMutex")
     $mtx.WaitOne(5000) | Out-Null
     try {
-        $old=""
-        if(Test-Path $Path){$old=[System.IO.File]::ReadAllText($Path,$script:utf8NoBOM)}
-        [System.IO.File]::WriteAllText($Path,"$ts $Message`r`n$old",$script:utf8NoBOM)
+        # [PERF] append 追加写，不再整文件读改写
+        # [PERF] 超 8MB 自动归档为 .1，防止单文件无限膨胀
+        if(Test-Path $Path){
+            $len=(Get-Item $Path).Length
+            if($len -gt 8388608){
+                $arc = $Path + ".1"
+                if(Test-Path $arc){Remove-Item $arc -Force}
+                Move-Item $Path $arc -Force
+            }
+        }
+        [System.IO.File]::AppendAllText($Path,"$ts $Message`r`n",$script:utf8NoBOM)
     } finally {
         $mtx.ReleaseMutex()
     }
@@ -116,98 +124,11 @@ try {
 }
 
 
-# DGEN 标志状态升级：allowed -> verified
+# [PERF-B 2026-08-19] health/feedback_adopt/record_success/closure/mindol/evidence
+# → 全部并入 post_tool_batch 单次 Python 进程调用（下方 batch 段），消除 5 次独立进程启动 + contract.py 双层 subprocess
+# DGEN 标志状态升级（allowed -> verified）移至 batch 调用之后，复用其返回的 active_rules
 $markerFile = Join-Path $stateDir "dgen_marker_pending.json"
 $activeRules = "?"
-try {
-    if (Test-Path $pythonExe) {
-        # [M1 契约通道 v1.0] PostToolUse → 统一信封 → contract.py（tool_post → health）
-        $contractPy = Join-Path $g_pr "engine\contract.py"
-        $dgEnv = [ordered]@{ contract="1.0"; event="tool_post"; ts=(Get-Date -Format "o"); context=@{ platform="codex"; hook="PostToolUse" } }
-        $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 5
-        $resp = $envJson | & $pythonExe $contractPy 2>&1 | ConvertFrom-Json
-        if ($resp.health) { $activeRules = $resp.health.active_rules }
-    }
-} catch {}
-
-if (Test-Path $markerFile) {
-    try {
-        $m = Get-Content $markerFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($m.status -eq "allowed") {
-            $verified = @{status="verified";turn_id=$m.turn_id;ts=(Get-Date -Format "o")}
-            [System.IO.File]::WriteAllText($markerFile, ($verified | ConvertTo-Json -Compress), $script:utf8NoBOM)
-            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] UPGRADED allowed_to_verified"
-            Write-DGENStatusFile -Status "VERIFIED" -Rules $activeRules -Decision "allow" -Matched "0"
-            # [B方案] 验证闭环完成：标记生命周期 verified（回复含标记 → 工具链执行完毕）
-            try {
-                $vRec = @{ts=(Get-Date -Format "o");tool="post_tool";has_marker=$true;status="verified";decision="allow"}
-                [System.IO.File]::WriteAllText((Join-Path $stateDir "dgen_verify_result.json"), ($vRec | ConvertTo-Json -Compress), $script:utf8NoBOM)
-                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] verified_marker_cycle_complete"
-            } catch {
-                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] UPGRADE_RECORD_ERROR $($_.Exception.Message)"
-            }
-        }
-    } catch {
-        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] UPGRADE_ERROR $($_.Exception.Message)"
-    }
-}
-
-# 攻七反馈闭环 Q4: 工具成功 + 有 priority 推荐 → 自动采纳（置信度+0.5）
-try {
-    $prioFile = Join-Path $stateDir "dgen_priority_pattern.json"
-    if ((Test-Path $prioFile) -and -not $toolError -and ($null -eq $toolExitCode -or $toolExitCode -eq 0)) {
-        $prioRec = Get-Content $prioFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($prioRec.pattern_id) {
-            $adoptJson = @{pattern_id=$prioRec.pattern_id; adopted=$true; reason="tool_success_auto_adopt"} | ConvertTo-Json -Compress
-            $adoptRes = $adoptJson | & $pythonExe $enginePy feedback_adopt 2>&1
-            $adoptFlat = ($adoptRes | Out-String).Trim().Replace("`n", " ").Replace("`r", "")
-            if ($adoptFlat.Length -gt 150) { $adoptFlat = $adoptFlat.Substring(0, 150) }
-            Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] auto_adopt pattern=$($prioRec.pattern_id) result=$adoptFlat"
-        }
-        [System.IO.File]::Delete($prioFile)
-    }
-} catch {
-    Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] auto_adopt_error=$($_.Exception.Message)"
-}
-
-# 攻七：记录工具调用成功（v3.6.1 传递命令文本，实质化模式库）
-try {
-    if ($toolName -and (Test-Path $pythonExe)) {
-        # 预策·③：三重判定意图上下文——读取 pre_reply 落盘的 current_intent.json（60分钟内有效）
-        $intentSummary = ""
-        $intentNegative = $null
-        $resultText = ""
-        try {
-            $intentFile = Join-Path $stateDir "current_intent.json"
-            if (Test-Path $intentFile) {
-                $ii = Get-Content $intentFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                $iiAgeMin = 999
-                try {
-                    $iiTs = [DateTime]::Parse([string]$ii.ts)
-                    $iiAgeMin = ((Get-Date) - $iiTs).TotalMinutes
-                } catch {}
-                if ($iiAgeMin -le 60) {
-                    $intentSummary = [string]$ii.intent_summary
-                    if ($null -ne $ii.user_negative) { $intentNegative = [bool]$ii.user_negative }
-                }
-            }
-            if ($hookInput.tool_response) {
-                $resultText = [string]$hookInput.tool_response
-                if ($resultText.Length -gt 800) { $resultText = $resultText.Substring(0, 800) }
-            }
-        } catch {}
-        $toolOkFlag = ($null -eq $toolExitCode -or $toolExitCode -eq 0)
-        # v3.6.6 修复：PowerShell argv 会拆分含引号/分号的命令 → 改 stdin JSON 传递（无损）
-        $rsJson = @{tool_name=$toolName; method=$toolCmd; intent_summary=$intentSummary; result_text=$resultText; user_negative=$intentNegative; tool_ok=$toolOkFlag} | ConvertTo-Json -Compress
-        $recResult = $rsJson | & $pythonExe $enginePy record_success 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"
-        }
-        Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName sandwich=ok"
-    }
-} catch {
-    Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool record_error=$($_.Exception.Message)"
-}
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PostToolUse] ACTIVE"
 # [B1-20260806] 变更-验证绑定（ACC-QRY-004）：检测源码变更 → 最小验证 → 可审计记录
@@ -362,54 +283,178 @@ try {
     Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] analyze error=$($_.Exception.Message)"
 }
 
-# 止观门：post_tool 封存本次工具调用（[CLOSURE] 配对 + archive 增长 + learnings 打包）
+# ============================================================
+# [PERF-B 2026-08-19] post_tool_batch：单进程合并 6 动作
+#   health + feedback_adopt(条件) + record_success(条件) + closure_close + mindol×2 + record_evidence
+#   替代原 5 次独立 Python 进程启动（contract→health 双层 subprocess / feedback_adopt / record_success / closure_close / mindol+evidence）
+# ============================================================
+$batchCtx = @{}
+$learnings = @()
+$prioPatternId = ""
+$prioReady = $false
 try {
-    if (Test-Path $pythonExe) {
-        $closureId = "post_tool_" + $toolName + "_" + (Get-Date -Format "yyyyMMddHHmmssfff")
-        $closeSummary = "tool=" + $toolName + " exit=" + $toolExitCode
-        $learnings = @()
-        $learnings += ("tool=" + $toolName)
-        $learnings += ("exit=" + $toolExitCode)
-        if ($toolError) {
-            $lkErr = $toolError
-            if ($lkErr.Length -gt 150) { $lkErr = $lkErr.Substring(0, 150) }
-            $learnings += ("error: " + $lkErr)
-        }
-        if ($detectJson.error) { $learnings += ("detect: " + $detectJson.error) }
-        # 定稿第八章：执行轨迹只读快照（阻断记录/工具调用序列/裁决日志摘要）→ 供守三应急复盘只读访问
-        $snapBlock = @()
-        if ($analyzeText -match '"error"') {
-            $sb = "tool=" + $toolName + " exit=" + $toolExitCode
-            if ($toolError) { $sb += " err=" + $toolError }
-            if ($sb.Length -gt 500) { $sb = $sb.Substring(0, 500) }
-            $snapBlock += $sb
-        }
-        $snapSeq = @()
-        if ($toolName) {
-            $sq = $toolName
-            if ($toolCmd) { $sq += ": " + $toolCmd }
-            if ($sq.Length -gt 500) { $sq = $sq.Substring(0, 500) }
-            $snapSeq += $sq
-        }
-        $snapArb = "exit=" + $toolExitCode + " decision=" + $decision + " matched=" + $matched
-        if ($toolError) { $snapArb += " error=" + $toolError }
-        if ($snapArb.Length -gt 2000) { $snapArb = $snapArb.Substring(0, 2000) }
-        $closureCtx = @{
-            item_id = $closureId
-            summary = $closeSummary
-            learnings = $learnings
-            snapshot = @{
-                block_records = $snapBlock
-                tool_call_sequence = $snapSeq
-                arbitration_log = $snapArb
+    # 1) 攻七反馈闭环 Q4: 工具成功 + 有 priority 推荐 → 自动采纳（置信度+0.5）
+    $prioFile = Join-Path $stateDir "dgen_priority_pattern.json"
+    $prioReady = (Test-Path $prioFile) -and -not $toolError -and ($null -eq $toolExitCode -or $toolExitCode -eq 0)
+    if ($prioReady) {
+        $prioRec = Get-Content $prioFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($prioRec.pattern_id) { $prioPatternId = [string]$prioRec.pattern_id }
+    }
+    if ($prioPatternId) { $batchCtx.prio_pattern_id = $prioPatternId; $batchCtx.adopted = $true }
+
+    # 2) 攻七：记录工具调用成功（v3.6.1 传递命令文本，实质化模式库）+ 预策·③ 三重判定意图上下文
+    $intentSummary = ""
+    $intentNegative = $null
+    $resultText = ""
+    try {
+        $intentFile = Join-Path $stateDir "current_intent.json"
+        if (Test-Path $intentFile) {
+            $ii = Get-Content $intentFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $iiAgeMin = 999
+            try {
+                $iiTs = [DateTime]::Parse([string]$ii.ts)
+                $iiAgeMin = ((Get-Date) - $iiTs).TotalMinutes
+            } catch {}
+            if ($iiAgeMin -le 60) {
+                $intentSummary = [string]$ii.intent_summary
+                if ($null -ne $ii.user_negative) { $intentNegative = [bool]$ii.user_negative }
             }
-        } | ConvertTo-Json -Compress -Depth 6
-        $closeResult = $closureCtx | & $pythonExe $enginePy closure_close 2>&1
-        $flatClose = $closeResult.Replace("`n", " ").Replace("`r", "")
-        Add-NoBOMLog -Path $auditLog -Message "$time [CLOSURE] post_tool close id=$closureId learnings=$($learnings.Count) result=$flatClose"
+        }
+        if ($hookInput.tool_response) {
+            $resultText = [string]$hookInput.tool_response
+            if ($resultText.Length -gt 800) { $resultText = $resultText.Substring(0, 800) }
+        }
+    } catch {}
+    $toolOkFlag = ($null -eq $toolExitCode -or $toolExitCode -eq 0)
+    if ($toolName) {
+        $batchCtx.tool_name = $toolName
+        $batchCtx.method = $toolCmd
+        $batchCtx.intent_summary = $intentSummary
+        $batchCtx.result_text = $resultText
+        if ($null -ne $intentNegative) { $batchCtx.user_negative = $intentNegative }
+        $batchCtx.tool_ok = $toolOkFlag
+    }
+
+    # 3) 止观门：post_tool 封存本次工具调用（[CLOSURE] 配对 + archive 增长 + learnings 打包）
+    $closureId = "post_tool_" + $toolName + "_" + (Get-Date -Format "yyyyMMddHHmmssfff")
+    $closeSummary = "tool=" + $toolName + " exit=" + $toolExitCode
+    $learnings = @()
+    $learnings += ("tool=" + $toolName)
+    $learnings += ("exit=" + $toolExitCode)
+    if ($toolError) {
+        $lkErr = $toolError
+        if ($lkErr.Length -gt 150) { $lkErr = $lkErr.Substring(0, 150) }
+        $learnings += ("error: " + $lkErr)
+    }
+    # 定稿第八章：执行轨迹只读快照（阻断记录/工具调用序列/裁决日志摘要）→ 供守三应急复盘只读访问
+    $snapBlock = @()
+    if ($analyzeText -match '"error"') {
+        $sb = "tool=" + $toolName + " exit=" + $toolExitCode
+        if ($toolError) { $sb += " err=" + $toolError }
+        if ($sb.Length -gt 500) { $sb = $sb.Substring(0, 500) }
+        $snapBlock += $sb
+    }
+    $snapSeq = @()
+    if ($toolName) {
+        $sq = $toolName
+        if ($toolCmd) { $sq += ": " + $toolCmd }
+        if ($sq.Length -gt 500) { $sq = $sq.Substring(0, 500) }
+        $snapSeq += $sq
+    }
+    $snapArb = "exit=" + $toolExitCode + " decision=" + $decision + " matched=" + $matched
+    if ($toolError) { $snapArb += " error=" + $toolError }
+    if ($snapArb.Length -gt 2000) { $snapArb = $snapArb.Substring(0, 2000) }
+    $batchCtx.closure = @{
+        item_id = $closureId
+        summary = $closeSummary
+        learnings = $learnings
+        snapshot = @{
+            block_records = $snapBlock
+            tool_call_sequence = $snapSeq
+            arbitration_log = $snapArb
+        }
+    }
+
+    # 4) Mindol 语义记忆写入 + 去伪存真证据裁决（并入 batch；引擎内 save_chat 同步 codex/raw_chat 双空间）
+    $batchCtx.mindol_post_text = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
+    if ($batchCtx.mindol_post_text.Length -gt 500) { $batchCtx.mindol_post_text = $batchCtx.mindol_post_text.Substring(0, 500) }
+    $chatText = "tool=$toolName cmd=$toolCmd exit=$toolExitCode"
+    if ($chatText.Length -gt 450) { $chatText = $chatText.Substring(0, 450) }
+    $batchCtx.mindol_raw_chat_text = $chatText
+    $batchCtx.evidence = @{
+        rule_id = if ($toolName) { $toolName } else { "unknown" }
+        verdict = if ($toolExitCode -eq 0 -or $toolExitCode -eq $null) { "pass" } else { "fail" }
+        reason = "tool=$toolName exit=$toolExitCode"
+        source = "post_tool"
+        detail = $toolCmd
     }
 } catch {
-    Add-NoBOMLog -Path $auditLog -Message "$time [CLOSURE] post_tool error=$($_.Exception.Message)"
+    Add-NoBOMLog -Path $auditLog -Message "$time [PERF-B] batch_ctx_error=$($_.Exception.Message)"
+}
+
+# 单进程聚合调用（替代原 5 次进程启动；stdin JSON 无损传递中文）
+if (Test-Path $pythonExe) {
+    try {
+        $batchJson = $batchCtx | ConvertTo-Json -Compress -Depth 8
+        $batchOut = (($batchJson | & $pythonExe $enginePy post_tool_batch 2>&1) | Out-String).Trim()
+        $batchObj = $null
+        try { $batchObj = $batchOut | ConvertFrom-Json } catch {}
+        if ($batchObj) {
+            # health → DGEN 状态（active_rules）
+            if ($batchObj.health) { $activeRules = [string]$batchObj.health.active_rules }
+            # 攻七记录回写
+            if ($batchObj.record_success) {
+                if ($batchObj.record_success.action -eq "saved") {
+                    Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName pattern_saved"
+                }
+                $rsFlat = ($batchObj.record_success | ConvertTo-Json -Compress).Replace("`n", " ").Replace("`r", "")
+                if ($rsFlat.Length -gt 200) { $rsFlat = $rsFlat.Substring(0, 200) }
+                Add-NoBOMLog -Path $auditLog -Message "$time 攻七 post_tool tool=$toolName sandwich=$rsFlat"
+            }
+            # 反馈闭环回写
+            if ($batchObj.feedback_adopt) {
+                $adoptFlat = ($batchObj.feedback_adopt | ConvertTo-Json -Compress).Replace("`n", " ").Replace("`r", "")
+                if ($adoptFlat.Length -gt 150) { $adoptFlat = $adoptFlat.Substring(0, 150) }
+                Add-NoBOMLog -Path $auditLog -Message "$time [FEEDBACK-ADOPT] auto_adopt pattern=$prioPatternId result=$adoptFlat"
+            }
+            # 止观封存回写
+            if ($batchObj.closure) {
+                $flatClose = ($batchObj.closure | ConvertTo-Json -Compress).Replace("`n", " ").Replace("`r", "")
+                Add-NoBOMLog -Path $auditLog -Message "$time [CLOSURE] post_tool close id=$closureId learnings=$($learnings.Count) result=$flatClose"
+            }
+        } else {
+            Add-NoBOMLog -Path $auditLog -Message "$time [PERF-B] batch_parse_fail out=$batchOut"
+        }
+        # 采纳完成后删除 priority 文件（保持原语义：满足条件即删）
+        if ($prioReady) {
+            try { if (Test-Path $prioFile) { [System.IO.File]::Delete($prioFile) } } catch {}
+        }
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [PERF-B] batch_error=$($_.Exception.Message)"
+    }
+}
+
+# DGEN 标志状态升级：allowed -> verified（置于 batch 之后，复用其返回的 active_rules）
+if (Test-Path $markerFile) {
+    try {
+        $m = Get-Content $markerFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($m.status -eq "allowed") {
+            $verified = @{status="verified";turn_id=$m.turn_id;ts=(Get-Date -Format "o")}
+            [System.IO.File]::WriteAllText($markerFile, ($verified | ConvertTo-Json -Compress), $script:utf8NoBOM)
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] UPGRADED allowed_to_verified"
+            Write-DGENStatusFile -Status "VERIFIED" -Rules $activeRules -Decision "allow" -Matched "0"
+            # [B方案] 验证闭环完成：标记生命周期 verified（回复含标记 → 工具链执行完毕）
+            try {
+                $vRec = @{ts=(Get-Date -Format "o");tool="post_tool";has_marker=$true;status="verified";decision="allow"}
+                [System.IO.File]::WriteAllText((Join-Path $stateDir "dgen_verify_result.json"), ($vRec | ConvertTo-Json -Compress), $script:utf8NoBOM)
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] verified_marker_cycle_complete"
+            } catch {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-VERIFY] UPGRADE_RECORD_ERROR $($_.Exception.Message)"
+            }
+        }
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-MARKER] UPGRADE_ERROR $($_.Exception.Message)"
+    }
 }
 try {
     $reviewCounterFile = Join-Path $stateDir "post_review_counter.txt"
@@ -440,28 +485,6 @@ try {
     Add-NoBOMLog -Path $auditLog -Message "$time v3.6 post_review error=$($_.Exception.Message)"
 }
 
-# ---- Mindol 语义记忆写入 ----
-$mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
-if (Test-Path $mindolBridge) {
-    $mindolText = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
-    if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
-    & $pythonExe $mindolBridge record post_tool $mindolText 2>&1 | Out-Null
-
-    # 去伪存真：写入证据裁决
-    $evidenceVault = Join-Path $g_pr "engine\call_diegin.py"
-    $evCtx = @{
-        rule_id = if ($toolName) { $toolName } else { "unknown" }
-        verdict = if ($toolExitCode -eq 0 -or $toolExitCode -eq $null) { "pass" } else { "fail" }
-        reason = "tool=$toolName exit=$toolExitCode"
-        source = "post_tool"
-        detail = $toolCmd
-    } | ConvertTo-Json -Compress
-    $evCtx | & $pythonExe $evidenceVault record_evidence 2>&1 | Out-Null
-
-    # 同时写入 raw_chat 空间（对话上下文记忆）
-    $chatText = "tool=$toolName cmd=$toolCmd exit=$toolExitCode"
-    if ($chatText.Length -gt 450) { $chatText = $chatText.Substring(0, 450) }
-    & $pythonExe $mindolBridge record raw_chat "$chatText (raw_chat)" 2>&1 | Out-Null
-}
+# Mindol 语义记忆写入与证据裁决已并入 post_tool_batch（见上方 batch 段）
 
 exit 0

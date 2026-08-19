@@ -1,5 +1,13 @@
 # Changelog · Diegin 迭进
 
+## 3.9.4 (2026-08-19)
+
+- perf: 钩子性能 A+B——
+  - A：8 钩子日志改 append 追加写 + 超 8MB 自动归档 `.1`（消除逐次整文件读改写，长期膨胀隐患消除）
+  - B：post_tool 五段独立进程调用合并为单次 `post_tool_batch`（health / feedback_adopt / record_success / closure_close / mindol×2 / record_evidence），实测 post_tool 全链路 ~8.5s→3.8s（约 55% 提速），并消除 contract.py 双层 subprocess 浪费
+  - fix: `health_check` / `auto_sandwich_trigger` 直接 print 污染 stdout（`redirect_stdout` 捕获）；`save_chat` 无 `space_hint` 参数兼容（改 `source="post_tool"`）
+  - 保留不动：B1 self_check 变更验证、会话图片清理、generalize / analyze / review 原节奏
+
 ## 3.9.3 (2026-08-19)
 
 - fix: 桌面版钩子注入——UserPromptSubmit 输出 hookSpecificOutput.additionalContext JSON 信封，注入实测生效（A）

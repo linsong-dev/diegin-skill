@@ -1786,6 +1786,166 @@ if __name__ == "__main__":
         }
         print(json.dumps(output, ensure_ascii=False))
 
+
+    elif mode == "post_tool_batch":
+        """PostToolUse 聚合模式（PERF）：一次引擎加载完成常规路径所有动作
+        用法: echo '<big_json>' | python call_diegin.py post_tool_batch
+        合并: health + feedback_adopt(条件) + record_success(条件) + closure_close
+              + mindol record post_tool + record_evidence + mindol record raw_chat
+        输出: JSON 汇总
+        """
+        try:
+            if not sys.stdin.isatty():
+                _b = sys.stdin.buffer.read()
+                _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+                _raw = _decode_stdin_bytes(_b).strip()
+            else:
+                _raw = sys.argv[2] if len(sys.argv) > 2 else "{}"
+        except (IndexError, IOError):
+            _raw = "{}"
+        _d = json.loads(_raw) if _raw else {}
+
+        _out = {"mode": "post_tool_batch"}
+
+        # 1. health（原 contract tool_post -> health；health_check 直接 print，须捕获 stdout）
+        try:
+            import contextlib, io as _io
+            from evo.main import health_check as _hc
+            _buf = _io.StringIO()
+            with contextlib.redirect_stdout(_buf):
+                _h = _hc()
+            _out["health"] = {"active_rules": _h.get("active_rules", _h.get("total_rules", 0)) if isinstance(_h, dict) else 0}
+        except Exception as _e:
+            _out["health"] = {"error": str(_e)[:100]}
+
+        # 2. feedback_adopt（条件：有 prio 且工具成功）
+        try:
+            _pid = _d.get("prio_pattern_id", "")
+            _adopted = bool(_d.get("adopted", True))
+            if _pid:
+                from evo.main import record_user_feedback
+                _res = record_user_feedback(_pid, "agree" if _adopted else "veto")
+                _out["feedback_adopt"] = {"pattern_id": _pid, "result": str(_res)[:100]}
+                _append_audit("[FEEDBACK-ADOPT] post_tool_batch auto_adopt pattern=" + str(_pid)[:60])
+        except Exception as _e:
+            _out["feedback_adopt"] = {"error": str(_e)[:100]}
+
+        # 3. record_success（条件：有 tool_name，保留原阈值/去重/三重判定）
+        try:
+            _tn = _d.get("tool_name", "")
+            if _tn:
+                _method = _d.get("method", "") or ""
+                _rs_intent = _d.get("intent_summary") or ""
+                _rs_result = _d.get("result_text") or ""
+                _rs_user_negative = _d.get("user_negative")
+                _rs_tool_ok = _d.get("tool_ok")
+                _tn_l = _tn.lower()
+                _readonly = {"ls","dir","get-childitem","echo","write-output","cd","pwd",
+                             "get-location","write-host","cat","type","find","select-string",
+                             "get-content","get-process","get-service","get-date",
+                             "get-item","get-help","get-command","get-alias","get-psdrive",
+                             "measure","sort","where-object","format-table","format-list",
+                             "out-string","write-progress","prompt"}
+                import re as _re
+                if _tn_l in _readonly or _re.match(r"^(ls|dir|echo|cd|pwd|get-|write-host)", _tn_l):
+                    _out["record_success"] = {"action": "skipped_readonly", "tool": _tn}
+                else:
+                    import os as _os_rs, time as _time_rs
+                    _counter_file = _os_rs.path.join(_os_rs.path.dirname(__file__), "..", "var", "state", ".record_success_counter.json")
+                    _cooldown = 300
+                    _now = _time_rs.time()
+                    _counter = {}
+                    if _os_rs.path.exists(_counter_file):
+                        try:
+                            with open(_counter_file, "r", encoding="utf-8") as _f:
+                                _counter = json.load(_f)
+                        except Exception:
+                            _counter = {}
+                    _staging_skip = False
+                    try:
+                        from evo.main import _get_engine as _ge
+                        _pat = _ge().get_pattern_by_id("pat_auto_tool_" + _tn.replace(".", "_") + "_1")
+                        if _pat and getattr(_pat, "lifecycle_status", "") == "staging":
+                            _staging_skip = True
+                    except Exception:
+                        pass
+                    _last = _counter.get(_tn, 0)
+                    if not _staging_skip and _now - _last < _cooldown:
+                        _out["record_success"] = {"action": "skipped_dedup", "tool": _tn}
+                    else:
+                        _counter[_tn] = _now
+                        try:
+                            _os_rs.makedirs(_os_rs.path.dirname(_counter_file), exist_ok=True)
+                            with open(_counter_file, "w", encoding="utf-8") as _f:
+                                json.dump(_counter, _f, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+                        _ok = True
+                        try:
+                            from evo.verdict_anchor import judge_success, intent_consistency_score
+                            _cons = intent_consistency_score(_rs_intent, _rs_result) if (_rs_intent or _rs_result) else None
+                            if _rs_intent or _rs_result or _rs_user_negative is not None:
+                                _tool_ok_v = (True if _rs_tool_ok is None else bool(_rs_tool_ok))
+                                _user_not_neg = None if _rs_user_negative is None else (not bool(_rs_user_negative))
+                                _ok, _reasons = judge_success(_tool_ok_v, _user_not_neg, _cons)
+                                if not _ok:
+                                    _out["record_success"] = {"action": "rejected_triple_anchor", "tool": _tn, "reasons": _reasons}
+                        except Exception:
+                            pass
+                        if _ok:
+                            import contextlib as _cl2, io as _io2
+                            from evo.main import auto_sandwich_trigger
+                            _buf2 = _io2.StringIO()
+                            with _cl2.redirect_stdout(_buf2):
+                                _rs_res = auto_sandwich_trigger("tool_" + _tn.replace(".", "_"), positive=[_tn], negative=[], method=_method)
+                            _out["record_success"] = {"action": "saved", "tool": _tn}
+                            _append_audit("攻七 post_tool_batch tool=" + str(_tn)[:60] + " pattern_saved")
+        except Exception as _e:
+            _out["record_success"] = {"error": str(_e)[:100]}
+
+        # 4. closure_close（每次）
+        try:
+            _cid = _d.get("closure", {}).get("item_id", "") or "post_tool_unknown"
+            _csum = _d.get("closure", {}).get("summary", "") or ""
+            _cl = _d.get("closure", {}).get("learnings", []) or []
+            _snap = _d.get("closure", {}).get("snapshot") if isinstance(_d.get("closure", {}).get("snapshot"), dict) else None
+            _cg = get_closure()
+            _cres = _cg.close(_cid, _csum, learnings=_cl, snapshot=_snap)
+            _out["closure"] = {"ok": True, "id": _cid}
+        except Exception as _e:
+            _out["closure"] = {"error": str(_e)[:100]}
+
+        # 5. mindol record post_tool + raw_chat（每次；save_chat 写 raw_chat 并同步 codex）
+        try:
+            from mindol.diegin_integration import save_chat
+            _mt = _d.get("mindol_post_text", "") or ""
+            _rt = _d.get("mindol_raw_chat_text", "") or ""
+            if _mt:
+                save_chat("post_tool: " + _mt[:450], source="post_tool")
+            if _rt:
+                save_chat(_rt[:450] + " (raw_chat)", source="post_tool")
+            _out["mindol"] = {"ok": True}
+        except Exception as _e:
+            _out["mindol"] = {"error": str(_e)[:100]}
+
+        # 6. record_evidence（每次）
+        try:
+            from evo.evidence_vault import EvidenceVault
+            _ev = EvidenceVault()
+            _ectx = _d.get("evidence", {}) or {}
+            _entry = _ev.record(
+                rule_id=_ectx.get("rule_id", "unknown"),
+                verdict=_ectx.get("verdict", "pass"),
+                reason=_ectx.get("reason", ""),
+                source=_ectx.get("source", "post_tool"),
+                context={"detail": _ectx.get("detail", ""), "tool": _ectx.get("rule_id", "")}
+            )
+            _out["evidence"] = {"ok": not _entry.get("rejected", False), "ts": _entry.get("ts", "")}
+        except Exception as _e:
+            _out["evidence"] = {"error": str(_e)[:100]}
+
+        print(json.dumps(_out, ensure_ascii=False, default=str))
+
     elif mode == "record_success":
 
         """攻七：记录一次成功的工具调用（带阈值过滤）
