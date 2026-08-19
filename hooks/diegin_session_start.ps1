@@ -32,9 +32,17 @@ function Add-NoBOMLog {
     $mtx = New-Object System.Threading.Mutex($false, "Global\DieginLogMutex")
     $mtx.WaitOne(5000) | Out-Null
     try {
-        $old=""
-        if(Test-Path $Path){$old=[System.IO.File]::ReadAllText($Path,$script:utf8NoBOM)}
-        [System.IO.File]::WriteAllText($Path,"$ts $Message`r`n$old",$script:utf8NoBOM)
+        # [PERF] append 追加写，不再整文件读改写
+        # [PERF] 超 8MB 自动归档为 .1，防止单文件无限膨胀
+        if(Test-Path $Path){
+            $len=(Get-Item $Path).Length
+            if($len -gt 8388608){
+                $arc = $Path + ".1"
+                if(Test-Path $arc){Remove-Item $arc -Force}
+                Move-Item $Path $arc -Force
+            }
+        }
+        [System.IO.File]::AppendAllText($Path,"$ts $Message`r`n",$script:utf8NoBOM)
     } finally {
         $mtx.ReleaseMutex()
     }

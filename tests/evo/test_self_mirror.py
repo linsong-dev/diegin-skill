@@ -62,8 +62,9 @@ def test_mirror_generates_report_and_archives(tmp_path, monkeypatch):
 def test_direction_calibration_conservative(tmp_path, monkeypatch):
     """方向校准：无勇气事件 + 无 staging 候选 → 保守信号"""
     m = _make_mirror(tmp_path, monkeypatch)
-    r = m.generate_report()
-    sig = r.get("direction_calibration", [])
+    # 隔离注入（不依赖真实规则库 staging 状态，避免数据增长导致偶发失败）
+    report = {"自照镜": {"累计勇气事件": 0}, "举一反三": {"staging池大小": 0}}
+    sig = m._build_direction_calibration(report)
     assert any("保守" in s for s in sig)
 
 
