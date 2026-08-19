@@ -155,7 +155,14 @@ try {
             # 契约响应 allow：inject 即注入文本（display_text）
             $displayText = $resp.inject
             if (-not $displayText) { $displayText = "[DGEN] PASS" }
-            Write-Output $displayText
+            # [A通道] 2026-08-19：桌面版丢弃纯文本 stdout → 改走 hookSpecificOutput.additionalContext（核心 codex.exe 已确认支持该 Wire）
+            $hookOut = [ordered]@{
+                hookSpecificOutput = [ordered]@{
+                    hookEventName = "UserPromptSubmit"
+                    additionalContext = $displayText
+                }
+            } | ConvertTo-Json -Depth 5 -Compress
+            Write-Output $hookOut
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-CHECK] OK decision=allow matched=$($resp.matched_count)"
         } else {
             # [A1] 契约输出异常 = 引擎输出异常，显式标注（不伪装 allow）
