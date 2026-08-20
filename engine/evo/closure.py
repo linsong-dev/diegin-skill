@@ -13,7 +13,7 @@ _CLOSURE_DIR = None
 def _get_closure_dir():
     global _CLOSURE_DIR
     if _CLOSURE_DIR is None:
-        _CLOSURE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+        _CLOSURE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                                     "var", "state")
     return _CLOSURE_DIR
 

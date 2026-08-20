@@ -335,7 +335,7 @@ def main():
 
     # 11d) 假证据检查（防再生）：evidence_filter 来源的 pass 记录应为 0
     try:
-        et_path = os.path.join(ENGINE_DIR, "var", "state", "evidence_trail.json")
+        et_path = os.path.join(os.path.dirname(ENGINE_DIR), "var", "state", "evidence_trail.json")
         with io.open(et_path, "r", encoding="utf-8") as f:
             etrail = json.load(f)
         fake_pass = [e for e in etrail

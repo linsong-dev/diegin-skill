@@ -7,6 +7,7 @@ class EvidenceVault:
     def __init__(self):
         self._log_path = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
+            os.path.pardir,
             "var", "state", "evidence_trail.json"
         )
         self._trail = []

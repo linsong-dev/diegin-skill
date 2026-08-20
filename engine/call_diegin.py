@@ -1056,7 +1056,7 @@ def post_review(task_context: dict, task_result: dict) -> dict:
         _append_audit(f"[CLAIM-CHECK] ERROR {_ce}")
 
     # 自动维护：检查距上次维护是否超过24h
-    _maint_file = os.path.join(os.path.dirname(__file__), 'var', 'state', 'last_maintenance.txt')
+    _maint_file = os.path.join(os.path.dirname(__file__), "..", "var", "state", "last_maintenance.txt")
     _run_maint = False
     if os.path.isfile(_maint_file):
         try:
@@ -2227,7 +2227,7 @@ if __name__ == "__main__":
         保留可追溯（reason 前缀 [伪]），不删除记录。
         """
         try:
-            _trail_path = os.path.join(os.path.dirname(__file__), "var", "state", "evidence_trail.json")
+            _trail_path = os.path.join(os.path.dirname(__file__), "..", "var", "state", "evidence_trail.json")
             with open(_trail_path, "r", encoding="utf-8") as _f:
                 trail = json.load(_f)
             if not isinstance(trail, list):

@@ -70,7 +70,7 @@ def build_success_baseline(success_log_path=None, patterns_path=None, evidence_p
     except Exception:
         pass
     # 源3: evidence_trail pass 记录（工具级已验证成功基线）
-    _ev = evidence_path or os.path.join(_base, "..", "var", "state", "evidence_trail.json")
+    _ev = evidence_path or os.path.join(_base, "..", "..", "var", "state", "evidence_trail.json")
     try:
         with open(_ev, "r", encoding="utf-8") as _f:
             _evs = _json.load(_f)
@@ -365,5 +365,4 @@ def get(tracker=None):
     if _inst is None:
         _inst = ErrorDetector(tracker)
     return _inst
-
 

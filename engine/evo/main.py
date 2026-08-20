@@ -2615,7 +2615,7 @@ def run_maintenance():
 
     # 一击即中: strikes 过期清理（14 天无活动则归档）—— 自 evidence_record 死代码迁入
     try:
-        _sp2 = os.path.join(os.path.dirname(__file__), '..', 'var', 'state', 'strikes_db.json')
+        _sp2 = os.path.join(os.path.dirname(__file__), '..', '..', 'var', 'state', 'strikes_db.json')
         if os.path.isfile(_sp2):
             with open(_sp2, 'r', encoding='utf-8') as _sf2:
                 _st2 = json.load(_sf2)
