@@ -176,8 +176,43 @@ def test_decay_dormancy_v372():
     core.close(); clean()
     print("  [PASS] decay & dormancy v3.7.2")
 
+
+def test_mood_modulation():
+    """[PERF-D] 情绪调制：set_mood 生效、_mood_weights 方向正确、retrieve 不崩溃"""
+    clean()
+    core = Mindol(storage_path=DB, persist=False)
+    core.add_unit(text="trading aggressive strategy", source="trade", uid="m1", space="trade")
+    core.add_unit(text="conservative risk rule", source="rule", uid="m2", space="rule")
+    core.set_mood(1.0)
+    assert core.get_mood()["mood"] == 1.0
+    w_hi = core._mood_weights()
+    assert w_hi["trade"] > 1.0 and w_hi["rule"] < 1.0
+    core.set_mood(-1.0)
+    w_lo = core._mood_weights()
+    assert w_lo["trade"] < 1.0 and w_lo["rule"] > 1.0
+    # 检索不崩溃（mood 调制接入 retrieve）
+    core.set_mood(0.5)
+    res = core.retrieve("trading", top_k=5)
+    assert isinstance(res, list)
+    core.close(); clean()
+    print("  [PASS] mood modulation v3.8")
+
+
+def test_associate():
+    """[PERF-D] 跨空间联想：产出组合候选，无 query 时返回空"""
+    clean()
+    core = Mindol(storage_path=DB, persist=False)
+    core.add_unit(text="首板低吸策略 alpha", source="trade", uid="a1", space="trade")
+    core.add_unit(text="涨停回封模式 beta", source="pattern", uid="a2", space="pattern")
+    core.add_unit(text="抽象方法论 gamma", source="abstract", uid="a3", space="abstract")
+    out = core.associate("交易 策略", top_k=3)
+    assert len(out) >= 1 and all(a["space"] == "associate" for a in out)
+    assert core.associate("", top_k=3) == []
+    core.close(); clean()
+    print("  [PASS] associate v3.8")
+
 if __name__ == "__main__":
     print("=== Mindol Test Suite ===\n")
-    for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration, test_state_dynamics_v37, test_decay_dormancy_v372]:
+    for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration, test_state_dynamics_v37, test_decay_dormancy_v372, test_mood_modulation, test_associate]:
         fn()
     print("\n=== ALL TESTS PASSED ===")

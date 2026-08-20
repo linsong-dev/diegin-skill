@@ -40,6 +40,10 @@ class Mindol:
             self._spaces[name] = MemorySpace(name=name)
         self._relations: List[SemanticRelation] = []
         self._relation_index: Dict[str, List[int]] = {}
+        # [PERF-D 2026-08-20] 情绪调制：mood ∈ [-1, +1]，中性 0。
+        # 正值=勇气/进取（courage 注入），负值=保守/收缩；检索时调制空间权重。
+        self._mood: float = 0.0
+        self._mood_source: str = ""
         self._db: Optional[sqlite3.Connection] = None
         if persist:
             self._init_persistence()
@@ -135,6 +139,9 @@ class Mindol:
             if sp is None or sp.index is None or sp.size == 0: continue
             sims = sp.index @ qvec
             w = sw.get(sn, 1.0)
+            # [PERF-D] 情绪调制：courage 高→进取空间权重上调（trade/pattern/abstract），rule 下调
+            _mw = self._mood_weights().get(sn, 1.0)
+            w = w * _mw
             # v3.6: 性能修复——calc_similarity 只对 top 候选窗口增强（原来全量逐条计算导致检索 2.5s+）
             if self._vectorizer and hasattr(self._vectorizer, "calc_similarity"):
                 win = min(len(sp.memory_units), max(top_k * 8, 16))
@@ -219,9 +226,58 @@ class Mindol:
                     self._rebuild_index(sn)
                     if self._db:
                         self._db.execute("DELETE FROM memory_units WHERE uid=?", (uid,))
-                        self._db.commit()
-                    return True
-            return False
+        self._db.commit()
+        return True
+
+    # ── 情绪调制（v3.8 / PERF-D）──────────────────────────────
+    def set_mood(self, val: float, source: str = "") -> float:
+        """设置全局情绪标量 [-1, +1]（自照镜勇气信号注入）。"""
+        try:
+            self._mood = max(-1.0, min(1.0, float(val)))
+        except Exception:
+            self._mood = 0.0
+        self._mood_source = source or self._mood_source
+        return self._mood
+
+    def get_mood(self) -> Dict[str, float]:
+        return {"mood": self._mood, "source": self._mood_source}
+
+    def _mood_weights(self) -> Dict[str, float]:
+        """情绪调制空间检索权重：courage 高→进取空间(trade/pattern/abstract)上调，
+        rule 下调；courage 低/负→保守空间(rule)上调。幅度 ±15%。"""
+        _m = self._mood
+        return {
+            self.SPACE_TRADE: 1.0 + 0.15 * _m,
+            self.SPACE_PATTERN: 1.0 + 0.12 * _m,
+            self.SPACE_ABSTRACT: 1.0 + 0.10 * _m,
+            self.SPACE_RULE: 1.0 - 0.10 * _m,
+            self.SPACE_RAW_CHAT: 1.0 + 0.03 * _m,
+            self.SPACE_CODEX: 1.0,
+            self.SPACE_RAW_FILE: 1.0,
+            self.SPACE_STATE: 1.0,
+        }
+
+    def associate(self, query: str, top_k: int = 3) -> List[Dict]:
+        """跨空间联想（PERF-D）：取各进取空间 top 候选，两两拼接产出
+        「组合候选」——模拟不精确但有创造性的重组（零外部模型）。"""
+        if not query.strip():
+            return []
+        _spaces = [self.SPACE_TRADE, self.SPACE_PATTERN, self.SPACE_ABSTRACT]
+        _picks = {}
+        for _sp in _spaces:
+            _res = self.retrieve(query, top_k=2, spaces=[_sp])
+            _picks[_sp] = [u.text[:120] for u, _ in _res]
+        out = []
+        _t = _picks.get(self.SPACE_TRADE, [])
+        _p = _picks.get(self.SPACE_PATTERN, [])
+        _a = _picks.get(self.SPACE_ABSTRACT, [])
+        for _x in _t[:1]:
+            for _y in (_p + _a)[:2]:
+                out.append({"text": f"[联想] {_x} ⊕ {_y}", "space": "associate"})
+        for _x in _p[:1]:
+            for _y in _a[:1]:
+                out.append({"text": f"[联想] {_x} ⊕ {_y}", "space": "associate"})
+        return out[:top_k]
 
     
     def decay_and_dormancy(self, now=None, decay_rate=DECAY_RATE_DAILY,
@@ -321,5 +377,3 @@ class Mindol:
         if self._db: self.save(); self._db.close(); self._db = None
     def __enter__(self): return self
     def __exit__(self, *args): self.close()
-
-

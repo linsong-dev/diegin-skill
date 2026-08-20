@@ -1,5 +1,13 @@
 # Changelog · Diegin 迭进
 
+## 3.9.6 (2026-08-20)
+
+- feat: Mindol 情绪调制 + 跨空间联想（PERF-D，对应「带感觉权重、受情绪调制的状态动力学」最小路径）——
+  - 情绪调制：Mindol 新增全局 mood 标量 [-1,+1]，pre_reply 入口自动注入自照镜 courage 信号；检索按 mood 调制空间权重（courage 高→trade/pattern/abstract 上调、rule 下调，幅度 ±15%）
+  - 跨空间联想：`associate()` 将 trade×pattern×abstract top 候选重组为组合候选（零外部模型），并入预检注入文本
+  - 会话级状态连续性：`_get_adapter()` 单例保留 mood（无守护进程，符合省 token 原则）
+- test: test_core 新增 mood_modulation / associate 2 项（10/10 通过）
+
 ## 3.9.5 (2026-08-20)
 
 - perf: Mindol 记忆治理 PERF-C（该用的用，该省的省）——

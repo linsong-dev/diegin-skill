@@ -123,6 +123,27 @@ def get_memory_stats() -> Dict[str, int]:
     try: return _get_adapter().stats()
     except Exception: return {}
 
+def memory_set_mood(val: float, source: str = "") -> float:
+    """注入情绪标量（自照镜 courage → Mindol mood），驱动检索空间权重调制。
+    失败静默（不阻断主链路）。"""
+    try:
+        return _get_adapter().set_mood(val, source)
+    except Exception:
+        return 0.0
+
+def memory_get_mood() -> Dict[str, float]:
+    try:
+        return _get_adapter().get_mood()
+    except Exception:
+        return {"mood": 0.0, "source": ""}
+
+def memory_associate(query: str, top_k: int = 3) -> List[Dict]:
+    """跨空间联想候选（供预策/恒常门参考；检索失败静默返回空）。"""
+    try:
+        return _get_adapter().associate(query, top_k=top_k)
+    except Exception:
+        return []
+
 def save_chat(text: str, source: str = "user", metadata: dict = None) -> bool:
     """保存对话内容到 Mindol raw_chat 空间（单写）。
     [PERF-C 2026-08-20] 去掉 codex 空间双写——retrieve 默认遍历全空间检索，

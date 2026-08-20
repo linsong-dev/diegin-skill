@@ -34,7 +34,7 @@ metadata:
 
         label: "安装迭进引擎"
 
-  version: "v3.9.5"
+  version: "v3.9.6"
   date: "2026-08-13"
 ---
 

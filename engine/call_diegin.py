@@ -1468,6 +1468,15 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+        # [PERF-D 2026-08-20] 情绪调制：自照镜 courage → Mindol mood（检索空间权重调制）
+        try:
+            from evo.main import mirror_status
+            from mindol.diegin_integration import memory_set_mood
+            _mood_v = float(mirror_status().get("courage", 0.0) or 0.0)
+            memory_set_mood(_mood_v * 2.0 - 1.0, source="self_mirror_courage")
+        except Exception:
+            pass
+
         # 恒常门·恢复意图解析 + 任务落库（先解析恢复，再落库，避免同轮自指）
         constancy_current_task_id = ""
         _fuzzy_candidates = []
@@ -1539,6 +1548,16 @@ if __name__ == "__main__":
         display_line = check_result.get("display_line", "")
         mindol_ctx = check_result.get("mindol_context", "")
         strike_context = check_result.get("strike_context", "")
+
+        # [PERF-D] 跨空间联想并入注入（创造性：trade×pattern×abstract 重组候选）
+        try:
+            from mindol.diegin_integration import memory_associate
+            _assoc = memory_associate(prompt or "", top_k=2)
+            if _assoc:
+                _al = " | ".join(str(a.get("text", ""))[:150] for a in _assoc)
+                mindol_ctx = ("[联想] " + _al + " | " + mindol_ctx) if mindol_ctx else ("[联想] " + _al)
+        except Exception:
+            pass
 
         if decision in ("block", "iron_wall_block"):
             # block 路径：输出阻断信息，退出 1
