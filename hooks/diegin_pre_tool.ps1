@@ -522,9 +522,18 @@ elseif ($st -eq "verified") { $st = "VERIFIED" }
 elseif ($st -eq "pending") { $st = "PENDING" }
 Write-DGENStatusFile -Status $st -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
 # ---- Mindol 语义记忆 ----
+# [PERF-C 2026-08-20] pre_tool 裁决摘要降频：每 5 次工具调用写 1 条（原每次 1 条；审计日志已全量覆盖，Mindol 只需低频采样）
 $mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
 if (Test-Path $mindolBridge) {
-    & $pythonExe $mindolBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
+    $ptCounterFile = Join-Path $stateDir "pretool_mindol_counter.txt"
+    $ptCount = 0
+    if (Test-Path $ptCounterFile) { $ptCount = [int](Get-Content $ptCounterFile -Raw -ErrorAction SilentlyContinue) }
+    $ptCount++
+    [System.IO.File]::WriteAllText($ptCounterFile, "$ptCount", $script:utf8NoBOM)
+    if ($ptCount -ge 5) {
+        [System.IO.File]::WriteAllText($ptCounterFile, "0", $script:utf8NoBOM)
+        & $pythonExe $mindolBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
+    }
 }
 Write-DGENContextAndExit -ExitCode 0
 

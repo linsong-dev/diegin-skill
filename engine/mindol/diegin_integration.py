@@ -124,31 +124,20 @@ def get_memory_stats() -> Dict[str, int]:
     except Exception: return {}
 
 def save_chat(text: str, source: str = "user", metadata: dict = None) -> bool:
-    """保存对话内容到 Mindol raw_chat 空间
-    同时同步到 codex 空间保证检索覆盖。
-    在 pre_check() 入口处由 diegin 自动调用。
-    """
+    """保存对话内容到 Mindol raw_chat 空间（单写）。
+    [PERF-C 2026-08-20] 去掉 codex 空间双写——retrieve 默认遍历全空间检索，
+    raw_chat 已被覆盖，双写纯冗余（每工具调用省 1 条写入）。"""
     try:
         text = sanitize_text(text)  # P1 写入脱敏：token/凭证不落库
         adapter = _get_adapter()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         uid = f"chat_{ts}_{hash(text) % 10000:04d}"
         core = adapter._ensure_core()
-        # 写入 raw_chat 空间
         core.add_unit(
             text=text[:2000],
             source=source,
             uid=uid,
             space=core.SPACE_RAW_CHAT,
-            metadata={"source": source, "saved_at": datetime.now().isoformat(), **(metadata or {})}
-        )
-        # 同步到 codex 空间 (保持向后兼容)
-        codex_uid = f"chat_codex_{ts}_{hash(text) % 10000:04d}"
-        core.add_unit(
-            text=text[:2000],
-            source=f"chat_{source}",
-            uid=codex_uid,
-            space=core.SPACE_CODEX,
             metadata={"source": source, "saved_at": datetime.now().isoformat(), **(metadata or {})}
         )
         core.save()

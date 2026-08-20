@@ -1760,5 +1760,34 @@
     "last_ignored": "",
     "block_count": 0,
     "blocked_rules": []
+  },
+  {
+    "id": "rule_cost_economy_all_tasks",
+    "trigger_condition": "task_type == 'pre_tool' and ('省' in command or 'token' in command.lower() or 'ds_peak' in command.lower())",
+    "action": "suggest; 全局Token经济原则(该用的用该省的省)：①高峰时段(09:00-12:00/14:00-18:00)非紧急、非盘口必要的LLM调用一律延迟/合并/降级，改用确定性脚本；②优先合并命令、避免重复读文件、避免长输出；③批处理/深度分析/数据回填等重活挪到空闲时段；④一切以减小token消费为目的。",
+    "severity": "low",
+    "tags": [
+      "token",
+      "成本",
+      "该用的用该省的省",
+      "principle:守三"
+    ],
+    "logic_score": 4.5,
+    "outcome_score": 4.0,
+    "confidence": 4.5,
+    "source": "human_override",
+    "source_review": "2026-08-20 会话",
+    "lifecycle_status": "active",
+    "created_at": "2026-08-20T08:38:38.940785",
+    "valid_until": "",
+    "last_triggered": "",
+    "boundary_conditions": [],
+    "invalid_conditions": [],
+    "triggered_count": 0,
+    "ignored_count": 0,
+    "override_count": 0,
+    "last_ignored": "",
+    "block_count": 0,
+    "blocked_rules": []
   }
 ]

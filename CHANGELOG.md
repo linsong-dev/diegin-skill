@@ -1,5 +1,13 @@
 # Changelog · Diegin 迭进
 
+## 3.9.5 (2026-08-20)
+
+- perf: Mindol 记忆治理 PERF-C（该用的用，该省的省）——
+  - P1 存量清理：4.2 万 → 1.3 万 active（工具中间日志 dormant 化，可恢复；rule/trade/pattern/user 权威记忆零损失）
+  - P2 写入去重：`save_chat` 去 codex 双写（retrieve 全空间覆盖，冗余）；post_tool_batch 两次写合并为单条摘要；pre_tool 裁决写入降频（每 5 次 1 条）——每工具调用新写入 ~5 条 → ~1.2 条
+  - P3 每日维护：新增 `engine/mindol_maintenance.py`（分档保留期：工具日志 1 天 / 半对话 3 天 / raw_chat 7 天 / 权威记忆永久）+ Windows 计划任务每日 18:45 + pre_reply 入口阈值防线（active>2 万自动触发）
+- fix: 入口防线与维护脚本 UTF-8 审计落盘
+
 ## 3.9.4 (2026-08-19)
 
 - perf: 钩子性能 A+B——

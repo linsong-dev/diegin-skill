@@ -1915,15 +1915,18 @@ if __name__ == "__main__":
         except Exception as _e:
             _out["closure"] = {"error": str(_e)[:100]}
 
-        # 5. mindol record post_tool + raw_chat（每次；save_chat 写 raw_chat 并同步 codex）
+        # 5. mindol record（每次；[PERF-C] 合并为单条 save_chat——原 post_tool 与 raw_chat 两次写入，retrieve 全空间覆盖，一次即够）
         try:
             from mindol.diegin_integration import save_chat
             _mt = _d.get("mindol_post_text", "") or ""
             _rt = _d.get("mindol_raw_chat_text", "") or ""
-            if _mt:
-                save_chat("post_tool: " + _mt[:450], source="post_tool")
+            _mc = ""
+            if _mt: _mc += "post_tool: " + _mt[:450]
             if _rt:
-                save_chat(_rt[:450] + " (raw_chat)", source="post_tool")
+                if _mc: _mc += " | "
+                _mc += _rt[:450] + " (raw_chat)"
+            if _mc:
+                save_chat(_mc, source="post_tool")
             _out["mindol"] = {"ok": True}
         except Exception as _e:
             _out["mindol"] = {"error": str(_e)[:100]}
@@ -3031,6 +3034,8 @@ if __name__ == "__main__":
             _ps = _pm.get_status()
             print(f"    宕机时段: {_ps.get('downtime',{}).get('start','?')}-{_ps.get('downtime',{}).get('end','?')}")
             print(f"    当前{'在' if _ps.get('downtime',{}).get('active_now') else '不在'}宕机时段")
+            print(f"    DS高峰时段: {' / '.join(_ps.get('ds_peak',{}).get('windows',[]) or ['未配置'])}")
+            print(f"    当前{'在' if _ps.get('ds_peak',{}).get('active_now') else '不在'}DS高峰(该省则省)")
         except Exception:
             print(f"    未加载")
 
