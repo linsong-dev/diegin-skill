@@ -34,9 +34,18 @@ metadata:
 
         label: "安装迭进引擎"
 
-  version: "v3.9.6"
+  version: "v3.9.7"
   date: "2026-08-13"
 ---
+
+
+
+## 架构定位（v3.9.7 起：非自包含）
+
+- 迭进 = 系统级技能，**不包含** Mindol。
+- 迭进运行时通过 venv 独立包接入 Mindol（`from mindol import core`）；历史内置副本已移除。
+- 安装 Mindol：`pip install -e <mindol 源码库>`，或安装独立 mindol 插件（两者等价）。
+- 版本联动：迭进与 Mindol 版本前缀必须一致（checkpush 发布门禁校验），防双仓未来分裂。
 
 
 

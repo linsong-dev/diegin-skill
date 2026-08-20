@@ -77,7 +77,6 @@ def main():
         cur.execute("UPDATE memory_units SET status='dormant' WHERE source=? AND status='active' AND timestamp<?", (s, cut))
     # 记忆衰减（decay_and_dormancy 语义等价：经验空间强度衰减 + 低阈值休眠）
     try:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from mindol.diegin_integration import memory_decay
         decay = memory_decay()
         log(f"decay={decay}")

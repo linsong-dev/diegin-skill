@@ -15,7 +15,6 @@ MINDOL_STORAGE = os.path.join(CODEX_HOME, "mindol")
 
 def _get_mindol():
     """获取 Mindol 实例（懒加载）"""
-    sys.path.insert(0, os.path.join(CODEX_HOME, "diegin", "engine"))
     from mindol import core
     m = core.Mindol(storage_path=MINDOL_STORAGE, persist=True)
     return m
@@ -105,7 +104,6 @@ def cmd_stats(args):
 def cmd_close(args):
     """安全关闭 Mindol"""
     try:
-        sys.path.insert(0, os.path.join(CODEX_HOME, "diegin", "engine"))
         from mindol import core
         m = core.Mindol(storage_path=MINDOL_STORAGE, persist=True)
         m.close()

@@ -429,8 +429,6 @@ class RuleEngine:
         """懒加载 Mindol 实例"""
         if self._mindol is None:
             try:
-                import sys as _sys
-                _sys.path.insert(0, str(Path(__file__).parent.parent))
                 from mindol import core as _mindol_core
                 storage = str(Path(os.environ.get("CODEX_HOME", str(Path(__file__).parent.parent.parent)), "mindol"))
                 self._mindol = _mindol_core.Mindol(storage_path=storage, persist=True)

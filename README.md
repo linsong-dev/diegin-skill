@@ -13,10 +13,19 @@
   [![EN](https://img.shields.io/badge/EN-README-blue)](README.en.md) | [![中文](https://img.shields.io/badge/中文-README-red)](README.md) | <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.9.6-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.9.7-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>
+
+---
+
+## 与 Mindol 的关系（v3.9.7 起：非自包含）
+
+- 迭进与 Mindol 是**两个独立插件/仓库**（`diegin-skill` / `mindol`）。
+- 迭进不内置 Mindol；运行时通过 venv 安装的 mindol 包调用（全机唯一代码副本）。
+- 组合运行 = 「迭进的完全体」：迭进九章 + Mindol 语义记忆 / 情绪调制 / 跨空间联想。
+- 两插件可分别单独使用；版本联动由 checkpush 发布门禁保证。
 
 ---
 
