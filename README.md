@@ -113,13 +113,14 @@
 - **反馈闭环**：工具成功自动采纳（置信度+0.5）；否决 ×0.7
 - **质量护栏**：`audit_patterns` / `audit_staging` / `audit_evidence` 防空壳与假数据再生
 
-## 实战案例（2026-08-10 实测）
+## 实战案例（2026-08-10 / 2026-08-21 实测）
 
 - **举一反三 ×2 当日 71/74 次命中、零误伤**：08-09 入库的 2 条跨域泛化规则（`pat_rule_pat_manual_ps1_chinese_bom` / `pat_rule_pat_manual_backup_before_remove`）08-10 即在实战中触发 71/74 次，人工复核 boundary 明确、无误伤，按裁决保留并正式发布。
 - **image_url 守三 11 次审计**：同一会话内 view_image 连发触发「一二不过三」，`self_error_image_url` 从 archived 升级 critical 复活，当日 11 次命中全部走 audit（熔断期行为），按计划 ≈08-17 复查，无复发可人工 reset。
 - **乱码根因修复**：PS5.1 ↔ Python 管道中文乱码（`$OutputEncoding` 默认 US-ASCII、`[Console]::OutputEncoding` 默认 GBK）导致 prompt 入库变 `?`、pre_reply JSON 解析失败 → 强制 UTF-8 + 质量门正则惰性量词修复；7 个被拒的攻七模式恢复提升，经验沉淀管线卡死闭环。
 - **攻七规则当日 auto_adopt**：08-09 入库的攻七规则（`pat_manual_doc_writeback_verify` ×4、`pat_manual_new_tool_smoke` ×1）08-10 实战当日自动采纳（置信度 +0.5），「入库 → 实战 → 采纳」闭环 24 小时内跑通。
-
+- **恒常门跨对话恢复 v3.9.10 持续实证（2026-08-21）**：推广任务跨多次对话恢复执行（resume_count 7），241 个恒常门任务全部可跨会话续接，三件套（目标/完成标准/待办）注入即续，恢复率从 0 起步持续累积。
+- **质量基线 v3.9.10（2026-08-21 实测）**：249 条规则三库一致（JSON/Mindol/运行时）、死规则 0、空壳模式 0、假证据 0、引擎自检 failed_checks 全绿、test_all 32/32 通过。
 ## 快速开始
 ### 环境要求
 - Python 3.12+
@@ -193,3 +194,4 @@ diegin/
 ├── sync.ps1           同步脚本
 ├── deploy/            部署脚本
 └── LICENSE            Apache 2.0
+
