@@ -246,8 +246,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-08T12:45:32.323482",
     "valid_until": "",
-    "last_triggered": "2026-08-21T12:09:08.752481",
-    "triggered_count": 86640
+    "last_triggered": "2026-08-21T12:14:19.350350",
+    "triggered_count": 86679
   },
   {
     "id": "pat_auto_tool_review_fix_verify_loop_1",
@@ -296,8 +296,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T11:45:00",
     "valid_until": "",
-    "last_triggered": "2026-08-21T12:09:12.755408",
-    "triggered_count": 5805
+    "last_triggered": "2026-08-21T12:09:08.753481",
+    "triggered_count": 5807
   },
   {
     "id": "pat_manual_backup_before_remove_20260809",
@@ -446,8 +446,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-21T11:28:43.458570",
-    "triggered_count": 1397
+    "last_triggered": "2026-08-21T12:14:29.187339",
+    "triggered_count": 1402
   },
   {
     "id": "pat_manual_research_link_verify_20260809",
@@ -521,8 +521,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-14T15:20:35.061516",
     "valid_until": "",
-    "last_triggered": "2026-08-21T12:09:08.753481",
-    "triggered_count": 27385
+    "last_triggered": "2026-08-21T12:14:19.352353",
+    "triggered_count": 27424
   },
   {
     "id": "pat_auto_tool_exec_command_1",
