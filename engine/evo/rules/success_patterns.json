@@ -21,8 +21,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-03T16:31:46.557782",
     "valid_until": "",
-    "last_triggered": "2026-08-10T16:08:07.661906",
-    "triggered_count": 121
+    "last_triggered": "2026-08-19T16:44:31.444002",
+    "triggered_count": 231
   },
   {
     "id": "gongqi_fix_hooks_ps1_bom_20260805_124836",
@@ -96,8 +96,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T14:54:23.919391",
     "valid_until": "",
-    "last_triggered": "2026-08-09T11:57:54.032762",
-    "triggered_count": 165
+    "last_triggered": "2026-08-21T11:28:56.380843",
+    "triggered_count": 202
   },
   {
     "id": "gongqi_verified_tool_error_Bash_20260805_145424",
@@ -121,8 +121,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T14:54:24.351347",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:08:49.709250",
-    "triggered_count": 85
+    "last_triggered": "2026-08-21T11:28:56.380843",
+    "triggered_count": 90
   },
   {
     "id": "gongqi_fix_command_failure_20260805_165257",
@@ -146,8 +146,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T16:52:57.850413",
     "valid_until": "",
-    "last_triggered": "2026-08-09T11:57:54.033771",
-    "triggered_count": 159
+    "last_triggered": "2026-08-21T11:28:56.381843",
+    "triggered_count": 204
   },
   {
     "id": "gongqi_fix_tool_error_Bash_20260805_165258",
@@ -171,8 +171,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-05T16:52:58.323535",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:08:49.709250",
-    "triggered_count": 86
+    "last_triggered": "2026-08-21T11:28:56.381843",
+    "triggered_count": 91
   },
   {
     "id": "gongqi_verified_image_url_20260804_080935",
@@ -196,8 +196,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-04T08:09:35.399671",
     "valid_until": "",
-    "last_triggered": "2026-08-12T11:18:22.860143",
-    "triggered_count": 240
+    "last_triggered": "2026-08-20T12:44:45.516057",
+    "triggered_count": 258
   },
   {
     "id": "pat_auto_tool_shell_command_1",
@@ -221,8 +221,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-08T09:17:58.633420",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:04:01.096816",
-    "triggered_count": 16782
+    "last_triggered": "2026-08-21T08:57:48.743261",
+    "triggered_count": 19758
   },
   {
     "id": "pat_auto_tool_Bash_1",
@@ -246,8 +246,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-08T12:45:32.323482",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:44:54.732302",
-    "triggered_count": 50343
+    "last_triggered": "2026-08-21T12:09:08.752481",
+    "triggered_count": 86640
   },
   {
     "id": "pat_auto_tool_review_fix_verify_loop_1",
@@ -296,8 +296,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T11:45:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:44:54.732302",
-    "triggered_count": 1084
+    "last_triggered": "2026-08-21T12:09:12.755408",
+    "triggered_count": 5805
   },
   {
     "id": "pat_manual_backup_before_remove_20260809",
@@ -321,8 +321,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T11:45:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:14:06.833797",
-    "triggered_count": 494
+    "last_triggered": "2026-08-21T12:08:43.583156",
+    "triggered_count": 1549
   },
   {
     "id": "pat_manual_ps1_chinese_bom_20260809",
@@ -346,8 +346,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:40:36.548573",
-    "triggered_count": 378
+    "last_triggered": "2026-08-21T11:31:33.419039",
+    "triggered_count": 663
   },
   {
     "id": "pat_manual_ps_string_escape_20260809",
@@ -371,8 +371,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:04:01.098111",
-    "triggered_count": 336
+    "last_triggered": "2026-08-21T08:21:27.416269",
+    "triggered_count": 833
   },
   {
     "id": "pat_manual_delete_dir_guard_20260809",
@@ -396,8 +396,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:14:06.833797",
-    "triggered_count": 262
+    "last_triggered": "2026-08-21T12:08:43.584157",
+    "triggered_count": 529
   },
   {
     "id": "pat_manual_doc_writeback_verify_20260809",
@@ -421,8 +421,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:44:14.148400",
-    "triggered_count": 3011
+    "last_triggered": "2026-08-21T12:02:45.055090",
+    "triggered_count": 11618
   },
   {
     "id": "pat_manual_new_tool_smoke_20260809",
@@ -446,8 +446,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:38:29.175160",
-    "triggered_count": 351
+    "last_triggered": "2026-08-21T11:28:43.458570",
+    "triggered_count": 1397
   },
   {
     "id": "pat_manual_research_link_verify_20260809",
@@ -471,8 +471,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-09T16:20:00",
     "valid_until": "",
-    "last_triggered": "2026-08-12T12:15:05.009755",
-    "triggered_count": 929
+    "last_triggered": "2026-08-21T09:05:04.367814",
+    "triggered_count": 2001
   },
   {
     "id": "gongqi_fix_image_url_20260810_114227",
@@ -496,8 +496,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-10T11:42:27.501656",
     "valid_until": "",
-    "last_triggered": "2026-08-12T11:18:22.884644",
-    "triggered_count": 257
+    "last_triggered": "2026-08-20T12:44:45.517779",
+    "triggered_count": 284
   },
   {
     "id": "pat_ashare_rebound_low_buy_20260814",
@@ -521,8 +521,8 @@
     "lifecycle_status": "active",
     "created_at": "2026-08-14T15:20:35.061516",
     "valid_until": "",
-    "last_triggered": "2026-08-19T15:17:37.467243",
-    "triggered_count": 17425
+    "last_triggered": "2026-08-21T12:09:08.753481",
+    "triggered_count": 27385
   },
   {
     "id": "pat_auto_tool_exec_command_1",
