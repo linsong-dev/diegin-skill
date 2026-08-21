@@ -78,7 +78,7 @@ if ([string]::IsNullOrEmpty($g_pr)) { $g_pr = $g_fallback_root }
 $g_sf=Join-Path $g_pr "var\state\phase_state.json"
 $auditLog = Join-Path $g_pr "var\logs\diegin_audit.log"
 $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
-$pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" }
+$pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"; if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" } }
 $enginePy = Join-Path $g_pr "engine\call_diegin.py"
 $stateDir = Join-Path $g_pr "var\state"
 

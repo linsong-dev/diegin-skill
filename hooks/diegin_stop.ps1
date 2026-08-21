@@ -103,7 +103,7 @@ $g_pr=Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $g_sf=Join-Path $g_pr "var\state\phase_state.json"
 
 # 引擎调用路径
-$pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"; if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" } }
 $enginePy = Join-Path $g_pr "engine\call_diegin.py"
 
 $auditLog=Join-Path $g_pr "var\logs\diegin_audit.log"
@@ -213,7 +213,7 @@ except Exception as e:
 
         [System.IO.File]::WriteAllText($tmpFile, $cleanScript, $script:utf8NoBOM)
 
-        $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+        $pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"; if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" } }
 
         if (Test-Path $pythonExe) {
 
@@ -271,4 +271,3 @@ if (Test-Path $mindolBridge) {
     if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
     $null = & $pythonExe $mindolBridge record stop $mindolText 2>&1
 }
-
