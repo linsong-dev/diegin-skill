@@ -57,7 +57,7 @@ def _noise_reason(text: str) -> str:
         return "含乱码路径 " + _q2 + "（证据不可验证）"
     low = text.lower()
     # 疑似测试/临时样本（非真实成功经验）
-    for h in ("x.txt", "test.txt", "_p0_", "_b1_", "_test", "test_", "\\temp\\", "\\tmp\\", "_bh_review", "_probe", "_verify", "probe.txt", "tmp.txt"):
+    for h in ("x.txt", "test.txt", "_p0_", "_b1_", "_test", "test_", "\\temp\\", "\\tmp\\", "_bh_review", "_probe", "_verify", "probe.txt", "tmp.txt", "echo perf-test", "perf-test"):
         if h in low:
             return "疑似测试/临时样本: " + h
     # 只读查询命令（无写语义、无决策可学）作首行判定
