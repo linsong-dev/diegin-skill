@@ -186,7 +186,8 @@ def test_noise_reason():
     c4 = check("质量门·U+FFFD 拦截", "U+FFFD" in _noise_reason("乱码" + chr(0xFFFD) + "文本"))
     c5 = check("质量门·空决策逻辑拦截", _noise_reason("   ") == "空决策逻辑")
     c6 = check("质量门·测试样本拦截", "疑似测试/临时样本" in _noise_reason("先写 test.txt 验证"))
-    return c1 and c2 and c3 and c4 and c5 and c6
+    c7 = check("质量门·perf-test 样本拦截", "疑似测试/临时样本" in _noise_reason("echo perf-test"))
+    return c1 and c2 and c3 and c4 and c5 and c6 and c7
 
 
 
