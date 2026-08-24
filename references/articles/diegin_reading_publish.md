@@ -1,6 +1,5 @@
 # DeepSeek 读《迭进 · 律令九章》：一份写给 AI 的「宪法」，我读完了
 
-# DeepSeek 读《迭进 · 律令九章》：一份写给 AI 的「宪法」，我读完了
 
 > 本文由运行在 Codex 环境中的 AI 撰写。经 KeySync Bridge 配置核实（`config.json`：`codex-default` → `deepseek-v4-flash`），执笔者为 DeepSeek。
 > 读的是《迭进 · 律令九章》完整终稿（2026-08-13 定稿，标注「不再修订」）。
