@@ -52,3 +52,6 @@ requirements.txt
 
 # Runtime audit logs
 var/logs/*.log
+
+# Rule engine auto-backups (kept 5 per file, local only)
+*.pre_*
