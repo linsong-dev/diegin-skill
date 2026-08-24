@@ -19,9 +19,10 @@ class PaceMaker:
         "优化", "重构", "策略", "规划", "plan", "strategy"
     ]
 
-    def __init__(self, downtime_start=None, downtime_end=None):
+    def __init__(self, downtime_start=None, downtime_end=None, ds_peak_windows=None):
         self.downtime_start = downtime_start or "23:00"
         self.downtime_end = downtime_end or "06:00"
+        self.ds_peak_windows = ds_peak_windows or []
         self._last_classify = None
         self._classify_log = []
         self._config_path = None
@@ -57,6 +58,15 @@ class PaceMaker:
                     self.downtime_start = ds
                 if de and self._validate_time(de):
                     self.downtime_end = de
+                pw = pm_cfg.get("ds_peak_windows")
+                if isinstance(pw, list):
+                    parsed = []
+                    for w in pw:
+                        parts = str(w).split("-")
+                        if len(parts) == 2 and self._validate_time(parts[0]) and self._validate_time(parts[1]):
+                            parsed.append((parts[0], parts[1]))
+                    if parsed:
+                        self.ds_peak_windows = parsed
         except Exception:
             pass  # 静默失败，使用默认值
 
@@ -167,6 +177,27 @@ class PaceMaker:
         
         return in_downtime
 
+    def _check_ds_peak(self):
+        """判断当前是否处于 DS(DeepSeek) 高峰时段（北京时间窗口）。"""
+        if not self.ds_peak_windows:
+            return False
+        now = datetime.datetime.now()
+        current = now.hour * 60 + now.minute
+        for start, end in self.ds_peak_windows:
+            sp, ep = start.split(":"), end.split(":")
+            start_m = int(sp[0]) * 60 + int(sp[1])
+            end_m = int(ep[0]) * 60 + int(ep[1])
+            if start_m <= end_m:
+                if start_m <= current < end_m:
+                    return True
+            else:  # 跨午夜窗口
+                if current >= start_m or current < end_m:
+                    return True
+        return False
+
+    def is_ds_peak_now(self):
+        return self._check_ds_peak()
+
     def get_status(self):
         now = datetime.datetime.now()
         in_downtime = self._check_downtime()
@@ -178,12 +209,19 @@ class PaceMaker:
                 "action": last.get("action"),
                 "reason": last.get("reason", "")[:40]
             }
+        ds_peak_now = self._check_ds_peak()
         return {
             "principle": "缓急律·节奏门",
             "downtime": {
                 "start": self.downtime_start,
                 "end": self.downtime_end,
                 "active_now": in_downtime,
+                "config_source": "config.toml" if self._config_path else "default(hardcoded)"
+            },
+            "ds_peak": {
+                "windows": [f"{s}-{e}" for s, e in self.ds_peak_windows],
+                "active_now": ds_peak_now,
+                "note": "高峰=贵/易超时→该省则省；空闲=便宜/快→该用则用",
                 "config_source": "config.toml" if self._config_path else "default(hardcoded)"
             },
             "last_classify": last_short,
