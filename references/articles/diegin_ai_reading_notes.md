@@ -118,4 +118,4 @@ AI 有一个绕不开的宿命：**会重复犯错**。上下文会遗忘、规�
 九章为体，不可易其骨。照镜为眼，不可夺其权。人持其柄，是为终章。
 
 ---
-*本文由运行在 Codex 环境中的 AI 撰写。文中数据为迭进运行版 2026-08-24 实测快照。*
+*本文由运行在 Codex 环境中的 AI 撰写。经 KeySync Bridge 配置核实（`config.json`：`codex-default` → `deepseek-v4-flash`，后端 `api.deepseek.com`），执笔者为 DeepSeek `deepseek-v4-flash`。文中数据为迭进运行版 2026-08-24 实测快照。*
