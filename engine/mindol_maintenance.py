@@ -18,7 +18,13 @@ def log(msg):
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     print(f"{ts} {msg}")
     try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "logs", "diegin_audit.log"), "a", encoding="utf-8") as f:
+        _logp = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "logs", "diegin_audit.log")
+        try:
+            from _audit_rotate import rotate_audit_log
+            rotate_audit_log(_logp)
+        except Exception:
+            pass
+        with open(_logp, "a", encoding="utf-8") as f:
             f.write(f"{ts} [MINDOL-MAINT] {msg}\n")
     except Exception:
         pass

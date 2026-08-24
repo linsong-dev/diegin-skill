@@ -18,6 +18,11 @@ def log(msg):
     line = f"{ts} [SELF-CHECK] {msg}\n"
     try:
         os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
+        try:
+            from _audit_rotate import rotate_audit_log
+            rotate_audit_log(AUDIT_LOG)
+        except Exception:
+            pass
         with io.open(AUDIT_LOG, "r", encoding="utf-8", errors="replace") as f:
             old = f.read()
         with io.open(AUDIT_LOG, "w", encoding="utf-8") as f:

@@ -291,6 +291,11 @@ class RuleEngine:
             _logp = os.path.join(os.path.dirname(__file__), "..", "..", "var", "logs", "diegin_audit.log")
             _logp = os.path.abspath(_logp)
             if os.path.isdir(os.path.dirname(_logp)):
+                try:
+                    from _audit_rotate import rotate_audit_log
+                    rotate_audit_log(_logp)
+                except Exception:
+                    pass
                 _line = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + \
                     f" [RULE_ENGINE][AUDIT] _force_reopen pattern={pattern_id} {from_status}->{to_status}\n"
                 _old = ""

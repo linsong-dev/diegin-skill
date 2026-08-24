@@ -56,9 +56,14 @@ def _append_audit(msg: str) -> None:
         _d = os.path.dirname(_audit_log)
         if _d and not os.path.exists(_d):
             os.makedirs(_d, exist_ok=True)
+        try:
+            from _audit_rotate import rotate_audit_log
+            rotate_audit_log(_audit_log)
+        except Exception:
+            pass
         _ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         with open(_audit_log, "a", encoding="utf-8") as _f:
-            _f.write(f"{_ts} {_ts} {msg}\n")
+            _f.write(f"{_ts} {msg}\n")
     except Exception:
         pass
 

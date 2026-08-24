@@ -20,6 +20,11 @@ AUDIT = os.path.join(BASE, "var", "logs", "diegin_audit.log")
 def _append_audit(msg):
     try:
         os.makedirs(os.path.dirname(AUDIT), exist_ok=True)
+        try:
+            from _audit_rotate import rotate_audit_log
+            rotate_audit_log(AUDIT)
+        except Exception:
+            pass
         _line = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " " + msg + "\n"
         with open(AUDIT, "a", encoding="utf-8") as f:
             f.write(_line)
