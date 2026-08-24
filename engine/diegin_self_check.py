@@ -443,6 +443,77 @@ def main():
         result["checks"]["audit_strike_aligned"] = False
         result["issues"].append("audit 口径检查异常: %s" % e)
 
+    # 自述一致性（2026-08-24）：当前状态描述必须用律令九章，禁止"八元框架"残留
+    try:
+        _status_py = io.open(os.path.join(ENGINE_DIR, "diegin_status.py"), "r", encoding="utf-8").read()
+        _readme_path = os.path.join(os.path.dirname(ENGINE_DIR), "README.md")
+        _readme_txt = io.open(_readme_path, "r", encoding="utf-8").read() if os.path.exists(_readme_path) else ""
+        _stale_desc = ("八元框架" in _status_py
+                       or ("八元原则网络" in _readme_txt and "历史文档（八元版）" not in _readme_txt))
+        result["checks"]["no_stale_self_descriptor"] = not _stale_desc
+        if _stale_desc:
+            result["issues"].append("自述残留旧版'八元'：当前状态页/README 仍用八元描述迭进（当前应为律令九章）")
+    except Exception as e:
+        result["checks"]["no_stale_self_descriptor"] = False
+        result["issues"].append("自述一致性检查异常: %s" % e)
+    # 引擎代码完整性（2026-08-24）：语法 + 关键锚点自检
+    # 背景：纯文本插入曾把护栏插进 pre_reply 函数破坏缩进，靠人工手术修复——
+    # 本检查每次自检时编译核心引擎文件并核对结构锚点，编辑事故第一时间报警。
+    try:
+        _integrity_issues = []
+        _engine_files = {
+            "call_diegin.py": os.path.join(ENGINE_DIR, "call_diegin.py"),
+            "rule_engine.py": os.path.join(ENGINE_DIR, "evo", "rule_engine.py"),
+            "main.py": os.path.join(ENGINE_DIR, "evo", "main.py"),
+        }
+        _anchors = {
+            "call_diegin.py": {
+                'elif mode == "pre_reply":': 1,
+                'elif mode == "dgen_check":': 1,
+                'elif mode == "principle_health":': 1,
+                "def post_review": 1,
+                "def system_health": 1,
+                "def _decode_stdin_bytes": 1,
+            },
+            "rule_engine.py": {
+                "def update_pattern": 1,
+                "def update_interception": 1,
+                "def _noise_reason": 1,
+                "def save_all": 1,
+                "def add_interception": 1,
+            },
+            "main.py": {
+                "def _get_engine": 1,
+                "def generalize_from_patterns": 1,
+                "def audit_strike_summary": 1,
+                "def constancy_suspend": 1,
+                "def constancy_recoverable": 1,
+            },
+        }
+        for fname, fpath in _engine_files.items():
+            if not os.path.exists(fpath):
+                _integrity_issues.append("%s 缺失" % fname)
+                continue
+            _src = io.open(fpath, "r", encoding="utf-8").read()
+            # 语法完整性：compile 失败 = 语法损坏（缩进/括号/截断）
+            try:
+                compile(_src, fpath, "exec")
+            except SyntaxError as _se:
+                _integrity_issues.append("%s 语法损坏: %s" % (fname, _se))
+                continue
+            # 结构锚点：关键函数/分支必须存在且唯一（函数被插断/分支丢失即失配）
+            for _anchor, _expect in _anchors.get(fname, {}).items():
+                _cnt = _src.count(_anchor)
+                if _cnt != _expect:
+                    _integrity_issues.append("%s 锚点失配: %s 期望=%d 实际=%d" % (fname, _anchor, _expect, _cnt))
+        _integrity_ok = len(_integrity_issues) == 0
+        result["checks"]["engine_integrity"] = _integrity_ok
+        result["engine_integrity_issues"] = _integrity_issues
+        if not _integrity_ok:
+            result["issues"].append("引擎代码完整性 %d 项异常: %s" % (len(_integrity_issues), "; ".join(_integrity_issues[:8])))
+    except Exception as e:
+        result["checks"]["engine_integrity"] = False
+        result["issues"].append("引擎完整性检查异常: %s" % e)
     # 汇总
     failed = [k for k, v in result["checks"].items() if v is False]
     result["status"] = "FAIL" if failed else "ok"
@@ -453,6 +524,7 @@ def main():
         "hooks_ps1_bom": "hooks_ps1_bom",
         "no_tmp_residue": "atomic_tmp_residue",
         "stdin_bom_guard": "stdin_bom_guard",
+        "engine_integrity": "engine_integrity",
     }
     for check_key, error_type in PREVENTION_STRIKE_MAP.items():
         if result["checks"].get(check_key) is False:

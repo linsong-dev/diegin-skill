@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""迭进工作台 - 一键查看八元框架运行状态"""
+"""迭进工作台 - 一键查看九元框架运行状态"""
 import sys, os, json
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "evo"))
@@ -58,7 +58,7 @@ def main():
     last_verify = check_last_verify()
     
     print("=" * 55)
-    print("  [DG] 迭进工作台 · 八元框架运行状态")
+    print("  [DG] 迭进工作台 · 九元框架运行状态")
     print("=" * 55)
     
     # 1. 守三
@@ -96,7 +96,9 @@ def main():
         pm = get_pacemaker()
         ps = pm.get_status()
         dt = ps["downtime"]
+        dp = ps.get("ds_peak", {})
         print(f"     宕机时段: {dt['start']}-{dt['end']} (当前{'在' if dt['active_now'] else '不在'}宕机时段)")
+        print(f"     DS高峰时段: {' / '.join(dp.get('windows', []) or ['未配置'])} (当前{'在' if dp.get('active_now') else '不在'}高峰·该省则省)")
         print(f"     已分类: {ps['total_classifications']} 次")
     except Exception:
         print(f"     未加载")

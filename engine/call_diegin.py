@@ -38,6 +38,17 @@ from evo.main import (get_rules_for_task, arbitrate, full_review, record_behavio
 from evo.error_detector import ErrorDetector
 
 
+# 自述护栏（2026-08-24）：迭进当前架构=律令九章；八元为历史版本。
+# 检索注入不得把旧版自述当作当前态，自述类查询一律以权威描述为准。
+DGEN_AUTHORITY_SELF_DESC = (
+    "[迭进·律令九章] 攻七·行知律 / 守三·省知律 / 一二不过三·三错锁 / "
+    "举一反三·通变门 / 去伪存真·真伪门 / 预策·裁决律 / 持存·恒常门 / "
+    "止观·完形律 / 自照镜·方向之镜。当前架构一律以律令九章为准，"
+    "八元仅为2026-08-13前的历史版本。"
+)
+DGEN_STALE_SELF_WORDS = ("八元框架", "八元原则网络", "缓急律")
+DGEN_SELF_QUERY_HINTS = ("迭进", "八元", "九章", "架构", "原则", "dgen", "diegin")
+
 def _append_audit(msg: str) -> None:
     """追加审计日志（与 hooks 共用 diegin_audit.log）"""
     try:
@@ -768,8 +779,24 @@ def pre_check(context: dict) -> dict:
         mindol_context = memory_format_context(query=ctx_str, top_k=3)
     except Exception:
         pass
+    # 自述护栏（2026-08-24）：检索命中旧版自述（八元框架/缓急律）一律剔除，自述类查询以权威九章覆盖，防止迭进"自述错误"
+        if mindol_hits:
+            _q = json.dumps(context, ensure_ascii=False)
+            _is_self_q = any(_k in _q for _k in DGEN_SELF_QUERY_HINTS)
+            _clean = []
+            for _h in mindol_hits:
+                _ht = str(_h.get("text", ""))[:300]
+                if any(_w in _ht for _w in DGEN_STALE_SELF_WORDS):
+                    continue  # 旧自述轨迹不入注入、不入裁决
+                _clean.append(_h)
+            if _clean:
+                mindol_hits = _clean
+                mindol_context = memory_format_context(query=ctx_str, top_k=3)  # 复用缓存重新格式化
+            if _is_self_q:
+                mindol_context = DGEN_AUTHORITY_SELF_DESC
+    except Exception:
+        pass
     # 自照镜·勇气信号 → P6 语义记忆静默影响（定稿第九章；受 P6 调权±0.3/单轮±0.1 约束）
-    try:
         from evo.main import mirror_status
         _courage = float(mirror_status().get("courage", 0.0) or 0.0)
         if _courage > 0:
@@ -1458,6 +1485,7 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+        pass
         # 自照镜·勇气信号下一轮用户交互确认（定稿第九章）：负面反馈 → 归零；否则生效
         _user_negative = None
         try:
