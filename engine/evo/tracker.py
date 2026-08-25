@@ -782,6 +782,12 @@ class BehaviorTracker:
                               'details': []}
         key = 'self_error_' + error_type
         entry = db[error_type]
+        # 休眠—唤醒哨兵：已验证修复的错误再次出现 → 唤醒为 active（复发=新证据，教训重新可见）
+        if entry.get("status") == "dormant":
+            entry["status"] = "active"
+            entry["wake_at"] = now
+            entry["wake_reason"] = "recidivism"
+            entry["fix_status"] = "pending_reverify"
         # 一二不过三·封顶：超过3次不再继续累加（1改→2验→3升级，之后停止）
         if entry['count'] >= 3:
             # 已达到封顶，不再累加，但更新上次时间
@@ -1446,6 +1452,16 @@ class BehaviorTracker:
         entry["fix_status"] = "verified" if success else "failed"
         entry["fix_verified_at"] = now
         entry["fix_verify_detail"] = str(detail)[:120]
+        # 休眠—唤醒（九章网络化治理 2026-08-25）：验证修复成功后进入休眠态，
+        # 不再注入运行上下文（恒常门/教训列表），复发时由 record_self_error 自动唤醒。
+        # 止观门（deep_review）读全量 strikes_db，休眠项仍可复盘。
+        if success:
+            entry["status"] = "dormant"
+            entry["dormant_at"] = now
+            entry["wake_at"] = ""
+            entry["wake_reason"] = ""
+        else:
+            entry["status"] = "active"
         db[error_type] = entry
         self._save_strikes_db(db)
         if success:
@@ -1487,6 +1503,10 @@ class BehaviorTracker:
                 entry["fix_status"] = "verified"
                 entry["fix_verified_at"] = now.isoformat()
                 entry["fix_auto"] = True
+                entry["status"] = "dormant"
+                entry["dormant_at"] = now.isoformat()
+                entry["wake_at"] = ""
+                entry["wake_reason"] = ""
                 self._save_strikes_db(db)
                 try:
                     self.notify_gongqi(error_type, entry.get("last_detail", ""), mode="verified_fix")

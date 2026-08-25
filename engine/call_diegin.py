@@ -862,8 +862,8 @@ def pre_check(context: dict) -> dict:
             if isinstance(_strikes, dict):
                 for _k, _v in _strikes.items():
                     _cnt = _v.get("count", 0) if isinstance(_v, dict) else 0
-                    if _cnt >= 1:
-                        _v = _v if isinstance(_v, dict) else {}
+                    # 休眠—唤醒：已验证修复且未复发的教训不注入运行上下文（省 token、不刷屏）
+                    if _cnt >= 1 and isinstance(_v, dict) and _v.get("status") != "dormant":
                         _detail = (_v.get("last_detail") or _v.get("detail") or "") or ""
                         _entries.append((_k, _cnt, str(_detail)[:80]))
             _entries.sort(key=lambda x: -x[1])
