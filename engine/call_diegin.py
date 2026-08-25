@@ -75,6 +75,174 @@ def _append_audit(msg: str) -> None:
 
 
 
+
+
+# ============================================================
+# P0 攻七闭环·先败后成配对（2026-08-25）
+# 失败写台账（record_error）→ 成功配对（post_tool_batch）→ 生成攻七 staging 模式
+# ============================================================
+
+def _recent_failures_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "var", "state", "recent_failures.json")
+
+
+def _load_recent_failures() -> list:
+    try:
+        _p = _recent_failures_path()
+        if os.path.isfile(_p):
+            with open(_p, "r", encoding="utf-8") as _f:
+                _d = json.load(_f)
+            return _d if isinstance(_d, list) else []
+    except Exception:
+        pass
+    return []
+
+
+def _save_recent_failures(ledger: list) -> None:
+    try:
+        _p = _recent_failures_path()
+        os.makedirs(os.path.dirname(_p), exist_ok=True)
+        with open(_p, "w", encoding="utf-8") as _f:
+            json.dump(ledger[-50:], _f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _cmd_family(cmd: str) -> str:
+    """命令族：从命令文本提取可泛化的族名（git push / get-content / python 等）。
+    失败与成功命令可能不同（如代理→直连），按族匹配才能配对。"""
+    if not cmd:
+        return ""
+    import re as _re
+    s = str(cmd).strip().lower()
+    if not s:
+        return ""
+    # git 特例：跳过 -c KEY=VALUE 等 flag 及取值，取第一个裸子命令
+    if _gm := _re.match(r"\bgit\b", s):
+        for _tok in _re.split(r"[\s;|&]+", s[_gm.end():]):
+            _t = _tok.strip().strip(chr(34) + chr(39)).strip()
+            if not _t or _t.startswith(("-", "--")) or "=" in _t:
+                continue
+            if _re.match(r"^[a-z][a-z-]*$", _t):
+                return "git " + _t
+        return "git"
+    _tokens = [t.strip(chr(34) + chr(39)).strip() for t in _re.split(r"[\s;|&]+", s) if t.strip()]
+    _tokens = [t for t in _tokens if not t.startswith(("-", "--"))]
+    if not _tokens:
+        return ""
+    _first = _tokens[0]
+    # PowerShell 动词-名词 / 下划线命令 → 单 token 族
+    if "-" in _first or "_" in _first:
+        return _first
+    if len(_tokens) >= 2:
+        _second = _tokens[1]
+        _is_arg = (len(_second) <= 2 or "=" in _second
+                   or _re.search(r"[\\/.:'\"]", _second))
+        if not _is_arg:
+            return _first + " " + _second
+    return _first
+
+
+def _sanitize_for_pattern(text: str) -> str:
+    """入库脱敏：去掉 URL 内嵌凭据与 token 串（防 git push 直连 token 泄入模式库/Git）"""
+    if not text:
+        return ""
+    import re as _re
+    s = str(text)
+    s = _re.sub(r"https?://[^/@\s]+@", "https://<redacted>@", s)
+    s = _re.sub(r"(gh[opu]_|github_pat_|x-access-token:)[A-Za-z0-9_\-]+", r"\1<redacted>", s)
+    return s
+
+
+def _write_recent_failure(error_type: str = "", detail: str = "", cmd: str = "") -> None:
+    """失败台账：供攻七先败后成配对（30 分钟窗口内同命令族）。"""
+    try:
+        import datetime as _dt
+        _ledger = _load_recent_failures()
+        _ledger.append({
+            "ts": _dt.datetime.now().isoformat(),
+            "error_type": error_type or "",
+            "detail": str(detail)[:200],
+            "cmd": str(cmd)[:200],
+            "family": _cmd_family(cmd),
+            "paired": False,
+        })
+        _save_recent_failures(_ledger)
+    except Exception:
+        pass
+
+
+def _pair_fail_success(tool_name: str, method: str) -> dict:
+    """P0 攻七闭环：post_tool 成功时检测 30 分钟内同命令族曾有失败
+    → 自动生成攻七 staging 模式（trigger=命令族，decision=本次成功做法，脱敏入库），标记失败已配对。
+    验证门：staging 再命中（tc>=2）由 auto_promote_all 转 active。"""
+    try:
+        if not method or not str(method).strip():
+            return {"paired": False, "reason": "no_method"}
+        import datetime as _dt
+        _now = _dt.datetime.now()
+        _fam = _cmd_family(method)
+        if len(_fam) < 3:
+            return {"paired": False, "reason": "family_too_short"}
+        _ledger = _load_recent_failures()
+        _match = None
+        for _e in _ledger:
+            if _e.get("paired"):
+                continue
+            if _e.get("family", "") != _fam:
+                continue
+            try:
+                _ts = _dt.datetime.fromisoformat(_e.get("ts", ""))
+            except Exception:
+                continue
+            if (_now - _ts).total_seconds() <= 1800:  # 30 分钟窗口
+                _match = _e
+                break
+        if not _match:
+            return {"paired": False, "reason": "no_recent_failure"}
+        from evo.rule_engine import SuccessPattern
+        _engine = _get_engine()
+        _toks = [t for t in _fam.split() if t]
+        _cond_parts = ["op_contains(%s)" % t for t in _toks if len(t) >= 3]
+        if not _cond_parts:
+            return {"paired": False, "reason": "no_trigger_tokens"}
+        _trigger = " and ".join(_cond_parts)
+        _safe_method = _sanitize_for_pattern(method)
+        _ts2 = _now.strftime("%Y%m%d_%H%M%S")
+        _slug = _fam.replace(" ", "_").replace("/", "_")[:40]
+        _pid = "gongqi_auto_%s_%s" % (_slug, _ts2)
+        # 幂等：同族已有 auto_pair 模式 → 更新不重复建
+        _exists = [p for p in _engine.get_patterns(active_only=False)
+                   if getattr(p, "source", "") == "auto_pair"
+                   and (getattr(p, "trigger_scenario", "") or "") == "auto_pair_" + _fam]
+        if _exists:
+            _match["paired"] = True
+            _match["pattern_id"] = _exists[0].id
+            _save_recent_failures(_ledger)
+            return {"paired": True, "pattern_id": _exists[0].id, "updated": True}
+        _pat = SuccessPattern(
+            id=_pid,
+            pattern_name="auto_pair_" + _slug,
+            trigger_scenario="auto_pair_" + _fam,
+            decision_logic="先败后成：\n" + _safe_method,
+            micro_template=_safe_method[:80],
+            trigger_condition=_trigger,
+            logic_score=4.0, outcome_score=3.5, confidence=3.5,
+            source="auto_pair",
+            lifecycle_status="staging",
+            created_at=_now.isoformat(),
+            triggered_count=1,
+        )
+        _engine.add_pattern(_pat)
+        _match["paired"] = True
+        _match["pattern_id"] = _pid
+        _save_recent_failures(_ledger)
+        _append_audit("[PAIR] 攻七先败后成: %s -> pattern=%s trigger=%s" % (_fam, _pid, _trigger))
+        return {"paired": True, "pattern_id": _pid, "family": _fam, "trigger": _trigger}
+    except Exception as _e:
+        return {"paired": False, "error": str(_e)[:120]}
+
+
 def write_current_intent(prompt: str = "", task_id: str = "", turn_id: str = "", user_negative=None) -> str:
     """预策·③：将当前用户意图落盘 current_intent.json（post_tool record_success 三重判定读取）
     返回落盘路径；异常返回空串（不阻塞主流程）。"""
@@ -1949,9 +2117,11 @@ if __name__ == "__main__":
                             import contextlib as _cl2, io as _io2
                             from evo.main import auto_sandwich_trigger
                             _buf2 = _io2.StringIO()
+                            _safe_method = _sanitize_for_pattern(_method)
                             with _cl2.redirect_stdout(_buf2):
-                                _rs_res = auto_sandwich_trigger("tool_" + _tn.replace(".", "_"), positive=[_tn], negative=[], method=_method)
+                                _rs_res = auto_sandwich_trigger("tool_" + _tn.replace(".", "_"), positive=[_tn], negative=[], method=_safe_method)
                             _out["record_success"] = {"action": "saved", "tool": _tn}
+                            _out["pair"] = _pair_fail_success(_tn, _method)
                             _append_audit("攻七 post_tool_batch tool=" + str(_tn)[:60] + " pattern_saved")
         except Exception as _e:
             _out["record_success"] = {"error": str(_e)[:100]}
@@ -2333,6 +2503,7 @@ if __name__ == "__main__":
             error_type = sys.argv[2]
             detail = sys.argv[3] if len(sys.argv) > 3 else ""
             severity = sys.argv[4] if len(sys.argv) > 4 else "high"
+            cmd = sys.argv[5] if len(sys.argv) > 5 else ""
         else:
             _b = sys.stdin.buffer.read()
             _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
@@ -2340,6 +2511,7 @@ if __name__ == "__main__":
             error_type = _in.get("error_type", _in.get("type", "unknown"))
             detail = _in.get("detail", _in.get("error", ""))
             severity = _in.get("severity", "high")
+            cmd = _in.get("cmd", _in.get("command", ""))
         # 恒常门联动：工具失败 → 阻塞最近可恢复任务（blocker_report 上报，父任务可决策）
         try:
             from evo.main import constancy_recoverable, constancy_block
@@ -2350,6 +2522,7 @@ if __name__ == "__main__":
         except Exception:
             pass
         result = ensure_three_strikes(error_type, detail, severity)
+        _write_recent_failure(error_type, detail, cmd)
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     elif mode == "arbitrate_detail":
         """去伪存真：完整冲突仲裁详情（带规则冲突分析）

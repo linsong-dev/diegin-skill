@@ -258,6 +258,7 @@ try {
                 error_type = $errType
                 detail = $errDetail
                 severity = "high"
+                cmd = $toolCmd
             } | ConvertTo-Json -Compress
             $recErrResult = $recErrCtx | & $pythonExe $enginePy record_error 2>&1
             $flatRec = $recErrResult.Replace("`n", " ").Replace("`r", "")
