@@ -788,6 +788,13 @@ class BehaviorTracker:
             entry["wake_at"] = now
             entry["wake_reason"] = "recidivism"
             entry["fix_status"] = "pending_reverify"
+            # P1a（2026-08-25）：修复验证后复发 = 新一轮第1次（以修复为准，不以累计次数为准）。
+            # 历史累计保留在 lifetime_count 供复盘/审计，当前 count 重置为 1 重新进入一二不过三链。
+            entry["lifetime_count"] = int(entry.get("lifetime_count", 0) or 0) + int(entry.get("count", 0) or 0)
+            # count 置 0：本次复发调用将计为新第 1 次（修复验证后复发 = 新一轮起点）
+            entry["count"] = 0
+            entry["first_seen"] = now
+            entry["details"] = []
         # 一二不过三·封顶：超过3次不再继续累加（1改→2验→3升级，之后停止）
         if entry['count'] >= 3:
             # 已达到封顶，不再累加，但更新上次时间
@@ -1440,6 +1447,39 @@ class BehaviorTracker:
             pass
         return plan
 
+    def confirm_dormant(self, error_type: str, confirm: bool = True) -> dict:
+        """P2 裁决律·人工确认：high 级错误修复后处于 pending_dormant，
+        由人工裁决是否正式休眠（确认休眠 → dormant；驳回 → 保持 active 继续暴露）。"""
+        import datetime as _dt
+        now = _dt.datetime.now().isoformat()
+        db = self._load_strikes_db()
+        entry = db.get(error_type)
+        if not entry:
+            return {"action": "not_found", "error_type": error_type}
+        # pending_dormant 确认休眠，或 dormant 驳回（人工推翻休眠决定 → 恢复 active）
+        if entry.get("status") == "pending_dormant":
+            if confirm:
+                entry["status"] = "dormant"
+                entry["dormant_at"] = now
+                entry["dormant_confirmed_by"] = "human"
+                entry["dormant_confirm"] = "confirmed"
+            else:
+                entry["status"] = "active"
+                entry["dormant_confirm"] = "rejected"
+                entry["fix_status"] = "failed"
+            entry["dormant_decision_at"] = now
+        elif entry.get("status") == "dormant" and not confirm:
+            # 人工驳回已休眠：恢复 active，重新进入一二不过三链
+            entry["status"] = "active"
+            entry["dormant_confirm"] = "rejected"
+            entry["fix_status"] = "failed"
+            entry["dormant_decision_at"] = now
+        else:
+            return {"action": "not_pending", "status": entry.get("status", "?")}
+        self._save_strikes_db(db)
+        return {"action": "dormant_confirmed" if confirm else "dormant_rejected",
+                "error_type": error_type, "status": entry["status"]}
+
     def verify_fix(self, error_type, success=True, detail=""):
         """①改毕验：确认修复结果。
         success=True  → 修复成功：标记 verified，输出攻七成功模式（修复经验固化）+ 守三预防规则
@@ -1456,10 +1496,19 @@ class BehaviorTracker:
         # 不再注入运行上下文（恒常门/教训列表），复发时由 record_self_error 自动唤醒。
         # 止观门（deep_review）读全量 strikes_db，休眠项仍可复盘。
         if success:
-            entry["status"] = "dormant"
+            # P2 裁决律（2026-08-25）：high 级错误休眠需人工确认（自动修复不得静默下线防线）；
+            # medium/low 已验证修复直接休眠（缓急律·该省则省）。
+            _sev = str(entry.get("severity", "medium") or "medium").lower()
+            if _sev == "high":
+                entry["status"] = "pending_dormant"
+                entry["dormant_confirm"] = "required"
+            else:
+                entry["status"] = "dormant"
             entry["dormant_at"] = now
             entry["wake_at"] = ""
             entry["wake_reason"] = ""
+            # P1a：修复成功时把当前 count 并入 lifetime_count（审计/复盘可看总犯次数）
+            entry["lifetime_count"] = int(entry.get("lifetime_count", 0) or 0) + int(entry.get("count", 0) or 0)
         else:
             entry["status"] = "active"
         db[error_type] = entry

@@ -156,11 +156,49 @@ def _job_health_report(cfg):
     return {"ok": True, "cronFailureRate": rate, "runs": runs, "failures": fails}
 
 
+
+
+def _deep_review_interval_h(cfg):
+    """P1b（2026-08-25）：深度复盘间隔随错误态势自适应（缓急律·该省则省该用则用）。
+    错误率高（活跃未修复错误>=2，或24h内有复发）→ 6h 密集复盘；
+    平稳 → 默认24h。避免高频使用下错误反复出现却等不到每日复盘。"""
+    try:
+        _sp = os.path.join(STATE, "strikes_db.json")
+        if not os.path.isfile(_sp):
+            return cfg["deep_review_interval_h"]
+        with open(_sp, "r", encoding="utf-8") as _f:
+            _strikes = json.load(_f)
+        _active = 0
+        _recent = 0
+        _now = datetime.datetime.now()
+        for _k, _v in _strikes.items():
+            if not isinstance(_v, dict):
+                continue
+            if _v.get("status") == "dormant":
+                continue
+            _cnt = _v.get("count", 0) or 0
+            if _cnt >= 2:
+                _active += 1
+            _ls = _v.get("last_seen", "")
+            if _ls:
+                try:
+                    _last = datetime.datetime.fromisoformat(_ls)
+                    if (_now - _last).total_seconds() < 24 * 3600:
+                        _recent += 1
+                except Exception:
+                    pass
+        # 高错误态势 → 6h；否则默认 24h
+        if _active >= 2 or _recent >= 1:
+            return 6
+        return cfg["deep_review_interval_h"]
+    except Exception:
+        return cfg["deep_review_interval_h"]
+
 JOBS = {
     "downtime_maintenance": {"interval_h": lambda c: c["maintenance_interval_h"],
                              "window": lambda c: (c["downtime_start"], c["downtime_end"]),
                              "fn": _job_downtime_maintenance},
-    "deep_review": {"interval_h": lambda c: c["deep_review_interval_h"],
+    "deep_review": {"interval_h": lambda c: _deep_review_interval_h(c),
                     "window": lambda c: (c["downtime_start"], c["downtime_end"]),
                     "fn": _job_deep_review},
     "health_report": {"interval_h": lambda c: c["health_interval_h"],

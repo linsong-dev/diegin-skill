@@ -2335,6 +2335,31 @@ def run_maintenance():
             except Exception:
                 pass
 
+    # P2a（2026-08-25）：攻七成功模式生命周期——active 模式 30 天未触发 → deprecating
+    #（降权不删除，攻七是经验资产；60 天仍未触发由 cycle_gongqi 归档兜底）
+    try:
+        _pat_max_age = _max_age_days  # 30
+        for _pat in engine.get_patterns(active_only=True):
+            _pat_last = getattr(_pat, "last_triggered", "") or ""
+            if _pat_last:
+                try:
+                    _pat_age = (_now_dt - datetime.fromisoformat(_pat_last)).days
+                    if _pat_age >= _pat_max_age:
+                        engine.update_pattern(_pat.id, lifecycle_status="deprecating")
+                        print(f"  [PAT-DECAY] 模式降权(长期未触发): {_pat.id} (最后触发{_pat_age}天前)")
+                except Exception:
+                    pass
+            elif getattr(_pat, "created_at", "") or "":
+                try:
+                    _pat_age = (_now_dt - datetime.fromisoformat(_pat.created_at)).days
+                    if _pat_age >= _pat_max_age:
+                        engine.update_pattern(_pat.id, lifecycle_status="deprecating")
+                        print(f"  [PAT-DECAY] 模式降权(从未触发): {_pat.id} (创建{_pat_age}天)")
+                except Exception:
+                    pass
+    except Exception as _pe:
+        print(f"  [PAT-DECAY] 攻七模式生命周期跳过: {_pe}")
+
     for rule in engine.get_interceptions(active_only=True):
 
 
