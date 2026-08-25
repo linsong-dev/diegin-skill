@@ -344,6 +344,9 @@ class RuleEngine:
         {"task_type": "pre_tool", "tool_name": "Bash", "blocked_error_type": "tool_error_Bash",
          "marker_missing": False, "command": "Get-ChildItem 不存在的路径", "text": "Get-ChildItem 不存在的路径",
          "hook_event_name": "PreToolUse"},
+        {"task_type": "pre_tool", "tool_name": "Bash", "blocked_error_type": "command_failure",
+         "marker_missing": False, "command": "& 'E:\\app\\python.exe' run.py", "text": "& 'E:\\app\\python.exe' run.py",
+         "hook_event_name": "PreToolUse"},
         {"task_type": "user_prompt", "text": "用 WriteAllText 写文件", "prompt": "用 WriteAllText 写文件",
          "hook_event_name": "UserPromptSubmit"},
     ]

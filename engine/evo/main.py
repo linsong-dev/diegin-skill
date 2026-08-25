@@ -645,6 +645,20 @@ def generalize_from_patterns() -> list:
         if tc < 2 and conf < 4.5:
             continue
         cond = getattr(p, "trigger_condition", "") or p.trigger_scenario
+        # [P2-20260825] 钩子上下文适配：op_contains(错误类型) → blocked_error_type == "X"
+        # success pattern 的 trigger 在引擎内部上下文(op 含错误类型名)可命中；但派生拦截规则在
+        # 钩子 pre_tool 上下文(command/text=命令文本)评估，错误类型名不会出现在命令文本 → 死规则。
+        # 改写后若能在 RULE-GUARD 真实钩子模板下命中(blocked_error_type 模板已覆盖 command_failure/tool_error_Bash)则采用。
+        import re as _re_tc
+        _err_m = _re_tc.fullmatch(r"op_contains\((\w+)\)", cond.strip())
+        if _err_m:
+            _alt = 'blocked_error_type == "%s"' % _err_m.group(1)
+            try:
+                _live_issues = engine.validate_trigger_live(_alt)
+                if not any(i.startswith("[P2]") for i in _live_issues):
+                    cond = _alt
+            except Exception:
+                pass
         rid = "pat_rule_" + p.id
         existing = engine.get_interception_by_id(rid)
         if existing:
