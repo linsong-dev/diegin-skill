@@ -59,3 +59,7 @@ var/logs/*.log
 # Auto backups (rule engine / hook fixes)
 *.bak_*
 *.pre_*
+
+# Runtime skill copy (installed layout, not source layout)
+skills/diegin/
+

@@ -1,9 +1,0 @@
-interface:
-  display_name: "Diegin（迭进）— 系统级认知框架"
-  short_description: "系统级认知框架，通过 hooks 全域常驻 AI 执行循环"
-  brand_color: "#1a1a2e"
-  default_prompt: "使用 $diegin-skill 进行迭进预检、规则裁决或状态查询"
-
-policy:
-  allow_implicit_invocation: true
-
