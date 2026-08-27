@@ -14,7 +14,7 @@
   <a href="https://github.com/linsong-dev/diegin-skill/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License">
   </a>
-  <img src="https://img.shields.io/badge/version-3.9.6-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.9.11-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/python-3.12+-orange" alt="Python">
   <img src="https://img.shields.io/badge/Codex-ready-purple" alt="Codex">
 </p>

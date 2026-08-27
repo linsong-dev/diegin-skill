@@ -1172,7 +1172,8 @@ def pre_check(context: dict) -> dict:
         proactive_proposal = None
 
     # ========== 攻七强化 Q1: 及时使用 - 高置信度模式优先推荐 ==========
-    _suggestions = build_gongqi_suggestions(rules["patterns"])
+    # [P0-20260825] 攻七建议上下文相关：只推与当前任务/命令相关的经验（此前全局推荐导致无关建议被忽略）
+    _suggestions = build_gongqi_suggestions(rules["patterns"], context=context)
     # display_line 升级：放行且有高置信度模式 → 显式推荐优先采用
     _display_line = result.get("display_line", "")
     if result.get("decision") == "allow" and _suggestions and _suggestions[0].get("priority"):
@@ -2519,6 +2520,21 @@ if __name__ == "__main__":
             if _rec:
                 constancy_block(_rec[0]["task_id"],
                                 blocker_report="工具失败: %s (%s)" % (error_type, str(detail)[:200]))
+        except Exception:
+            pass
+        # [P0-20260825] 探测类命令豁免双保险：cmd 或 detail 含探测特征（curl 端口/连通性/状态码探测）
+        # 探测失败是预期结果（如浏览器未开、代理未就绪），不记 strike、不升级、不写 override。
+        try:
+            from evo.error_detector import _is_probe_command
+            _probe_cmd = cmd or detail
+            if "cmd=" in str(_probe_cmd):
+                _probe_cmd = str(_probe_cmd).split("cmd=", 1)[-1]
+            if _is_probe_command(str(_probe_cmd)):
+                _write_recent_failure(error_type, detail, cmd)
+                print(json.dumps({"action": "probe_skip",
+                                  "reason": "探测类命令失败豁免（非 AI 错误，不记 strike）",
+                                  "error_type": error_type}, ensure_ascii=False, indent=2, default=str))
+                sys.exit(0)
         except Exception:
             pass
         result = ensure_three_strikes(error_type, detail, severity)

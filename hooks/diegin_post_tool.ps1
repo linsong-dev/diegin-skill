@@ -113,9 +113,15 @@ try {
         if ($hookInput.stderr) { $toolError = $hookInput.stderr }
         if ($hookInput.tool_response) {
             $resp = [string]$hookInput.tool_response
-            if ($resp -match 'Cannot find drive|DriveNotFound|not recognized|command not found|Access is denied|Permission denied|Cannot find path|is not recognized|不是内部或外部命令|找不到路径|拒绝访问|未能找到') {
-                if (-not $toolError) { $toolError = $resp; if ($toolError.Length -gt 400) { $toolError = $toolError.Substring(0, 400) } }
-                if ($null -eq $toolExitCode) { $toolExitCode = 1 }
+            # [P0-20260825] 误伤豁免：CLI 输出截断警告（truncated output）不是工具错误；
+            # 工具输出全文（如查看源码/日志）含错误关键词也不构成错误——仅当退出码非0时才认定。
+            if ($resp -match 'Warning: truncated output|original token count') {
+                Add-NoBOMLog -Path $auditLog -Message "$time [DETECT] resp_truncated_skip"
+            } elseif ($resp -match 'Cannot find drive|DriveNotFound|not recognized|command not found|Access is denied|Permission denied|Cannot find path|is not recognized|不是内部或外部命令|找不到路径|拒绝访问|未能找到') {
+                if (($null -eq $toolExitCode -or $toolExitCode -ne 0) -and -not $toolError) {
+                    $toolError = $resp; if ($toolError.Length -gt 400) { $toolError = $toolError.Substring(0, 400) }
+                    if ($null -eq $toolExitCode) { $toolExitCode = 1 }
+                }
             }
         }
     }
@@ -232,9 +238,11 @@ try {
     }
     
     # 有错误时调用 analyze 模式记录 strike
+    # [P0-20260827] 误报修复：exit=0 且仅 stderr/工具输出含错误字样不是工具错误；
+    # 只有 exit_code 非 0 才认定（与 08-25 truncated 豁免同口径）
     $shouldAnalyze = $false
-    if ($toolExitCode -ne 0 -and $toolExitCode -ne $null) { $shouldAnalyze = $true }
-    if ($toolError) { $shouldAnalyze = $true }
+    if ($null -ne $toolExitCode -and $toolExitCode -ne 0) { $shouldAnalyze = $true }
+    elseif ($null -eq $toolExitCode -and $toolError) { $shouldAnalyze = $true }
     
     if ($shouldAnalyze -and (Test-Path $pythonExe)) {
         $analyzeCtx = @{
@@ -247,7 +255,7 @@ try {
         $analyzeText = ($analyzeResult | Out-String).Trim()
         $flat = $analyzeText.Replace("`n", " ").Replace("`r", "")
         Add-NoBOMLog -Path $auditLog -Message "$time [DETECT] tool=$toolName exit=$toolExitCode result=$flat"
-        if ($analyzeText -match '"error"') {
+        if ($analyzeText -match '"error"\s*:') {
             # v3.8 修复：条件倒挂（原 -notmatch 导致检测到错误反而跳过记录）
             # 现在：analyze 检测到错误（含 "error" 字段）→ 立即记录一二不过三 strike
             $errType = "tool_error_" + $toolName

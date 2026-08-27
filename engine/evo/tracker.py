@@ -453,12 +453,14 @@ class BehaviorTracker:
         except Exception:
             now = _dt.datetime.now().isoformat()
         
+        # [P0-20260825] 字段契约修复：钩子真实字段为 task_type/tool_name/command/text/blocked_error_type
+        # 原 op/cmd_prechecked 等字段在钩子上下文不存在 → 验证门 P0 拒绝写入 → 守三规则永远无法固化
         trigger_map = {
-            'encoding_write_corruption': ('op == file_write AND NOT encoding_verified', 'verify_encoding_before_write; if_fail_fix_it'),
-            'encoding_error': ('op == file_write AND NOT encoding_verified', 'verify_encoding_before_write; if_fail_fix_it'),
-            'git_push_failure': ('op == git_push AND NOT pre_push_verified', 'pre_push_validation; check_git_state'),
-            'command_failure': ('op == cmd AND NOT cmd_prechecked', 'dry_run_before_exec; verify_exit_code'),
-            'command_timeout': ('op == cmd AND duration > timeout_threshold AND NOT timeout_handled', 'set_timeout; handle_timeout_gracefully'),
+            'encoding_write_corruption': ('task_type == file_write AND NOT marker_missing', 'verify_encoding_before_write; if_fail_fix_it'),
+            'encoding_error': ('task_type == file_write AND NOT marker_missing', 'verify_encoding_before_write; if_fail_fix_it'),
+            'git_push_failure': ('tool_name == Bash AND "git push" in command AND NOT marker_missing', 'pre_push_validation; check_git_state'),
+            'command_failure': ('blocked_error_type == "command_failure"', 'dry_run_before_exec; verify_exit_code'),
+            'command_timeout': ('blocked_error_type == "command_failure" AND "timeout" in text', 'set_timeout; handle_timeout_gracefully'),
         }
         
         matched = False
@@ -474,7 +476,8 @@ class BehaviorTracker:
             clean_type = error_type.replace('self_error_', '').replace('silent_', '')
             if len(clean_type) > 40:
                 clean_type = clean_type[:40]
-            trigger = f'op_contains({clean_type}) AND NOT prechecked'
+            # [P0-20260826] 钩子上下文契约：op/prechecked 字段不存在，改用 blocked_error_type 精确匹配
+            trigger = f'blocked_error_type == "{clean_type}"'
             action = f'pre_check_before_{clean_type}; verify_result'
         
         rule_id = f'shousan_review_{error_type}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}'
@@ -564,13 +567,17 @@ class BehaviorTracker:
                 logic = f'{clean_type}操作前预检，避免同类错误'
         
         pattern_id = f'gongqi_{"verified" if mode == "verified_fix" else "fix"}_{error_type}_{_dt.datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        # [P0-20260826] trigger 契约：钩子上下文无 op 字段，op_contains(X) 永不命中（RULE-GUARD P2 死条件）。
+        # 错误类型在钩子中以 blocked_error_type（override 阻断上下文）出现，改用精确匹配。
+        _clean_et = error_type.replace("self_error_", "").replace("silent_", "")
+        _hook_trigger = 'blocked_error_type == "%s"' % _clean_et
         
         new_pattern = SuccessPattern(
             id=pattern_id,
             pattern_name=pname,
             trigger_scenario=f'auto: 修复 {error_type} 成功后的行为模式',
             decision_logic=logic,
-            trigger_condition=f'op_contains({error_type.replace("self_error_","").replace("silent_","")})',
+            trigger_condition=_hook_trigger,
             micro_template=f'检查{clean_type if not matched else error_type[:20]}状态，确认无误后执行',
             logic_score=3.5,
             outcome_score=3.5,
@@ -767,6 +774,18 @@ class BehaviorTracker:
         if task_context is None:
             task_context = {}
         now = _dt.datetime.now().isoformat()
+
+        # [P0-20260826] 外因豁免：命令不存在/环境损坏（工具未装、被删除、权限缺失）属外因，
+        # 不记 strike、不阻断、不升级——环境问题不应被当作 AI 行为惯性惩罚（否则误升级熔断/override）
+        if task_context.get("external_cause"):
+            try:
+                self._record_external_adjustment(error_type, detail,
+                    {"verdict": "external", "kw": "not_found", "reason": "命令不存在/环境损坏（外因），不记 strike"})
+            except Exception:
+                pass
+            return {"action": "external_skip", "rule_id": "self_error_" + error_type, "strike": 0,
+                    "adjustment": "已记录外生变量策略调整（dgen_external_adjust.json）",
+                    "message": "一二不过三: " + error_type + " 判定为外因（命令不存在/环境损坏），不记 strike"}
 
         db = self._load_strikes_db()
         # v3.7 语义相似判定：同类错误归并（error_type 词元重叠 >= 50% 视为同类）

@@ -174,7 +174,7 @@ class Precedent:
     created_at: str = ""
 
 
-def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
+def build_gongqi_suggestions(patterns: list, top_n: int = 5, context: dict = None) -> list:
     """攻七推荐纯函数（v3.x 提取自 pre_check 内联逻辑，便于独立回归测试）
 
     训练/测试分离：本函数只做只读计算，不写规则库、不写 Mindol、不触发学习，
@@ -184,6 +184,7 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
       - priority: confidence>=4.5 且 decision_logic 长度>=6
       - 排序：priority 优先，组内按 confidence 降序，同分按 created_at 新优先；总量截断 top_n
     """
+    import json as _json
     _suggestions = []
     import re as _re
     # 纯工具名级触发（形如 tool_name == 'Bash'，无场景/操作区分）→ 推荐无信息量
@@ -192,6 +193,11 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
         _priority_sug = []
         _normal_sug = []
         for p in patterns:
+            # [P0-20260825] 上下文相关性过滤：攻七建议只推与当前任务相关的经验
+            # （此前全局取最高置信度模式，导致发布任务时推荐 git push 预检等无关建议，模型全部忽略）
+            if context is not None:
+                if not _pattern_relevant(p, context):
+                    continue
             _s = {
                 "id": getattr(p, "id", ""),
                 "scenario": getattr(p, "trigger_scenario", ""),
@@ -231,6 +237,60 @@ def build_gongqi_suggestions(patterns: list, top_n: int = 5) -> list:
     except Exception:
         _suggestions = []
     return _suggestions
+
+
+def _pattern_relevant(pattern, context: dict) -> bool:
+    """攻七建议相关性判定：pattern 的 trigger/场景关键词是否出现在当前上下文文本中。
+    context 为 None 时视为全相关（保持旧行为，测试兼容）。"""
+    if not context:
+        return True
+    import re as _re
+    ctx_str = ""
+    try:
+        ctx_str = _json_dumps_context(context).lower()
+    except Exception:
+        ctx_str = str(context).lower()
+    trig = str(getattr(pattern, "trigger_condition", "") or "").lower()
+    scene = str(getattr(pattern, "trigger_scenario", "") or "").lower()
+    logic = str(getattr(pattern, "decision_logic", "") or "").lower()
+    # 1) trigger/scenario/logic 中的关键词直接出现在上下文 → 相关
+    toks = set()
+    for _txt in (trig, scene):
+        for _m in _re.finditer(r"[a-z][a-z_0-9]{2,}", _txt):
+            _t = _m.group(0)
+            if _t in ("auto", "fix", "the", "for", "and", "or", "not", "in",
+                      "op_contains", "blocked_error_type", "tool_name", "task_type",
+                      "command", "text", "prompt", "cmd", "hook_event_name",
+                      "marker_missing", "true", "false", "none", "context",
+                      "bash", "powershell", "shell", "pwsh", "cmd", "codex",
+                      "tool", "name", "value", "check", "use", "with", "new",
+                      "state", "path", "file", "data", "result", "status"):
+                continue
+            if len(_t) >= 4:
+                toks.add(_t)
+    if toks:
+        for _t in toks:
+            if _t in ctx_str:
+                return True
+    # 2) 错误类型关键词（command_failure/tool_error/git_push/encoding/timeout/write）显式比对
+    for _kw in ("command_failure", "tool_error", "git_push", "encoding", "timeout",
+                "file_write", "publish", "post", "editor", "browser", "chrome"):
+        if _kw in trig or _kw in scene or _kw in logic:
+            if _kw in ctx_str:
+                return True
+    # 3) 上下文带 blocked_error_type（一二不过三 override 阻断中）→ 错误类型相关模式命中
+    _bet = str((context or {}).get("blocked_error_type", "") or "").lower()
+    if _bet and (_bet in trig or _bet in scene):
+        return True
+    return False
+
+
+def _json_dumps_context(context: dict) -> str:
+    """上下文序列化（容错：含不可序列化字段时降级 str）"""
+    try:
+        return json.dumps(context, ensure_ascii=False, default=str)
+    except Exception:
+        return str(context)
 
 
 # ============================================================
@@ -404,6 +464,11 @@ class RuleEngine:
                '.startswith(', '.contains(', ' in ', ' not ', 'in ', 'not ', 'op_contains(']
         if not any(op in t for op in ops):
             return issues  # 纯关键词（子串匹配）跳过
+        # [P0-20260826] blocked_error_type 精确匹配：钩子真实字段（override 阻断上下文），
+        # 任意错误类型值都可能出现（command_failure/tool_error_Bash/image_url/...），无需模板枚举
+        import re as _re_bet
+        if _re_bet.fullmatch(r'blocked_error_type\s*==\s*["\'][^"\']+["\']', t):
+            return issues
         names, unknown = self._analyze_trigger_fields(t)
         for f in sorted(unknown):
             issues.append(f"[P0] trigger 引用上下文不存在的字段 '{f}'（钩子真实字段: task_type/tool_name/command/text/prompt/hook_event_name/marker_missing/blocked_error_type），该规则永远无法命中")

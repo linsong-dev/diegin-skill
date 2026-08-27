@@ -184,9 +184,8 @@ if ($totalCleaned -gt 0) {
     $extra = ""
     if ($failures.Count -gt 0) { $extra = " (skipped locked: $($failures -join ','))" }
     Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] total: cleaned $totalCleaned files$extra"
-    if (Test-Path $pythonExe) {
-        & $pythonExe $enginePy record_error "image_url" "session_image_clean: 清理了${totalCleaned}个会话文件" "high" 2>&1 | Out-Null
-    }
+    # [P0-20260826] 修复误伤：清理会话图片/二进制内容是正常维护动作，不是错误，
+    # 不再 record_error（此前导致 image_url 升级熔断 + override 阻断所有命令）
 } else {
     $msg = if ($failures.Count -gt 0) { "clean_noop (skipped locked: $($failures -join ','))" } else { "clean_noop" }
     Add-NoBOMLog -Path $auditLog -Message "$time [IMAGE-PROTECT] $msg"

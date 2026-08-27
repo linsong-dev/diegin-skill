@@ -55,3 +55,7 @@ var/logs/*.log
 
 # Rule engine auto-backups (kept 5 per file, local only)
 *.pre_*
+
+# Auto backups (rule engine / hook fixes)
+*.bak_*
+*.pre_*

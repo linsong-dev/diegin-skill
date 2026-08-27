@@ -1,5 +1,40 @@
 # Changelog · Diegin 迭进
 
+## 3.9.11 (2026-08-27)
+
+- fix: 一二不过三误报链收口——post_tool 错误判定两处修复（P0-20260827）：① stderr/error 字段不再无条件触发 analyze，仅 exit≠0 认定（与 08-25 truncated 豁免同口径，exit 缺失且 stderr 非空仍兼容）；② analyze 结果匹配改精确 `"error":`，消除正常 JSON 输出（含 error_type 字段名）误判
+- chore: 系统基线刷新 270/71 → 280/81（含 08-26/27 守三复盘 + 攻七配对合法演化）；模式 22/20 → 47/45
+- docs: CHANGELOG 补齐 3.9.7~3.9.10 断档 + 3.9.10+（08-22~08-25 攻七配对/周期治理/审计轮转）历史条目
+
+## 3.9.10+ (2026-08-22 ~ 08-25，未升版)
+
+
+- feat: 一二不过三教训休眠—唤醒治理——verify_fix 成功后 strike 置 dormant（省 token，不再注入运行上下文）；record_self_error 命中休眠项自动唤醒（复发=新证据）；恒常门教训注入过滤 dormant 项；止观门 deep_review 仍读全量
+- feat: 周期治理 P1/P2——一二不过三唤醒重置计数（修复验证后复发=新第 1 次，累计入 lifetime_count）；deep_review 间隔随错误态势自适应（高错误率 6h / 平稳 24h）；攻七成功模式生命周期（active 30 天未触发→deprecating）；裁决律 high 级休眠需人工确认（confirm_dormant 支持确认/驳回）
+- feat: P0 攻七先败后成配对闭环——record_error 记录 30 分钟窗口内失败（命令族 + 脱敏）；post_tool_batch 成功时检测同族失败自动生成攻七 staging 模式（auto_pair）；staging 触发计数 tc>=2 自动转 active；入库脱敏（URL 内嵌凭据/gho_ token → <redacted>）
+- fix: 审计日志统一轮转治理（8MB/保留 3 份）+ call_diegin 时间戳重复写入（新增 engine/_audit_rotate.py，接入五处写入入口）
+- fix: 自述一致性+记忆卫生双防线（九章权威护栏 + 自检 15/16 项）
+- docs: 篇三《迭进如何修复了它自己》/ 篇四《DeepSeek 读〈迭进·律令九章〉》三平台发布 + 推广计划书数据对齐 v3.9.10 + KPI 基线建档（2026-08-25）
+
+## 3.9.10 (2026-08-21)
+
+- fix: 归档规则——用户主动归档优先于 paused 保护
+- chore: 数据回灌——7 条规则归档至 archive + 成功模式置信度快照 + 规则/模式运行时快照回灌（发布时点一致）
+- docs: 质量基线 v3.9.10（249 规则三库一致 / 死规则 0 / 空壳模式 0 / 假证据 0 / 自检 failed_checks 全绿 / test_all 32/32）；篇一文章刷新至 v3.9.10 口径
+
+## 3.9.9 (2026-08-21)
+
+- fix: hooks python 统一优先 venv——修复 Mindol 断连 ModuleNotFoundError；清理 skills/mindol 残留
+
+## 3.9.8 (2026-08-20)
+
+- refactor: state 目录统一——engine/var/state 合并到根 var/state，修复证据链读取分裂（tracker/self_mirror/dashboard）
+
+## 3.9.7 (2026-08-20)
+
+- refactor: 迭进×Mindol 非自包含拆分——移除内置 mindol 副本、venv 独立包接入、checkpush 联动校验（与独立 mindol 插件版本前缀一致）
+
+## 3.9.6 (2026-08-20)
 ## 3.9.6 (2026-08-20)
 
 - feat: Mindol 情绪调制 + 跨空间联想（PERF-D，对应「带感觉权重、受情绪调制的状态动力学」最小路径）——

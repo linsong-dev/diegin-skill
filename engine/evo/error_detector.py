@@ -22,6 +22,49 @@ FAIL_CMD = ["command not found","is not recognized","access is denied",
             "permission denied","cannot find","timed out","timeout"]
 
 
+def _is_probe_command(cmd: str) -> bool:
+    """探测类命令判定（[P0-20260825] 误伤豁免）：
+    端口/连通性/HTTP状态码/健康检查类探测失败是"探测结果"而非 AI 错误。
+    例如 curl 127.0.0.1:9222（浏览器未开时 exit=1）、curl -o NUL -w "%{http_code}"（代理未开时 exit=1）、
+    Test-NetConnection 连通性测试。这类失败记 strike 会污染一二不过三并误升级熔断/override。
+    """
+    c = (cmd or "").lower()
+    if not c or not c.strip():
+        return False
+    probe_markers = (
+        "-o nul",                    # curl 静默输出到 NUL（只看状态码/连通性）
+        "%{http_code}",              # curl 仅取 HTTP 状态码
+        "--connect-timeout",         # 显式连接超时探测
+        "-connecttimeout",
+        "test-netconnection",        # PowerShell 连通性测试
+        "test-connection",
+        "get-process chrome",        # 进程存在性探测（发布流程常查）
+        "--version",                 # 工具版本探测（环境检查，失败=未安装而非 AI 错误）
+        "-version",
+        "get-command",               # 命令存在性探测
+        "where.exe",
+        "where ",                    # where 命令探测
+    )
+    if any(m in c for m in probe_markers):
+        return True
+    # 纯环境探测命令：仅查询工具/解释器是否存在（node/python/codex/py 等）
+    env_probe = (
+        "python --version", "py --version", "node --version", "node -v",
+        "codex --version", "git --version", "npm --version", "python -v",
+        "py -", "py -0",
+    )
+    if any(e in c for e in env_probe):
+        return True
+    # 本机/回环地址探测：curl/请求类命令指向 localhost/127.0.0.1 属服务可用性探测
+    local_marks = ("127.0.0.1", "localhost", "[::1]")
+    if any(m in c for m in local_marks):
+        if any(k in c for k in ("curl", "invoke-webrequest", "invoke-restmethod", "test-netconnection")):
+            return True
+        if "http://" in c or "https://" in c:
+            return True
+    return False
+
+
 
 def build_success_baseline(success_log_path=None, patterns_path=None, evidence_path=None):
     """P3-11 守三期望行为来源：从 success_log / success_patterns / evidence_trail 提取成功基线。
@@ -150,9 +193,25 @@ class ErrorDetector:
         """检测命令失败。"""
         combined = (out + " " + err).lower()
         if exit_code != 0:
+            # [P0-20260827] CLI 输出截断警告豁免：命令输出超长被 Codex CLI 截断（Warning: truncated output / original token count）时
+            # exit 可能非 0，但属输出展示问题而非命令失败（8-25 豁免仅覆盖 resp 文本检测，此处覆盖 exit 判定链路）
+            if 'warning: truncated output' in combined or 'original token count' in combined:
+                print('[TRUNC-SKIP] CLI 输出截断警告豁免（非命令失败）: ' + str(cmd)[:80])
+                return None
+            # [P0-20260825] 探测类命令豁免：端口/连通性/状态码探测失败是预期结果，不记 strike
+            if _is_probe_command(cmd):
+                print("[PROBE-SKIP] 探测类命令失败豁免（非 AI 错误）: " + str(cmd)[:80])
+                return None
             for kw in FAIL_GIT + FAIL_CMD:
                 if kw.lower() in combined:
                     etype = "git_push_failure" if kw in FAIL_GIT else "command_failure"
+                    # [P0-20260826] 命令不存在/环境损坏类失败 → 归因 external（外因），不升级熔断
+                    if kw.lower() in ("is not recognized", "command not found",
+                                      "not recognized as a name", "access is denied",
+                                      "permission denied", "cannot find", "not found"):
+                        return {"error": etype, "severity": "low", "external": True,
+                                "detail": "exit=" + str(exit_code) + " cmd=" + cmd[:40],
+                                "matched": kw}
                     return {"error":etype,"severity":"high",
                             "detail":"exit=" + str(exit_code) + " cmd=" + cmd[:40],
                             "matched":kw}
@@ -235,6 +294,9 @@ class ErrorDetector:
             return
         try:
             _task_ctx = {"auto_detected": True, "severity": detection.get("severity", "")}
+            # [P0-20260826] 外因标记传递：命令不存在/环境损坏类失败 → 一二不过三按外因处理，不升级
+            if detection.get("external"):
+                _task_ctx["external_cause"] = True
             if detection.get("expected_behavior"):
                 _task_ctx["expected_behavior"] = detection.get("expected_behavior")
                 _task_ctx["baseline_deviation"] = detection.get("deviation", "")
@@ -365,4 +427,3 @@ def get(tracker=None):
     if _inst is None:
         _inst = ErrorDetector(tracker)
     return _inst
-
