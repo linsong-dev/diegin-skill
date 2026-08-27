@@ -1,0 +1,119 @@
+[
+  {
+    "id": "meta_manual_regex_lazy_quantifier_20260809",
+    "insight": "正则中未转义的 ?? 会被解析为惰性量词（前一项出现 0-1 次），导致 [\\/]??[\\/] 实际等价于匹配任意单个 / 或 \\ —— 质量门 _noise_reason 因此把含斜杠/反斜杠的正常决策逻辑全部误判为'含乱码路径'，7 个攻七模式提升被拒。修复：re.escape('??') 后再拼正则；写正则前先验证元字符是否被解释为量词。",
+    "applicable_contexts": [
+      "正则编写与调试",
+      "自动质量门/校验器实现",
+      "文本特征检测"
+    ],
+    "action_binding": "拼接正则片段前先 re.escape；检测串含 ?、*、+ 等元字符时用 raw string + 显式转义；补回归测试覆盖'正常斜杠文本放行 + 真乱码拦截'。",
+    "source_review": "2026-08-09 接手会话",
+    "created_at": "2026-08-09T18:16:03",
+    "confidence": 4.8
+  },
+  {
+    "id": "meta_manual_ps_pipe_utf8_20260809",
+    "insight": "PowerShell 5.1 向原生进程管道传中文的乱码根因是 $OutputEncoding 默认 US-ASCII（中文被替换为 ?），而读取原生输出用 [Console]::OutputEncoding（默认 GBK，UTF-8 输出被解成乱码）。单改 Python 端解码（utf-8 errors=replace）无法恢复已丢字节。",
+    "applicable_contexts": [
+      "PS5.1 ↔ Python/原生进程中文传输",
+      "钩子脚本管道",
+      "日志与入库乱码排查"
+    ],
+    "action_binding": "钩子启动即强制 $OutputEncoding=[Console]::OutputEncoding=UTF-8(NoBOM)；Python 端 stdin 解码做 UTF-8→GBK 回退（_decode_stdin_bytes）；写 .ps1 保持 UTF-8 BOM；防 prompt 入库乱码与 JSON 解析失败。",
+    "source_review": "2026-08-09 接手会话",
+    "created_at": "2026-08-09T18:16:03",
+    "confidence": 4.8
+  },
+  {
+    "id": "meta_manual_domain_rule_keyword_design_20260814",
+    "insight": "迭进关键词型领域规则的命中与仲裁由三个设计点决定：(1) 触发词必须选强违规词（追进/拿住/死扛），中性词（止损/被套）会误伤合规计划；(2) 纯关键词匹配无法理解否定语义，'不再摊平'这类合规承诺会被'摊平'误命中，硬阻断级规则对模糊词必须降级为提醒；(3) 仲裁器对 action 做语义豁免，含 suggest/recommend/check/建议/检查 的 action 判定为不阻断（ALLOW），含 block/intercept 的 action 才真阻断，warn_and_confirm 因无豁免词落入 real_block 导致 high 误 block。实测案例：彩讯股份模拟中 A 场景（无计划追涨+重仓+死扛）经修正后命中 5 规则 BLOCK，B 场景（完整计划含止损承诺）PASS 不误伤。",
+    "applicable_contexts": [
+      "迭进领域规则编写",
+      "关键词触发规则设计",
+      "风控/交易纪律规则包"
+    ],
+    "action_binding": "规则触发词只用明确违规行为词，规避中性/否定语义词；模糊关键词规则 action 用 warn_and_suggest_*（含 suggest 豁免词）而非 warn_and_confirm；硬拦截只留给无歧义违规（如'无计划建仓'），写入后用真实正反场景各跑一次仲裁验证。",
+    "source_review": "2026-08-14 A股迭进模拟试验会话",
+    "created_at": "2026-08-14T15:13:02.342924",
+    "confidence": 4.6
+  },
+  {
+    "id": "meta_manual_trade_rule_gap_patterns_20260814",
+    "insight": "关键词风控规则有两个高频漏检模式：(1) 口语化买入表述（'直接买/买进'）绕过多词触发表，单字'买'作为兜底触发词可覆盖（配合 prechecked 机制防误伤已批计划执行）；(2) '破位+死扛'与'买入'是不同违规域，不能只靠'无计划不建仓'兜底，需独立 critical 阻断规则（跌破/破位 AND 拿住/等反弹/死扛）。完整生命周期（盘前计划→盘中执行→破位→复盘）逐节点验证才能发现此类结构性缺口。",
+    "applicable_contexts": [
+      "交易纪律规则包",
+      "风控关键词设计",
+      "规则覆盖度验证"
+    ],
+    "action_binding": "买入意图规则用单字'买'兜底 + NOT prechecked 豁免已批计划；破位死扛/止损纪律单独设 critical 阻断规则，不依赖买入规则兜底；规则包验收必须覆盖完整交易生命周期各决策点正反例。",
+    "source_review": "2026-08-14 A股完整演示会话",
+    "created_at": "2026-08-14T15:21:34.494421",
+    "confidence": 4.5
+  },
+  {
+    "id": "meta_manual_trade_wording_convention_20260814",
+    "insight": "迭进关键词风控规则无法从一句话区分'计划陈述'与'执行指令'：盘前计划'回踩60买8%'与盘中执行'回踩60买8%'文本几乎相同，单字'买'触发 no_plan_no_trade 会把盘前计划误拦。解法是措辞约定：计划阶段用'进场/建仓'（不含'买'，不触发），执行阶段用'买入'+prechecked（放行），无 prechecked 的'买入'拦截。实测 5/5 通过：盘前计划 ALLOW、盘中执行(prechecked) ALLOW、无 prechecked 买入 BLOCK、无计划买入 BLOCK。",
+    "applicable_contexts": [
+      "迭进关键词规则与状态机设计",
+      "交易纪律系统 UX 规范",
+      "关键词触发规则的误伤规避"
+    ],
+    "action_binding": "交易计划模板强制措辞：计划='进场/建仓'，执行='买入'+prechecked；计划文档写'进场价'而非'买入价'；状态机规则用 prechecked 区分计划与执行，纯文本不加单字'买'到计划场景。",
+    "source_review": "2026-08-14 A股目标推进会话",
+    "created_at": "2026-08-14T16:06:57.576282",
+    "confidence": 4.7
+  },
+  {
+    "id": "meta_manual_csv_write_guard_20260814",
+    "insight": "脚本用 'w' 模式直接写 CSV 台账存在两个隐患：(1) 表头格式不匹配时，open('w') 先截断原文件、writeheader 写入错误表头，随后 writerows 抛 ValueError，原数据已不可恢复；(2) 直接写原文件无原子性，进程中断会留下半截文件。实测：净值快照脚本误跑在 10 列模拟盘台账上，把 235 字节台账截成 88 字节表头并损坏。修复：写入前校验现有表头字段是否包含输出字段全集，不匹配则拒绝写入（exit 2）；写入用 tmp + os.replace 原子替换。",
+    "applicable_contexts": [
+      "CSV/JSON 台账脚本开发",
+      "风控/记账基础设施",
+      "任何 'w' 模式写文件的脚本"
+    ],
+    "action_binding": "写 CSV/JSON 前先读现有表头做字段兼容校验，不匹配立即拒绝；写入统一 tmp + os.replace 原子替换；快照/记账脚本必须区分台账类型（9列净值台账 vs 10列模拟盘台账）并校验。",
+    "source_review": "2026-08-14 A股目标推进会话",
+    "created_at": "2026-08-14T16:16:01.290361",
+    "confidence": 4.6
+  },
+  {
+    "id": "meta_manual_reversal_retrace_no_edge_20260814",
+    "insight": "A股高波动分歧期（涨停股大量'隔日反包'形态）下，'大跌后反包涨停'形态经真实回测无正期望：覆盖候选5只+8-14全部涨停股10只×120日K线，45+笔观察。各变体结果：反包次日追入 33%胜率/均值-1.5%；回踩4%进场持有5日 11-25%胜率/-3.3%~-1.9%；回踩6%进场持有5日 22-33%胜率/-1.7%~0%；反包收盘进场持有10日 7%胜率/-3.93%；持有20日 0%胜率/-5%（全止损）。结论：该形态所有常见变体（追涨/回踩/短持/长持）均无正期望。系统应执行'策略验证门槛'：形态≥20事件+胜率≥40%+期望>+0.5%才允许模拟执行，否则观察模式。",
+    "applicable_contexts": [
+      "A股短线策略验证",
+      "反包/回踩形态评估",
+      "策略上线前的回测门槛"
+    ],
+    "action_binding": "任何短线形态上线前必须过验证门槛（≥20事件/胜率≥40%/期望>+0.5%）；高波动分歧期反包形态默认视为无正期望，先观察收集数据；禁止把模拟或实盘资金投入未验证形态。",
+    "source_review": "2026-08-14 A股目标推进会话（回测验证）",
+    "created_at": "2026-08-14T16:27:25.830576",
+    "confidence": 4.8
+  },
+  {
+    "id": "meta_exec_marketplace_git_hang_20260821",
+    "insight": "codex exec 退出卡住的根因是 git marketplace 自动升级无超时挂起（config.toml 中 source_type=git 的 marketplace 每次启动尝试 clone GitHub，网络不通时 git 默认无快速超时，Codex 等待其结束导致 exec 完成后不退出）。与迭进钩子无关。",
+    "applicable_contexts": [
+      "codex exec 定时任务",
+      "CI 流水线",
+      "marketplace 配置"
+    ],
+    "action_binding": "marketplace 定义改用 source_type=local 指向本地 clone；或设 GIT_HTTP_LOW_SPEED_LIMIT/TIME 快速超时；脚本调用加超时保护",
+    "source_review": "2026-08-21 实测：hooks={} 对照可退出但 git clone 挂起为真正根因；改 local source 后 exec 24s 干净退出",
+    "created_at": "2026-08-21T13:58:08",
+    "confidence": 4.8
+  },
+  {
+    "id": "meta_exec_dgen_prefix_exempt_20260821",
+    "insight": "迭进 DGEN-000 协议要求工具命令带 [DGEN] 前缀，但 exec/CI 子代理若将注释前缀与命令同行会吞噬整条命令导致 PowerShell 解析报错。",
+    "applicable_contexts": [
+      "codex exec 子代理",
+      "定时脚本",
+      "CI"
+    ],
+    "action_binding": "SKILL.md 协议 D：exec 场景豁免前缀（已写入 2026-08-21）；子代理命令严禁 `# [DGEN] cmd` 同行写法",
+    "source_review": "2026-08-21 用户实测 + 本会话验证：子代理首条命令报错重试后成功",
+    "created_at": "2026-08-21T13:58:08",
+    "confidence": 4.5
+  }
+]

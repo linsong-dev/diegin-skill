@@ -1,0 +1,59 @@
+[
+  {
+    "id": "domain_collab_review_timeout",
+    "name": "Review 时限",
+    "description": "代码 Review 请求必须在 72 小时内响应",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == review_request AND elapsed_hours > 72",
+    "action": "warn_reminder",
+    "tags": ["domain_collab", "攻七"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "Review 请求超过 72 小时未响应",
+      "expected": "输出提醒：该 Review 已超时，请尽快处理"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:collaboration",
+    "lifecycle_status": "active",
+    "confidence": 3.5
+  },
+  {
+    "id": "domain_collab_blocker_notify",
+    "name": "阻塞项通报",
+    "description": "识别到阻塞项时必须在群组或任务系统中通报",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == project AND blocker_identified == true AND notified == false",
+    "action": "require_notification",
+    "tags": ["domain_collab", "一二不过三"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "识别到阻塞项但未通报相关人员",
+      "expected": "通报格式：'阻塞：XXX，原因：XXX，建议：XXX'"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:collaboration",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_collab_knowledge_sharing",
+    "name": "知识沉淀",
+    "description": "解决复杂问题后必须记录解决方案到知识库",
+    "severity": "low",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == troubleshooting AND solution_found == true AND knowledge_recorded == false",
+    "action": "suggest_knowledge_record",
+    "tags": ["domain_collab", "攻七"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "解决了复杂问题但未记录",
+      "expected": "建议：'是否将该解决方案记录到知识库？'"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:collaboration",
+    "lifecycle_status": "active",
+    "confidence": 3.0
+  }
+]

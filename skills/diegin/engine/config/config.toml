@@ -1,0 +1,18 @@
+# ============================================
+# Diegin Engine Configuration
+# ============================================
+
+[pacemaker]
+# Downtime schedule (24h format HH:MM)
+downtime_start = "23:00"
+downtime_end   = "06:00"
+# DS(DeepSeek) 高峰时段（北京时间）：高峰=贵/易超时→该省则省；空闲=便宜/快→该用则用
+# 2026-08-20 用户拍板：高峰 09:00-12:00 & 14:00-18:00，其余为空闲时段
+ds_peak_windows = ["09:00-12:00", "14:00-18:00"]
+
+[evidence_vault]
+quarterly_falsification_enabled = true
+
+[maintenance]
+cached_max_age_days = 30
+staging_max_age_days = 14

@@ -1,0 +1,253 @@
+[
+  {
+    "id": "domain_ashare_no_plan_no_trade",
+    "name": "无交易计划不建仓",
+    "description": "任何买入决策必须附带完整交易计划（进场条件、止损价、止盈目标、仓位占比），缺失则阻断",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "('买' in context or '建仓' in context or '打板' in context or '加仓' in context or '追进' in context or '上车' in context or '全仓' in context) AND NOT prechecked",
+    "action": "block_and_require_plan",
+    "tags": [
+      "domain_ashare_trading",
+      "discipline",
+      "pre_trade"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "用户请求买入/建仓但未提供止损与仓位计划",
+      "expected": "先输出交易计划：进场价区间 / 止损价 / 止盈目标 / 单票仓位%"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_ashare_position_cap",
+    "name": "单票仓位上限",
+    "description": "单只股票仓位不得超过总资金 20%，短线打板仓位不得超过总资金 20%（2026-08-24 用户升级：打板档 10%→20%）",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "('仓位' in context or '重仓' in context or '满仓' in context)",
+    "action": "warn_and_suggest_reduce",
+    "tags": [
+      "domain_ashare_trading",
+      "risk_control"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "计划单票仓位超过 20% 或打板仓位超过 20%",
+      "expected": "拆分为多票组合，单票 ≤20%，打板 ≤20%"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.2,
+    "updated_at": "2026-08-24"
+  },
+  {
+    "id": "domain_ashare_stop_loss_mandatory",
+    "name": "止损纪律强制",
+    "description": "持仓亏损达到计划止损位必须执行止损，禁止以摊平/补仓掩盖亏损",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "('摊平' in context or '补仓' in context or '死扛' in context or '等反弹' in context or '拿住' in context or '不止损' in context)",
+    "action": "warn_and_suggest_confirm",
+    "tags": [
+      "domain_ashare_trading",
+      "risk_control",
+      "三错锁联动"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "出现亏损后意图补仓摊平或放弃止损",
+      "expected": "按原计划止损，补仓必须属于原计划的分批买入而非摊低成本"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.8
+  },
+  {
+    "id": "domain_ashare_chase_limit_up_guard",
+    "name": "追涨限制",
+    "description": "涨停板/高位追入必须说明题材持续性、梯队位置与盈亏比，无理由追高则警告",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "('追涨' in context or '涨停' in context or '扫板' in context or '高位' in context or '追高' in context or '追进去' in context or '冲进去' in context)",
+    "action": "warn_and_require_rationale",
+    "tags": [
+      "domain_ashare_trading",
+      "emotion_guard"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "在高位/涨停位置追入但未给出持续性依据",
+      "expected": "至少回答：题材阶段（发酵/主升/分歧）、龙头还是跟风、盈亏比是否 ≥2:1"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_ashare_data_double_source",
+    "name": "交易数据双源核对",
+    "description": "龙虎榜、资金流向、涨停梯队、业绩预告等交易依据必须标注数据来源，结论性数字需可复核",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "('龙虎榜' in context or '资金流入' in context or '净买入' in context or '主力资金' in context or '涨停梯队' in context)",
+    "action": "warn_and_suggest_source",
+    "tags": [
+      "domain_ashare_trading",
+      "truth_gate",
+      "去伪存真"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "引用行情/资金/榜单数据但未注明来源",
+      "expected": "标注：数据来自 quotes / screener / 龙虎榜接口，并给出关键数值"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_ashare_losing_streak_cooldown",
+    "name": "连续亏损冷却",
+    "description": "连续亏损后强制复盘冷却，禁止在情绪化状态下继续交易",
+    "severity": "critical",
+    "scope": "pre_reply",
+    "trigger_condition": "('连续亏损' in context or '连亏' in context or '亏麻' in context)",
+    "action": "block_and_require_cooldown",
+    "tags": [
+      "domain_ashare_trading",
+      "emotion_guard",
+      "一二不过三"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "连续亏损后仍要求开新仓",
+      "expected": "先复盘亏损共同原因，确认情绪回归后再恢复交易，仓位减半起步"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.7
+  },
+  {
+    "id": "domain_ashare_drawdown_circuit_breaker",
+    "name": "账户回撤熔断",
+    "description": "账户回撤达到阈值强制降仓/空仓复盘，禁止回撤中加仓",
+    "severity": "critical",
+    "scope": "pre_reply",
+    "trigger_condition": "('回撤' in context or '熔断' in context or '爆亏' in context)",
+    "action": "block_and_require_risk_reset",
+    "tags": [
+      "domain_ashare_trading",
+      "risk_control",
+      "circuit_breaker"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "账户回撤超过阈值仍计划加仓",
+      "expected": "回撤≥10% 降至半仓，≥15% 空仓，先出回撤归因报告再恢复"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.8
+  },
+  {
+    "id": "domain_ashare_no_event_gambling",
+    "name": "不赌公告与业绩",
+    "description": "业绩预告、重大公告前的博弈必须有事件预案，禁止无依据押注",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "('押注' in context or '埋伏' in context or '赌' in context or '梭哈' in context or '重仓押' in context)",
+    "action": "warn_and_require_event_plan",
+    "tags": [
+      "domain_ashare_trading",
+      "event_driven"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "对未落地事件做重仓押注且无预案",
+      "expected": "给出：公告前仓位上限 / 公告后不同结果的应对（超预期/符合/暴雷）"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.3
+  },
+  {
+    "id": "domain_ashare_daily_closing_check",
+    "name": "收盘强制检视",
+    "description": "每日收盘后必须完成：持仓检查、当日盈亏记录、次日计划草案、异常交易复盘",
+    "severity": "medium",
+    "scope": "post_tool_use",
+    "trigger_condition": "('收盘' in context or '复盘' in context or '盘后' in context)",
+    "action": "require_closing_checklist",
+    "tags": [
+      "domain_ashare_trading",
+      "daily_loop",
+      "恒常门"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "日复盘未覆盖持仓/盈亏/次日计划/异常交易",
+      "expected": "四步清单逐项完成，异常交易写入守三纠错或攻七沉淀"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_ashare_knowledge_archival",
+    "name": "交易经验入库",
+    "description": "每笔盈亏交易的关键决策依据归档到 Mindol 记忆，供后续同类场景检索复用",
+    "severity": "low",
+    "scope": "post_tool_use",
+    "trigger_condition": "('平仓' in context or '清仓' in context or '经验沉淀' in context)",
+    "action": "require_archive",
+    "tags": [
+      "domain_ashare_trading",
+      "memory",
+      "Mindol"
+    ],
+    "auto_fix": true,
+    "logic": {
+      "detect": "平仓后未归档决策依据与结果",
+      "expected": "归档：买入逻辑 / 卖出逻辑 / 实际结果 / 与计划偏差 / 可复用模式"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.2
+  },
+  {
+    "id": "domain_ashare_break_stop_hold",
+    "name": "破位死扛强制止损",
+    "description": "跌破止损位后意图死扛/等反弹/装死，必须强制执行止损",
+    "severity": "critical",
+    "scope": "pre_reply",
+    "trigger_condition": "('跌破' in context or '破位' in context or '跌停' in context) AND ('拿住' in context or '等反弹' in context or '死扛' in context or '扛一扛' in context or '不止损' in context or '装死' in context)",
+    "action": "block_and_remind_stop_loss",
+    "tags": [
+      "domain_ashare_trading",
+      "risk_control",
+      "止损纪律"
+    ],
+    "auto_fix": false,
+    "logic": {
+      "detect": "破位后意图死扛",
+      "expected": "无条件执行止损，禁止摊平"
+    },
+    "created_at": "2026-08-14",
+    "source": "domain:ashare_trading",
+    "lifecycle_status": "active",
+    "confidence": 4.8
+  }
+]

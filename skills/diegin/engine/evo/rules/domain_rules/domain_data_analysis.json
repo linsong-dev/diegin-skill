@@ -1,0 +1,78 @@
+[
+  {
+    "id": "domain_data_source_cite",
+    "name": "数据来源标注",
+    "description": "所有统计数据、图表结论必须标注原始数据来源",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "reply_contains(stat|百分比|增长|下降|趋势) AND data_source == none",
+    "action": "warn_and_confirm",
+    "tags": ["domain_data", "truth_gate"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "回复中包含统计数据但未注明来源",
+      "expected": "每项数据必须标注来源：'数据来自 XXX'"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:data_analysis",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_data_visual_backup",
+    "name": "图表原始数据备份",
+    "description": "生成图表时必须同时输出原始数据（CSV/JSON）",
+    "severity": "medium",
+    "scope": "post_tool_use",
+    "trigger_condition": "tool == visualize AND backup_data == false",
+    "action": "require_data_export",
+    "tags": ["domain_data", "reproducibility"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "工具生成了图表但未保留原始数据",
+      "expected": "图表应附带 CSV/JSON 格式的原始数据"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:data_analysis",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_data_outlier_mark",
+    "name": "异常值标注",
+    "description": "分析结果中存在异常值时必须标注说明处理方式",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == analysis AND data_contains_outlier == true AND outlier_explained == false",
+    "action": "require_explanation",
+    "tags": ["domain_data", "integrity"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "数据中存在超出±3σ的异常值但未做说明",
+      "expected": "标注异常值原因：'数据点 X 因 Y 原因属于异常，已排除/保留'"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:data_analysis",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_data_calculation_reproducible",
+    "name": "计算过程可复现",
+    "description": "任何数值计算必须给出完整公式和中间值，确保结果可复现",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "reply_contains(计算|sum|avg|总计|total|mean) AND formula == none",
+    "action": "warn_and_suggest",
+    "tags": ["domain_data", "reproducibility"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "回复中包含计算结果但未给出计算公式",
+      "expected": "提供计算公式和关键中间值"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:data_analysis",
+    "lifecycle_status": "active",
+    "confidence": 3.5
+  }
+]

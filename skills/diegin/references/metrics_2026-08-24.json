@@ -1,0 +1,16 @@
+{
+  "snapshot_date": "2026-08-24",
+  "version": "v3.9.10+codex.20260821110000",
+  "rules_total": 251,
+  "rules_active": 57,
+  "rules_effective": 55,
+  "rules_alerting": 2,
+  "rules_archived": 190,
+  "patterns": 21,
+  "self_check": "16/16",
+  "test_all": "33/33",
+  "mindol_units": 530,
+  "audit_lines": 81888,
+  "closure_archived": 784,
+  "evidence_verdicts": 500
+}

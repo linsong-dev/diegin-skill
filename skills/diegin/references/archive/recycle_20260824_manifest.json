@@ -1,0 +1,164 @@
+{
+  "created_at": "2026-08-24T16:57:14",
+  "scope": "var/recycle_20260824",
+  "note": "2026-08-24 内容治理清理：旧版残留/规则备份/性能测试备份，从未进入 Git，删除即永久丢失。",
+  "count": 31,
+  "total_bytes": 911935,
+  "files": [
+    {
+      "name": "call_diegin.py.pre_20260808_v383",
+      "size": 91308,
+      "mtime": "2026-08-08T12:44:14"
+    },
+    {
+      "name": "dgen_warning.json.old_protocol_b",
+      "size": 263,
+      "mtime": "2026-08-01T09:04:57"
+    },
+    {
+      "name": "diegin_pre_tool.ps1.pre_20260808_v383",
+      "size": 23975,
+      "mtime": "2026-08-06T14:06:45"
+    },
+    {
+      "name": "diegin_self_check.py.bak_integrity_20260824",
+      "size": 24831,
+      "mtime": "2026-08-24T14:06:22"
+    },
+    {
+      "name": "interception_rules.json.pre_20260824_144735",
+      "size": 56515,
+      "mtime": "2026-08-24T14:45:35"
+    },
+    {
+      "name": "interception_rules.json.pre_20260824_144842",
+      "size": 56515,
+      "mtime": "2026-08-24T14:47:35"
+    },
+    {
+      "name": "interception_rules.json.pre_20260824_145550",
+      "size": 56515,
+      "mtime": "2026-08-24T14:48:42"
+    },
+    {
+      "name": "interception_rules.json.pre_20260824_151355",
+      "size": 56515,
+      "mtime": "2026-08-24T14:55:50"
+    },
+    {
+      "name": "interception_rules.json.pre_20260824_153827",
+      "size": 56515,
+      "mtime": "2026-08-24T15:13:55"
+    },
+    {
+      "name": "interception_rules_archive.json.bak_perftest_20260823",
+      "size": 147433,
+      "mtime": "2026-08-23T11:07:18"
+    },
+    {
+      "name": "main.py.pre_20260808_v383",
+      "size": 76738,
+      "mtime": "2026-08-08T13:28:58"
+    },
+    {
+      "name": "meta_experiences.json.pre_20260814_160657",
+      "size": 4460,
+      "mtime": "2026-08-14T15:21:34"
+    },
+    {
+      "name": "meta_experiences.json.pre_20260814_161601",
+      "size": 5636,
+      "mtime": "2026-08-14T16:06:57"
+    },
+    {
+      "name": "meta_experiences.json.pre_20260814_162725",
+      "size": 6825,
+      "mtime": "2026-08-14T16:16:01"
+    },
+    {
+      "name": "meta_experiences.json.pre_20260814_163325",
+      "size": 8132,
+      "mtime": "2026-08-14T16:27:25"
+    },
+    {
+      "name": "meta_experiences.json.pre_20260821_135808",
+      "size": 9014,
+      "mtime": "2026-08-21T13:58:08"
+    },
+    {
+      "name": "precedents.json.pre_20260807_124124",
+      "size": 2,
+      "mtime": "2026-08-07T11:53:07"
+    },
+    {
+      "name": "precedents.json.pre_20260807_124218",
+      "size": 2,
+      "mtime": "2026-08-07T12:41:24"
+    },
+    {
+      "name": "precedents.json.pre_20260807_145320",
+      "size": 2,
+      "mtime": "2026-08-07T12:42:18"
+    },
+    {
+      "name": "precedents.json.pre_20260807_151100",
+      "size": 2,
+      "mtime": "2026-08-07T14:53:20"
+    },
+    {
+      "name": "precedents.json.pre_20260809_162336",
+      "size": 2,
+      "mtime": "2026-08-07T15:11:00"
+    },
+    {
+      "name": "rule_engine.py.bak_perftest_20260823",
+      "size": 84408,
+      "mtime": "2026-08-20T15:16:17"
+    },
+    {
+      "name": "success_patterns.json.err_20260730_123617",
+      "size": 17723,
+      "mtime": "2026-07-30T12:25:50"
+    },
+    {
+      "name": "success_patterns.json.pre_20260824_152453",
+      "size": 23339,
+      "mtime": "2026-08-24T15:22:05"
+    },
+    {
+      "name": "success_patterns.json.pre_20260824_152515",
+      "size": 23339,
+      "mtime": "2026-08-24T15:24:53"
+    },
+    {
+      "name": "success_patterns.json.pre_20260824_153213",
+      "size": 23339,
+      "mtime": "2026-08-24T15:25:15"
+    },
+    {
+      "name": "success_patterns.json.pre_20260824_153748",
+      "size": 23339,
+      "mtime": "2026-08-24T15:32:13"
+    },
+    {
+      "name": "success_patterns.json.pre_20260824_153827",
+      "size": 23339,
+      "mtime": "2026-08-24T15:37:48"
+    },
+    {
+      "name": "success_patterns_archive.json.bak_perftest_20260823",
+      "size": 846,
+      "mtime": "2026-08-23T11:10:06"
+    },
+    {
+      "name": "system_baseline.json.bak_20260824",
+      "size": 467,
+      "mtime": "2026-08-19T15:23:13"
+    },
+    {
+      "name": "test_all.py.bak_perftest_20260823",
+      "size": 10596,
+      "mtime": "2026-08-11T14:07:34"
+    }
+  ]
+}

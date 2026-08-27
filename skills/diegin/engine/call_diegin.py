@@ -1,0 +1,3342 @@
+# 迭进DGEN 引擎入口(去伪存真真伪门: 言必有证->证必可验->验证为真)
+
+"""
+
+迭进 · DGEN 实战调用入口
+
+迭进引擎入口
+
+"""
+
+import sys, json, os, re
+
+import io
+from datetime import datetime
+
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
+from pathlib import Path
+from mindol.diegin_integration import memory_format_context, memory_archive
+
+
+
+sys.path.insert(0, str(Path(__file__).parent))
+from mindol.diegin_integration import memory_format_context, memory_archive
+
+from evo.rule_engine import build_gongqi_suggestions
+
+from evo.main import (get_rules_for_task, arbitrate, full_review, record_behavior,
+                      health_check, run_maintenance, dgen_archive, mempalace_search,
+                      auto_sandwich, record_user_feedback, auto_sandwich_trigger,
+                      generalize_rule, generalize_from_patterns, generalize_cross_domain,
+                      ensure_three_strikes, get_strike_status,
+                      pace_classify, should_skip_deep_review,
+                      get_pacemaker, get_closure,
+                      closure_open, closure_close, closure_is_closed,
+                      _get_engine, _get_tracker)
+from evo.error_detector import ErrorDetector
+
+
+# 自述护栏（2026-08-24）：迭进当前架构=律令九章；八元为历史版本。
+# 检索注入不得把旧版自述当作当前态，自述类查询一律以权威描述为准。
+DGEN_AUTHORITY_SELF_DESC = (
+    "[迭进·律令九章] 攻七·行知律 / 守三·省知律 / 一二不过三·三错锁 / "
+    "举一反三·通变门 / 去伪存真·真伪门 / 预策·裁决律 / 持存·恒常门 / "
+    "止观·完形律 / 自照镜·方向之镜。当前架构一律以律令九章为准，"
+    "八元仅为2026-08-13前的历史版本。"
+)
+DGEN_STALE_SELF_WORDS = ("八元框架", "八元原则网络", "缓急律")
+DGEN_SELF_QUERY_HINTS = ("迭进", "八元", "九章", "架构", "原则", "dgen", "diegin")
+
+def _append_audit(msg: str) -> None:
+    """追加审计日志（与 hooks 共用 diegin_audit.log）"""
+    try:
+        _audit_log = os.path.join(os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
+        _d = os.path.dirname(_audit_log)
+        if _d and not os.path.exists(_d):
+            os.makedirs(_d, exist_ok=True)
+        try:
+            from _audit_rotate import rotate_audit_log
+            rotate_audit_log(_audit_log)
+        except Exception:
+            pass
+        _ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        with open(_audit_log, "a", encoding="utf-8") as _f:
+            _f.write(f"{_ts} {msg}\n")
+    except Exception:
+        pass
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# P0 攻七闭环·先败后成配对（2026-08-25）
+# 失败写台账（record_error）→ 成功配对（post_tool_batch）→ 生成攻七 staging 模式
+# ============================================================
+
+def _recent_failures_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "var", "state", "recent_failures.json")
+
+
+def _load_recent_failures() -> list:
+    try:
+        _p = _recent_failures_path()
+        if os.path.isfile(_p):
+            with open(_p, "r", encoding="utf-8") as _f:
+                _d = json.load(_f)
+            return _d if isinstance(_d, list) else []
+    except Exception:
+        pass
+    return []
+
+
+def _save_recent_failures(ledger: list) -> None:
+    try:
+        _p = _recent_failures_path()
+        os.makedirs(os.path.dirname(_p), exist_ok=True)
+        with open(_p, "w", encoding="utf-8") as _f:
+            json.dump(ledger[-50:], _f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _cmd_family(cmd: str) -> str:
+    """命令族：从命令文本提取可泛化的族名（git push / get-content / python 等）。
+    失败与成功命令可能不同（如代理→直连），按族匹配才能配对。"""
+    if not cmd:
+        return ""
+    import re as _re
+    s = str(cmd).strip().lower()
+    if not s:
+        return ""
+    # git 特例：跳过 -c KEY=VALUE 等 flag 及取值，取第一个裸子命令
+    if _gm := _re.match(r"\bgit\b", s):
+        for _tok in _re.split(r"[\s;|&]+", s[_gm.end():]):
+            _t = _tok.strip().strip(chr(34) + chr(39)).strip()
+            if not _t or _t.startswith(("-", "--")) or "=" in _t:
+                continue
+            if _re.match(r"^[a-z][a-z-]*$", _t):
+                return "git " + _t
+        return "git"
+    _tokens = [t.strip(chr(34) + chr(39)).strip() for t in _re.split(r"[\s;|&]+", s) if t.strip()]
+    _tokens = [t for t in _tokens if not t.startswith(("-", "--"))]
+    if not _tokens:
+        return ""
+    _first = _tokens[0]
+    # PowerShell 动词-名词 / 下划线命令 → 单 token 族
+    if "-" in _first or "_" in _first:
+        return _first
+    if len(_tokens) >= 2:
+        _second = _tokens[1]
+        _is_arg = (len(_second) <= 2 or "=" in _second
+                   or _re.search(r"[\\/.:'\"]", _second))
+        if not _is_arg:
+            return _first + " " + _second
+    return _first
+
+
+def _sanitize_for_pattern(text: str) -> str:
+    """入库脱敏：去掉 URL 内嵌凭据与 token 串（防 git push 直连 token 泄入模式库/Git）"""
+    if not text:
+        return ""
+    import re as _re
+    s = str(text)
+    s = _re.sub(r"https?://[^/@\s]+@", "https://<redacted>@", s)
+    s = _re.sub(r"(gh[opu]_|github_pat_|x-access-token:)[A-Za-z0-9_\-]+", r"\1<redacted>", s)
+    return s
+
+
+def _write_recent_failure(error_type: str = "", detail: str = "", cmd: str = "") -> None:
+    """失败台账：供攻七先败后成配对（30 分钟窗口内同命令族）。"""
+    try:
+        import datetime as _dt
+        _ledger = _load_recent_failures()
+        _ledger.append({
+            "ts": _dt.datetime.now().isoformat(),
+            "error_type": error_type or "",
+            "detail": str(detail)[:200],
+            "cmd": str(cmd)[:200],
+            "family": _cmd_family(cmd),
+            "paired": False,
+        })
+        _save_recent_failures(_ledger)
+    except Exception:
+        pass
+
+
+def _pair_fail_success(tool_name: str, method: str) -> dict:
+    """P0 攻七闭环：post_tool 成功时检测 30 分钟内同命令族曾有失败
+    → 自动生成攻七 staging 模式（trigger=命令族，decision=本次成功做法，脱敏入库），标记失败已配对。
+    验证门：staging 再命中（tc>=2）由 auto_promote_all 转 active。"""
+    try:
+        if not method or not str(method).strip():
+            return {"paired": False, "reason": "no_method"}
+        import datetime as _dt
+        _now = _dt.datetime.now()
+        _fam = _cmd_family(method)
+        if len(_fam) < 3:
+            return {"paired": False, "reason": "family_too_short"}
+        _ledger = _load_recent_failures()
+        _match = None
+        for _e in _ledger:
+            if _e.get("paired"):
+                continue
+            if _e.get("family", "") != _fam:
+                continue
+            try:
+                _ts = _dt.datetime.fromisoformat(_e.get("ts", ""))
+            except Exception:
+                continue
+            if (_now - _ts).total_seconds() <= 1800:  # 30 分钟窗口
+                _match = _e
+                break
+        if not _match:
+            return {"paired": False, "reason": "no_recent_failure"}
+        from evo.rule_engine import SuccessPattern
+        _engine = _get_engine()
+        _toks = [t for t in _fam.split() if t]
+        _cond_parts = ["op_contains(%s)" % t for t in _toks if len(t) >= 3]
+        if not _cond_parts:
+            return {"paired": False, "reason": "no_trigger_tokens"}
+        _trigger = " and ".join(_cond_parts)
+        _safe_method = _sanitize_for_pattern(method)
+        _ts2 = _now.strftime("%Y%m%d_%H%M%S")
+        _slug = _fam.replace(" ", "_").replace("/", "_")[:40]
+        _pid = "gongqi_auto_%s_%s" % (_slug, _ts2)
+        # 幂等：同族已有 auto_pair 模式 → 更新不重复建
+        _exists = [p for p in _engine.get_patterns(active_only=False)
+                   if getattr(p, "source", "") == "auto_pair"
+                   and (getattr(p, "trigger_scenario", "") or "") == "auto_pair_" + _fam]
+        if _exists:
+            _match["paired"] = True
+            _match["pattern_id"] = _exists[0].id
+            _save_recent_failures(_ledger)
+            return {"paired": True, "pattern_id": _exists[0].id, "updated": True}
+        _pat = SuccessPattern(
+            id=_pid,
+            pattern_name="auto_pair_" + _slug,
+            trigger_scenario="auto_pair_" + _fam,
+            decision_logic="先败后成：\n" + _safe_method,
+            micro_template=_safe_method[:80],
+            trigger_condition=_trigger,
+            logic_score=4.0, outcome_score=3.5, confidence=3.5,
+            source="auto_pair",
+            lifecycle_status="staging",
+            created_at=_now.isoformat(),
+            triggered_count=1,
+        )
+        _engine.add_pattern(_pat)
+        _match["paired"] = True
+        _match["pattern_id"] = _pid
+        _save_recent_failures(_ledger)
+        _append_audit("[PAIR] 攻七先败后成: %s -> pattern=%s trigger=%s" % (_fam, _pid, _trigger))
+        return {"paired": True, "pattern_id": _pid, "family": _fam, "trigger": _trigger}
+    except Exception as _e:
+        return {"paired": False, "error": str(_e)[:120]}
+
+
+def write_current_intent(prompt: str = "", task_id: str = "", turn_id: str = "", user_negative=None) -> str:
+    """预策·③：将当前用户意图落盘 current_intent.json（post_tool record_success 三重判定读取）
+    返回落盘路径；异常返回空串（不阻塞主流程）。"""
+    try:
+        _p = os.path.join(os.path.dirname(__file__), "..", "var", "state", "current_intent.json")
+        _d = os.path.dirname(_p)
+        if _d and not os.path.exists(_d):
+            os.makedirs(_d, exist_ok=True)
+        with open(_p, "w", encoding="utf-8") as _f:
+            json.dump({
+                "prompt": str(prompt or "")[:400],
+                "intent_summary": str(prompt or "")[:200],
+                "task_id": str(task_id or "")[:80],
+                "turn_id": str(turn_id or "")[:80],
+                "user_negative": (bool(user_negative) if user_negative is not None else None),
+                "ts": datetime.now().isoformat(),
+            }, _f, ensure_ascii=False)
+        return _p
+    except Exception:
+        return ""
+
+
+def _decode_stdin_bytes(_b: bytes) -> str:
+    """[2026-08-09] PS5.1 管道中文加固：UTF-8 优先，失败回退 GBK，去 BOM。
+    PS5.1 默认 $OutputEncoding=ASCII/GBK 会把中文变成 ? 或 GBK 字节，
+    统一在此收敛，避免 prompt/上下文入库乱码与 json.loads 崩溃。"""
+    if _b.startswith(b"\xef\xbb\xbf"):
+        _b = _b[3:]
+    if not _b:
+        return ""
+    for _enc in ("utf-8", "gbk"):
+        try:
+            _s = _b.decode(_enc)
+            if "\ufffd" not in _s:
+                return _s.strip()
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return _decode_stdin_bytes(_b).strip()
+
+
+def _constancy_age_text(updated_at: str) -> str:
+    """恒常门恢复提示：任务年龄（刚刚 / X分钟前 / X小时前 / X天前）"""
+    try:
+        import datetime as _dt
+        _t = _dt.datetime.fromisoformat(str(updated_at))
+        _mins = int((_dt.datetime.now() - _t).total_seconds() // 60)
+        if _mins < 1:
+            return "刚刚"
+        if _mins < 60:
+            return "%d分钟前" % _mins
+        _hours = _mins // 60
+        if _hours < 24:
+            return "%d小时前" % _hours
+        return "%d天前" % (_hours // 24)
+    except Exception:
+        return ""
+
+
+def _constancy_core_trio(task_id: str) -> list:
+    """v3.9.2 快照裁剪：恢复注入仅保留核心三件套（intent/completion_criteria/pending_items），
+    省 token 且不带 context/blocker 等重字段。失败返回空（不阻塞恢复流程）。"""
+    try:
+        from evo.main import constancy_snapshot
+        _t = constancy_snapshot(task_id) or {}
+        _items = _t.get("pending_items") or []
+        return [{
+            "task_id": str(task_id)[:80],
+            "intent_summary": str(_t.get("intent_summary", ""))[:200],
+            "completion_criteria": str(_t.get("completion_criteria", ""))[:400],
+            "pending_items": [str(x)[:120] for x in _items][:8],
+        }]
+    except Exception:
+        return []
+
+
+def _build_deep_review_report():
+    """守三·深度复盘：系统性回顾strike日志并生成改进建议"""
+    import json as _j, os as _o
+    import datetime as _dt
+
+    strikes_path = _o.path.join(_o.path.dirname(_o.path.dirname(__file__)), "var", "state", "strikes_db.json")
+    overrides_path = _o.path.join(_o.path.dirname(_o.path.dirname(__file__)), "var", "state", "dgen_overrides.json")
+
+    strikes = {}
+    if _o.path.exists(strikes_path):
+        with open(strikes_path, "r", encoding="utf-8") as f:
+            strikes = _j.load(f)
+
+    overrides = []
+    if _o.path.exists(overrides_path):
+        with open(overrides_path, "r", encoding="utf-8") as f:
+            _raw_ov = f.read().strip()
+        if _raw_ov:
+            _loaded_ov = _j.loads(_raw_ov)
+            overrides = _loaded_ov if isinstance(_loaded_ov, list) else (
+                [v for v in _loaded_ov.values() if isinstance(v, dict)] if isinstance(_loaded_ov, dict) else [])
+
+    # 分析
+    total_errors = len(strikes)
+    total_strikes = sum(e.get("count", 0) for e in strikes.values())
+    high_severity = sum(1 for e in strikes.values() if e.get("severity", "") in ("high", "critical"))
+    blocked = len(overrides)
+
+    # 按错误频率排序
+    sorted_errors = sorted(strikes.items(), key=lambda x: -x[1].get("count", 0))
+
+    # 生成改进建议
+    suggestions = []
+    for error_type, entry in sorted_errors:
+        count = entry.get("count", 0)
+        sev = entry.get("severity", "medium")
+        if count >= 3:
+            suggestions.append(f"[P0] {error_type}: 已触发{count}次(严重度:{sev})，建议: 推翻现有阻断方案，升级处理")
+        elif count >= 2:
+            suggestions.append(f"[P1] {error_type}: 已触发{count}次(严重度:{sev})，建议: 阻断已生效，持续监控")
+        elif count >= 1:
+            suggestions.append(f"[P2] {error_type}: 已触发{count}次(严重度:{sev})，建议: 保持警觉")
+
+    # 未阻断的高频错误
+    unblocked = []
+    for error_type, entry in sorted_errors:
+        count = entry.get("count", 0)
+        if count >= 2:
+            already_blocked = any(
+                o.get("blocked_error_type") == error_type for o in overrides
+            )
+            if not already_blocked:
+                unblocked.append(error_type)
+
+    # 定稿第八章：守三应急复盘只读访问止观执行轨迹快照（只读豁免权，不修改任务状态）
+    trajectory = []
+    try:
+        from evo.main import get_closure
+        _cg = get_closure()
+        _closed = list(_cg._closed_items or [])[-5:]
+        from evo.tracker import snapshot_age_days
+        for _ci in reversed(_closed):
+            _snap = _ci.get("readonly_snapshot") if isinstance(_ci, dict) else None
+            if _snap:
+                trajectory.append({
+                    "item_id": _ci.get("id", "?")[:60],
+                    "status": _ci.get("status", "?"),
+                    "closed_at": _ci.get("closed_at", ""),
+                    "age_days": snapshot_age_days(_ci.get("closed_at", "")),
+                    "block_records": _snap.get("block_records") or [],
+                    "tool_call_sequence": _snap.get("tool_call_sequence") or [],
+                    "arbitration_log": str(_snap.get("arbitration_log") or "")[:500],
+                })
+    except Exception:
+        pass
+
+    report = {
+        "generated_at": _dt.datetime.now().isoformat(),
+        "principle": "守三·深度复盘",
+        "statistics": {
+            "total_error_types": total_errors,
+            "total_strikes": total_strikes,
+            "high_severity_count": high_severity,
+            "blocked_count": blocked,
+            "unblocked_high_count": len(unblocked),
+            "max_snapshot_age_days": max([t.get("age_days", 0) for t in trajectory], default=0),
+        },
+        "error_ranking": [
+            {"error_type": et, "count": e.get("count", 0), "severity": e.get("severity", "medium")}
+            for et, e in sorted_errors[:10]
+        ],
+        "suggestions": suggestions,
+        "unblocked_high_risk": unblocked,
+        "trajectory": trajectory,
+        "next_step": "候选已自动进入 staging（deep_review_staging.json），确认后执行 deep_review_apply --confirm 应用" if unblocked else "系统状态良好"
+    }
+
+    return report
+
+
+def _deep_review_candidates(strikes: dict, overrides: list) -> list:
+    """守三·深度复盘写侧：候选阻断清单（count>=2 且未被 override 阻断）——纯计算可测"""
+    blocked = {str(o.get("blocked_error_type", "")) for o in (overrides or [])}
+    candidates = []
+    for error_type, entry in (strikes or {}).items():
+        count = int(entry.get("count", 0) or 0)
+        if count < 2:
+            continue
+        if error_type in blocked:
+            continue
+        candidates.append({
+            "error_type": str(error_type),
+            "count": count,
+            "severity": str(entry.get("severity", "medium")),
+            "last_seen": str(entry.get("last_seen", "")),
+            "last_detail": str(entry.get("last_detail", ""))[:200],
+        })
+    candidates.sort(key=lambda c: -c["count"])
+    return candidates
+
+
+def _deep_review_state_dir(state_dir=None) -> str:
+    if state_dir:
+        return state_dir
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "state")
+
+
+def stage_deep_review_candidates(state_dir=None) -> dict:
+    """守三·深度复盘写侧·自动生成：扫描 strikes → staging 候选文件（幂等，不写 override）
+    返回 {"ok", "new_staged", "total_staged", "candidates"}；应急触发时由 pre_check 自动调用。"""
+    _sd = _deep_review_state_dir(state_dir)
+    _strikes_path = os.path.join(_sd, "strikes_db.json")
+    _ov_path = os.path.join(_sd, "dgen_overrides.json")
+    _stg_path = os.path.join(_sd, "deep_review_staging.json")
+    strikes, overrides = {}, []
+    try:
+        if os.path.exists(_strikes_path):
+            with open(_strikes_path, "r", encoding="utf-8") as f:
+                strikes = json.load(f) or {}
+    except Exception:
+        strikes = {}
+    try:
+        if os.path.exists(_ov_path):
+            _raw = io.open(_ov_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                overrides = _loaded if isinstance(_loaded, list) else (
+                    [v for v in _loaded.values() if isinstance(v, dict)] if isinstance(_loaded, dict) else [])
+    except Exception:
+        overrides = []
+    existing = []
+    try:
+        if os.path.exists(_stg_path):
+            _raw = io.open(_stg_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                existing = _loaded if isinstance(_loaded, list) else []
+    except Exception:
+        existing = []
+    existing_map = {}
+    for e in existing:
+        if isinstance(e, dict) and e.get("error_type"):
+            existing_map[e["error_type"]] = e
+    now = datetime.now().isoformat()
+    new_staged = 0
+    for c in _deep_review_candidates(strikes, overrides):
+        et = c["error_type"]
+        if et in existing_map:
+            existing_map[et].update({"count": c["count"], "last_seen": c["last_seen"],
+                                     "last_detail": c["last_detail"], "staged_at": now})
+        else:
+            c["staged_at"] = now
+            existing_map[et] = c
+            new_staged += 1
+    merged = list(existing_map.values())
+    try:
+        os.makedirs(_sd, exist_ok=True)
+        with open(_stg_path, "w", encoding="utf-8") as f:
+            json.dump(merged, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return {"ok": True, "new_staged": new_staged, "total_staged": len(merged), "candidates": merged}
+
+
+def apply_deep_review_staging(state_dir=None, confirm: bool = False) -> dict:
+    """守三·深度复盘写侧·人工确认：把 staging 候选写入 override（confirm=False 只读列出待确认）
+    应急自动执行仅到 stage（候选生成）；转 active 需人工一步确认（deep_review_apply --confirm）。"""
+    _sd = _deep_review_state_dir(state_dir)
+    _stg_path = os.path.join(_sd, "deep_review_staging.json")
+    _ov_path = os.path.join(_sd, "dgen_overrides.json")
+    _legacy_path = os.path.join(_sd, "dgen_override.json")
+    candidates = []
+    try:
+        if os.path.exists(_stg_path):
+            _raw = io.open(_stg_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                candidates = _loaded if isinstance(_loaded, list) else []
+    except Exception:
+        candidates = []
+    if not confirm:
+        return {"action": "requires_confirm", "principle": "守三·深度复盘-应用",
+                "pending": candidates, "pending_count": len(candidates),
+                "hint": "候选已自动进入 staging（不生效）；确认后执行 deep_review_apply --confirm 应用"}
+    overrides = []
+    try:
+        if os.path.exists(_ov_path):
+            _raw = io.open(_ov_path, encoding="utf-8").read().strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                overrides = _loaded if isinstance(_loaded, list) else (
+                    [v for v in _loaded.values() if isinstance(v, dict)] if isinstance(_loaded, dict) else [])
+    except Exception:
+        overrides = []
+    _max_age = 0
+    try:
+        from evo.main import get_closure as _get_closure_apply
+        from evo.tracker import snapshot_age_days as _sad
+        _cg_a = _get_closure_apply()
+        for _ci_a in list(_cg_a._closed_items or [])[-5:]:
+            if isinstance(_ci_a, dict) and _ci_a.get("readonly_snapshot"):
+                _max_age = max(_max_age, _sad(_ci_a.get("closed_at", "")))
+    except Exception:
+        pass
+    new_blocks = []
+    for c in candidates:
+        error_type = str(c.get("error_type", ""))
+        count = int(c.get("count", 0) or 0)
+        if not error_type or count < 2:
+            continue
+        if any(str(o.get("blocked_error_type", "")) == error_type for o in overrides):
+            continue
+        from evo.tracker import snapshot_age_decay as _sad_decay
+        _decay = _sad_decay(_max_age)
+        _decay_note = f"（快照年龄衰减×{_decay}）" if _decay < 1.0 else ""
+        overrides.append({
+            "blocked_error_type": error_type,
+            "strike_count": count,
+            "blocked_at": c.get("last_seen", ""),
+            "last_detail": c.get("last_detail", ""),
+            "cause": {"verdict": "internal", "reason": "守三·深度复盘人工确认应用"},
+            "escalated": True if count >= 3 else False,
+            "confidence_decay": _decay,
+            "reason": f"守三·深度复盘: {error_type} 已触发{count}次，人工确认后创建阻断{_decay_note}"
+        })
+        new_blocks.append(error_type)
+    if new_blocks:
+        try:
+            with open(_ov_path, "w", encoding="utf-8") as f:
+                json.dump(overrides, f, ensure_ascii=False, indent=2)
+            if overrides:
+                legacy = overrides[0]
+                for o in overrides:
+                    if o.get("escalated"):
+                        legacy = o
+                        break
+                with open(_legacy_path, "w", encoding="utf-8") as f:
+                    json.dump(legacy, f, ensure_ascii=False, indent=2)
+            with open(_stg_path, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return {"action": "applied", "principle": "守三·深度复盘-应用",
+            "new_blocks_created": len(new_blocks), "blocked_types": new_blocks,
+            "total_overrides": len(overrides)}
+
+
+def load_principle_rules(context: dict, record_strike: bool = True) -> list:
+    """Load strike (一二不过三) + staging (举一反三) rules into arbitration pipeline"""
+    engine = _get_engine()
+    extra = []
+    seen_ids = set()
+
+    # 1. Get non-active but arbitration-relevant rules from engine
+    all_rules = engine.get_interceptions(active_only=False)
+    for rule in all_rules:
+        lifecycle = getattr(rule, "lifecycle_status", "")
+        if lifecycle in ("alerting", "staging", "critical", "blocking"):
+            tags = getattr(rule, "tags", []) or []
+            trigger = getattr(rule, "trigger_condition", "") or ""
+            if trigger:
+                if not engine._rule_applies_to_context(tags, context):
+                    continue
+                if not engine._match_condition(trigger, context):
+                    continue
+                extra.append(rule)
+                seen_ids.add(rule.id)
+            else:
+                if engine._rule_applies_to_context(tags, context):
+                    extra.append(rule)
+                    seen_ids.add(rule.id)
+
+    # 2. Load from tracker strikes_db for any missed strike records
+    try:
+        tracker = _get_tracker()
+        db_path = tracker._strikes_db_path()
+        if os.path.exists(db_path):
+            with open(db_path, "r", encoding="utf-8") as f:
+                strikes_db = json.load(f)
+            # 防御：strikes_db 可能被外部清空为 [] 或 null，需兼容 dict 格式
+            if not isinstance(strikes_db, dict):
+                strikes_db = {}
+            for error_type, entry in strikes_db.items():
+                count = int(entry.get("count", 0) or 0)
+                if count < 1:
+                    continue
+                rule_id = "self_error_" + error_type
+                if rule_id in seen_ids:
+                    continue
+                active_rules = engine.get_interceptions(active_only=True)
+                if any(r.id == rule_id for r in active_rules):
+                    continue
+                temp_trigger = "error_type==" + repr(error_type)
+                if not engine._match_condition(temp_trigger, context):
+                    continue
+                from evo.rule_engine import InterceptionRule as _IR
+                if count == 1:
+                    # 定稿第三章·警觉窗口：第 1 次 strike → alerting 警觉规则（不阻断，
+                    # 仲裁 P4 对相关攻七模式置信度 -0.2；第 2 次起才升级为阻断）
+                    nr = _IR(
+                        id=rule_id,
+                        trigger_condition=temp_trigger,
+                        action="alert; monitor",
+                        severity="low",
+                        tags=["self_error", "one-two-no-three", "alerting"],
+                        logic_score=4.5,
+                        outcome_score=3.5,
+                        confidence=4.5,
+                        source="auto_self_error_tracker",
+                        lifecycle_status="alerting",
+                        created_at=entry.get("first_seen", ""),
+                        triggered_count=count
+                    )
+                else:
+                    nr = _IR(
+                        id=rule_id,
+                        trigger_condition=temp_trigger,
+                        action="block_operation",
+                        severity="high",
+                        tags=["self_error", "one-two-no-three", "auto_block"],
+                        logic_score=4.5,
+                        outcome_score=3.5,
+                        confidence=4.5,
+                        source="auto_self_error_tracker",
+                        lifecycle_status="active",
+                        created_at=entry.get("first_seen", ""),
+                        triggered_count=count
+                    )
+                extra.append(nr)
+                seen_ids.add(rule_id)
+    except Exception as e:
+        import sys as _sys
+        print("[DG] load_principle_rules error: " + str(e), file=_sys.stderr)
+
+    # 3. Protocol B: marker_missing 规则 — 一二不过三闭环
+    marker_missing = context.get("marker_missing", False)
+    if marker_missing and marker_missing is True:
+        marker_rule_id = "rule_protocol_b_marker_missing"
+
+        # ① 错立改+改毕验：记录 strike，走引擎裁决
+        try:
+            if record_strike:
+                ensure_three_strikes("protocol_b_marker",
+                    f"工具命令缺失[DGEN]标记: {str(context.get('command',''))[:80]}")
+        except Exception:
+            pass
+
+        # 查当前 strike 计数
+        strike_count = 0
+        try:
+            _ss = get_strike_status("protocol_b_marker")
+            strike_count = _ss.get("protocol_b_marker", {}).get("count", 0) if isinstance(_ss, dict) else 0
+        except Exception:
+            pass
+
+        # 根据 strike 次数执行一二不过三策略
+        if strike_count >= 3:
+            # ③ 三错升级处理：推翻原阻断方案，切换为 audit_only
+            from evo.rule_engine import InterceptionRule as _MR3
+            mr = _MR3(
+                id=marker_rule_id,
+                trigger_condition="marker_missing == true",
+                action="audit_only; protocol_b_escalated",
+                severity="medium",
+                tags=["escalated", "protocol_b"],
+                logic_score=0.0,
+                outcome_score=0.0,
+                confidence=0.0,
+                source="principle",
+                lifecycle_status="active",
+                created_at=datetime.now().isoformat(),
+            )
+        elif strike_count >= 2:
+            # ② 再错加固阻断：去伪存真归因过滤
+            _detail = str(context.get("command", ""))
+            try:
+                from evo.evidence_vault import EvidenceVault
+                _ev = EvidenceVault()
+                _verdict = _ev.classify_failure("protocol_b_marker", _detail)
+            except Exception:
+                _verdict = "uncertain"
+
+            if _verdict == "internal":
+                # 内生惯性：系统自身问题 → 写入硬阻断，切换策略
+                _action = "block_operation; internal_inertia_override"
+            else:
+                # 外生变量/不确定 → 调整策略
+                _action = "block_operation; external_variable_adjust"
+
+            from evo.rule_engine import InterceptionRule as _MR2
+            mr = _MR2(
+                id=marker_rule_id,
+                trigger_condition="marker_missing == true",
+                action=_action,
+                severity="high",
+                tags=["strike_2", "protocol_b"],
+                logic_score=5.0,
+                outcome_score=5.0,
+                confidence=5.0,
+                source="principle",
+                lifecycle_status="active",
+                created_at=datetime.now().isoformat(),
+            )
+        else:
+            # ① 初错：标准阻断
+            if marker_rule_id not in seen_ids:
+                from evo.rule_engine import InterceptionRule as _MR1
+                mr = _MR1(
+                    id=marker_rule_id,
+                    trigger_condition="marker_missing == true",
+                    action="block_operation; audit_only",
+                    severity="high",
+                    tags=["strike_1", "protocol_b"],
+                    logic_score=5.0,
+                    outcome_score=5.0,
+                    confidence=5.0,
+                    source="principle",
+                    lifecycle_status="active",
+                    created_at=datetime.now().isoformat(),
+                )
+                extra.append(mr)
+                seen_ids.add(marker_rule_id)
+
+    return extra
+
+def evidence_filter(interceptions: list, context: dict) -> list:
+    """去伪存真：过滤无证据支持的规则（带证据链记录）"""
+    filtered = []
+    try:
+        from evo.main import evidence_record
+    except ImportError:
+        evidence_record = None
+
+    for rule in interceptions:
+        rid = getattr(rule, 'id', '?')
+        lifecycle = getattr(rule, 'lifecycle_status', '')
+
+        if lifecycle == 'active':
+            # v3.8 去假阳性：active 规则放行不写证据（存在≠验证，避免证据库被假 pass 灌满）
+            filtered.append(rule)
+            continue
+
+        if lifecycle == 'staging':
+            triggered = getattr(rule, 'triggered_count', 0) or 0
+            confidence = getattr(rule, 'confidence', 0) or 0
+            # [FIX v3.8.1] staging 验证死锁: staging 规则需进入匹配集才会被 record_triggered 计数,
+            # 原条件(tc>=2/conf>=4.5)导致新建规则永远无法自然命中 → 放宽为 conf>=3.8 或新建 7 天内放行
+            created_at = getattr(rule, 'created_at', '') or ''
+            is_new = False
+            if created_at:
+                try:
+                    from datetime import datetime as _dt8
+                    is_new = (_dt8.now() - _dt8.fromisoformat(created_at)).days <= 7
+                except Exception:
+                    pass
+            if triggered >= 2 or confidence >= 4.5 or confidence >= 3.8 or is_new:
+                filtered.append(rule)
+                if evidence_record:
+                    evidence_record(rid, 'skip', f'staging阈值达标(触发={triggered},置信度={confidence}), evidence_filter批量非验证', source='evidence_filter')
+                continue
+            if evidence_record:
+                evidence_record(rid, 'skip', f'staging规则证据不足(触发={triggered},置信度={confidence})', source='evidence_filter')
+            continue
+
+        filtered.append(rule)
+
+    return filtered
+
+
+def pre_check(context: dict) -> dict:
+
+    """任务前预检 - 检索规则 + 仲裁（对齐 AGENTS.md 裁决格式）
+    集成：缓急律（优先分流）→ 止观门（去重封存）→ 去伪存真 → 裁决律
+    """
+    # [FIX v3.6.7] 入参防御：非 dict 上下文（如 CLI 误传 JSON 字符串）不再崩溃，避免 fail-open 状态注水
+    if not isinstance(context, dict):
+        context = {}
+
+    # ========== P0: raw_chat 写入 Mindol ==========
+    try:
+        _chat_text = context.get("context", context.get("task", context.get("message", context.get("cmd", ""))))
+        if _chat_text and len(str(_chat_text)) > 5:
+            from mindol.diegin_integration import save_chat
+            import threading
+            _ = threading.Thread(target=save_chat, args=(str(_chat_text)[:2000],), daemon=True).start()
+    except Exception:
+        pass
+
+    # ========== 恒常门·入口恢复检查（每次入口最先执行，恢复前需用户确认） ==========
+    constancy_recovery = None
+    intent_drift = None
+    decision_timeout = False
+    decision_elapsed_ms = 0.0
+    try:
+        from evo.main import constancy_recoverable, constancy_resume
+        _current_tid = context.get("constancy_current_task_id") or ""
+        _resume_id = context.get("resume_task_id")
+        _resumed_tid = context.get("constancy_resumed_task_id") or ""
+        if _resumed_tid:
+            # pre_reply 外层已恢复 → 直接呈现恢复结果，不再重复查 recoverable
+            constancy_recovery = {
+                "resume_requested": str(_resumed_tid)[:80],
+                "resumed": True,
+                "prompt": "已恢复任务，继续执行",
+                "tasks": _constancy_core_trio(_resumed_tid)
+            }
+        elif _resume_id:
+            _resumed = constancy_resume(_resume_id)
+            constancy_recovery = {
+                "resume_requested": str(_resume_id)[:80],
+                "resumed": bool(_resumed),
+                "prompt": "已恢复任务，继续执行" if _resumed else "任务不可恢复（已完成/已放弃）",
+                "tasks": _constancy_core_trio(_resume_id) if _resumed else []
+            }
+        else:
+            _rec = constancy_recoverable()
+            # 排除当前轮任务（pre_reply 已落库，避免同轮自指：恢复提示不应含刚创建的任务）
+            if _current_tid:
+                _rec = [t for t in _rec if t.get("task_id") != _current_tid]
+            if _rec:
+                constancy_recovery = {
+                    "has_pending": True,
+                    "prompt": "检测到未完成的任务，是否继续？",
+                    "tasks": [{
+                        "task_id": t.get("task_id", ""),
+                        "status": t.get("status", "paused"),
+                        "summary": str(t.get("intent_summary", ""))[:50],
+                        "updated_at": t.get("updated_at", ""),
+                        "cold_stored": bool(t.get("cold_stored", False)),
+                        "bulk_hint": str(t.get("bulk_hint", "")) if t.get("cold_stored") else "",
+                        # v3.9.3 入口常驻恢复提示附带三件套，助手无需翻文件重建上下文
+                        "completion_criteria": str(t.get("completion_criteria", ""))[:120],
+                        "pending_items": [str(x)[:60] for x in (t.get("pending_items") or [])][:3]
+                    } for t in _rec[:5]]
+                }
+    except Exception:
+        pass
+
+    # ========== 预策·①汇：task_id 生成（如无）==========
+    # 优先沿用 pre_reply 已落库/已恢复的任务 id；否则基于任务文本稳定哈希生成
+    constancy_task_id = context.get("constancy_current_task_id") or None
+    try:
+        if not constancy_task_id and constancy_recovery and constancy_recovery.get("has_pending"):
+            _rec_tasks = constancy_recovery.get("tasks") or []
+            if _rec_tasks:
+                constancy_task_id = _rec_tasks[0].get("task_id")
+        if not constancy_task_id:
+            _task_text = str(context.get("task", context.get("cmd", context.get("message", ""))))[:100]
+            if _task_text:
+                import hashlib as _hl
+                _ts = datetime.now().strftime("%Y%m%d")
+                constancy_task_id = "task_%s_%s" % (_ts, _hl.sha256(_task_text.encode("utf-8")).hexdigest()[:8])
+    except Exception:
+        pass
+
+    # ========== P3: 缓急律·优先分流 ==========
+    from evo.main import pace_classify, should_skip_deep_review
+    pace_result = pace_classify(context)
+    skip_deep = should_skip_deep_review(context)
+    # v3.8 缓急律可观测：分流结果落审计日志 [PACE]
+    try:
+        _append_audit("[PACE] channel=%s action=%s reason=%s"
+                      % (pace_result.get("channel", "?"), pace_result.get("action", "?"),
+                         str(pace_result.get("reason", ""))[:60]))
+    except Exception:
+        pass
+
+    # ========== P2: 止观门·去重封存 ==========
+    from evo.main import closure_is_closed
+    task_id = context.get("task_id", context.get("cmd", context.get("message", "")))
+    if task_id and closure_is_closed(task_id):
+        # v3.8 止观门可观测：封存命中落审计日志 [PHASE_LOCK]
+        try:
+            _append_audit("[PHASE_LOCK] skip_closed task_id=%s" % str(task_id)[:80])
+        except Exception:
+            pass
+        return {
+            "matched_interceptions": 0,
+            "matched_patterns": 0,
+            "decision": "allow",
+            "display_line": "[DGEN] PASS (止观门: 已封存事项，跳过)",
+            "reason": "止观门: 该任务已封存，不再重复处理",
+            "pace_result": pace_result,
+            "closure_skip": True,
+            "constancy_recovery": constancy_recovery
+        }
+
+    rules = get_rules_for_task(context)
+
+    # Five principle network: inject strike + staging rules
+    extra_rules = load_principle_rules(context)
+    if extra_rules:
+        rules["interceptions"].extend(extra_rules)
+
+    # 去伪存真：过滤无证据支持的规则
+    rules["interceptions"] = evidence_filter(rules["interceptions"], context)
+
+    # 缓急律：紧急任务跳过深度复盘标记
+    if skip_deep:
+        for r in rules["interceptions"]:
+            if getattr(r, "lifecycle_status", "") == "active":
+                pass  # 基础规则仍有效
+
+    # ========== 去伪存真·Mindol语义上下文注入 ==========
+    # v3.6: 单次检索复用（format + hits），带超时熔断，不再重复检索
+    mindol_context = ""
+    mindol_hits = []
+    try:
+        from mindol.diegin_integration import memory_search, memory_format_context
+        ctx_str = json.dumps(context, ensure_ascii=False)[:300]
+        mindol_hits = memory_search(ctx_str, max_results=3) or []
+        mindol_context = memory_format_context(query=ctx_str, top_k=3)
+    except Exception:
+        pass
+    # 自述护栏（2026-08-24）：检索命中旧版自述（八元框架/缓急律）一律剔除，自述类查询以权威九章覆盖，防止迭进"自述错误"
+        if mindol_hits:
+            _q = json.dumps(context, ensure_ascii=False)
+            _is_self_q = any(_k in _q for _k in DGEN_SELF_QUERY_HINTS)
+            _clean = []
+            for _h in mindol_hits:
+                _ht = str(_h.get("text", ""))[:300]
+                if any(_w in _ht for _w in DGEN_STALE_SELF_WORDS):
+                    continue  # 旧自述轨迹不入注入、不入裁决
+                _clean.append(_h)
+            if _clean:
+                mindol_hits = _clean
+                mindol_context = memory_format_context(query=ctx_str, top_k=3)  # 复用缓存重新格式化
+            if _is_self_q:
+                mindol_context = DGEN_AUTHORITY_SELF_DESC
+    except Exception:
+        pass
+    # 自照镜·勇气信号 → P6 语义记忆静默影响（定稿第九章；受 P6 调权±0.3/单轮±0.1 约束）
+        from evo.main import mirror_status
+        _courage = float(mirror_status().get("courage", 0.0) or 0.0)
+        if _courage > 0:
+            mindol_hits = list(mindol_hits or []) + [{
+                "text": "主动冒险获得超额收益 放行 allow pass 继续推进",
+                "score": min(0.8, _courage),
+                "space": "codex",
+                "uid": "self_mirror_courage",
+                "source": "self_mirror",
+            }]
+    except Exception:
+        pass
+
+    # ========== 裁决律真实输入：P2 止观门状态 + P3 缓急律通道 ==========
+    closure_state = {"status": "open", "task_id": task_id}
+    try:
+        if task_id and closure_is_closed(task_id):
+            closure_state["status"] = "closed"
+    except Exception:
+        pass
+    import time as _arb_t
+    _arb_start = _arb_t.time()
+    result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
+                       closure_state=closure_state, pace_channel=pace_result, context=context,
+                       constancy_state=constancy_recovery)
+    _arb_elapsed = _arb_t.time() - _arb_start
+    decision_elapsed_ms = round(_arb_elapsed * 1000, 1)
+    # 运维手册 2.3 · 决策超时熔断：衡步骤耗时>2秒 → 标记降级为 P0-P3 快速通道（本次仅提示，不重算）
+    if _arb_elapsed > 2.0:
+        decision_timeout = True
+        _append_audit("[DECISION-TIMEOUT] 衡耗时 %.1fs > 2s，建议采用 P0-P3 快速通道" % _arb_elapsed)
+
+    # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
+    try:
+        from evo.main import _get_tracker
+        _trk = _get_tracker()
+        for _r in rules["interceptions"]:
+            _trk.record_triggered(getattr(_r, "id", ""))
+        for _p in rules["patterns"]:
+            _trk.record_triggered(getattr(_p, "id", ""))
+        # v3.8.3: 守三真实阻断计数回写（block_count 曾恒为 0，审计口径补齐）
+        if result.get("decision") in ("block", "iron_wall_block"):
+            _wid = result.get("winning_rule_id") or ""
+            if _wid:
+                _trk.record_block(_wid, blocked_rule=_wid)
+    except Exception:
+        pass
+
+    # ========== v3.6: 一二不过三·失败教训注入（AI 每轮可见历史教训） ==========
+    strike_context = ""
+    try:
+        import os as _os3
+        _sp = _os3.path.join(_os3.path.dirname(_os3.path.abspath(__file__)), "..", "var", "state", "strikes_db.json")
+        if _os3.path.exists(_sp):
+            with open(_sp, "r", encoding="utf-8") as _f3:
+                _strikes = json.load(_f3)
+            _entries = []
+            if isinstance(_strikes, dict):
+                for _k, _v in _strikes.items():
+                    _cnt = _v.get("count", 0) if isinstance(_v, dict) else 0
+                    # 休眠—唤醒：已验证修复且未复发的教训不注入运行上下文（省 token、不刷屏）
+                    # pending_dormant（high 级待人工确认）同样不刷屏，避免半休眠态噪音
+                    if _cnt >= 1 and isinstance(_v, dict) and _v.get("status") not in ("dormant", "pending_dormant"):
+                        _detail = (_v.get("last_detail") or _v.get("detail") or "") or ""
+                        _entries.append((_k, _cnt, str(_detail)[:80]))
+            _entries.sort(key=lambda x: -x[1])
+            if _entries:
+                _lines = ["历史教训(一二不过三):"]
+                for _k, _cnt, _d in _entries[:3]:
+                    _lines.append(f"- {_k} x{_cnt}: {_d}")
+                strike_context = "\n".join(_lines)
+    except Exception:
+        pass
+
+    # ========== 守三·应急触发检测（一二不过三连续3轮内≥2次阻断 → 强制深度复盘，不等定时周期） ==========
+    deep_review_required = False
+    deep_review_report = None
+    try:
+        from evo.tracker import check_emergency_deep_review
+        deep_review_required = check_emergency_deep_review(str(result.get("decision", "")))
+        # 定稿第二章·应急触发「立即强制执行」：自动执行只读深度复盘报告（不写规则库）
+        # deep_review_apply（写 override 阻断）保持人工确认，避免自动误阻断
+        deep_review_report = None
+        if deep_review_required:
+            try:
+                deep_review_report = _build_deep_review_report()
+                _append_audit("[EMERGENCY-REVIEW] auto_deep_review 已自动执行深度复盘报告 statistics=%s" % (
+                    json.dumps(deep_review_report.get("statistics", {}), ensure_ascii=False)[:200]))
+                # 写侧验证门·第一段（自动生成，不生效）：应急触发时自动将候选阻断写入 staging
+                try:
+                    _stg = stage_deep_review_candidates()
+                    if _stg.get("new_staged"):
+                        _append_audit("[EMERGENCY-REVIEW] auto_stage 新增%d条候选/共%d条（待人工确认）" % (_stg.get("new_staged", 0), _stg.get("total_staged", 0)))
+                except Exception as _stge:
+                    _append_audit("[EMERGENCY-REVIEW] auto_stage 失败 %s" % str(_stge)[:120])
+            except Exception as _dre:
+                _append_audit("[EMERGENCY-REVIEW] auto_deep_review 失败 %s" % str(_dre)[:120])
+                deep_review_report = None
+    except Exception:
+        pass
+    except Exception:
+        pass
+
+    # ========== 自照镜·每轮衰减 + 勇气信号记录（跟随守三深度复盘频率触发；应急期仅记录不产出P6调权） ==========
+    mirror_report = None
+    try:
+        from evo.main import mirror_tick, mirror_add_courage, mirror_run_if_due
+        mirror_tick()
+        _courage = context.get("courage_signal")
+        if _courage:
+            try:
+                mirror_add_courage(float(_courage), reason="context 主动冒险信号")
+            except Exception:
+                pass
+        mirror_report = mirror_run_if_due(emergency=deep_review_required)
+        if mirror_report:
+            try:
+                _dir = mirror_report.get("direction_calibration") or []
+                _append_audit("[MIRROR] r%s 自照完成%s%s" % (
+                    mirror_report.get("round", "?"),
+                    (" | 方向信号: " + "; ".join(str(x) for x in _dir)) if _dir else "",
+                    (" | 应急抑制" if mirror_report.get("emergency_suppressed") else "") + 
+                    (" | 同向熔断静默" if mirror_report.get("same_dir_silenced") else "")))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ========== 预策·③预：主动推进检查（仅当连续3轮无输入+无待恢复+staging非空才触发，只读建议不制造伪任务） ==========
+    # ========== 运维手册 2.2 · 用户意图温度计：当前输入与最近 pending 任务意图相似度 <0.5 → 意图漂移信号 ==========
+    try:
+        _drift_text = ""
+        for _dk in ("task", "cmd", "message", "command", "text"):
+            _dv = context.get(_dk)
+            if _dv:
+                _drift_text = _dv
+                break
+        if _drift_text and constancy_recovery and constancy_recovery.get("has_pending"):
+            from evo.verdict_anchor import intent_consistency_score
+            _dtasks = constancy_recovery.get("tasks") or []
+            if _dtasks:
+                _recent = str(_dtasks[0].get("intent_summary") or _dtasks[0].get("summary") or "")[:200]
+                _score = intent_consistency_score(_recent, str(_drift_text)[:200])
+                if _score < 0.5:
+                    intent_drift = {
+                        "triggered": True,
+                        "score": _score,
+                        "recent_task": str(_recent)[:50],
+                        "prompt": "检测到意图漂移（与最近任务语义相似度<0.5），预策衡阶段已将其视为意图切换信号",
+                    }
+                    _append_audit("[INTENT-THERMOMETER] drift score=%.2f recent=%s" % (_score, str(_recent)[:40]))
+    except Exception:
+        pass
+
+    proactive_proposal = None
+    try:
+        _pro_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "var", "state", "constancy_proactive.json")
+        _pro = {"streak": 0}
+        if os.path.exists(_pro_file):
+            with open(_pro_file, "r", encoding="utf-8") as _f:
+                _pro = json.load(_f)
+        _probe = ""
+        for _k in ("task", "cmd", "message", "command", "text"):
+            _v = context.get(_k)
+            if _v:
+                _probe = _v
+                break
+        if not _probe:
+            try:
+                _t = context.get("tool")
+                if isinstance(_t, dict):
+                    _ti = _t.get("input")
+                    if isinstance(_ti, dict):
+                        _probe = _ti.get("command") or _ti.get("text") or ""
+            except Exception:
+                _probe = ""
+        _has_input = bool(str(_probe).strip())
+        _no_pending = not (constancy_recovery and constancy_recovery.get("has_pending"))
+        if (not _has_input) and _no_pending:
+            _pro["streak"] = int(_pro.get("streak", 0) or 0) + 1
+        else:
+            _pro["streak"] = 0
+        os.makedirs(os.path.dirname(_pro_file), exist_ok=True)
+        with open(_pro_file, "w", encoding="utf-8") as _f:
+            json.dump(_pro, _f, ensure_ascii=False)
+        if _pro["streak"] >= 3 and _no_pending:
+            from evo.main import _get_engine
+            _eng = _get_engine()
+            _staging_rules = [r for r in _eng.get_interceptions(active_only=False)
+                              if getattr(r, "lifecycle_status", "") == "staging"]
+            if _staging_rules:
+                proactive_proposal = {
+                    "triggered": True,
+                    "prompt": "连续3轮无用户输入，检测到待验证的staging候选规则，可主动发起回归校验（需用户确认）",
+                    "staging_candidates": [getattr(r, "id", "") for r in _staging_rules[:1]],
+                    "staging_total": len(_staging_rules),
+                    "pace_note": "每次最多验证1条staging规则；超过1条分轮次验证（每轮间隔>=3轮空闲窗口）" if len(_staging_rules) > 1 else "",
+                }
+    except Exception:
+        proactive_proposal = None
+
+    # ========== 攻七强化 Q1: 及时使用 - 高置信度模式优先推荐 ==========
+    # [P0-20260825] 攻七建议上下文相关：只推与当前任务/命令相关的经验（此前全局推荐导致无关建议被忽略）
+    _suggestions = build_gongqi_suggestions(rules["patterns"], context=context)
+    # display_line 升级：放行且有高置信度模式 → 显式推荐优先采用
+    _display_line = result.get("display_line", "")
+    if result.get("decision") == "allow" and _suggestions and _suggestions[0].get("priority"):
+        _top = _suggestions[0]
+        _rec = str(_top.get("decision", ""))[:80]
+        if _rec and "攻七" not in _display_line:
+            _display_line = (_display_line + " | ✅ 攻七优先采用: " + _rec).strip()
+
+    # ========== 守三·应急触发 AI 可见性（定稿第二章）：audit + reason + display_line 三面接线 ==========
+    if deep_review_required:
+        try:
+            from evo.tracker import EMERGENCY_REVIEW_FLAG, emergency_review_notice
+            _append_audit("[EMERGENCY-REVIEW] triggered=true 连续3轮内>=2次阻断，强制深度复盘提前")
+            _reason = str(result.get("reason", ""))
+            if "守三应急" not in _reason:
+                result["reason"] = (_reason + " | " + EMERGENCY_REVIEW_FLAG).strip()
+            _display_line = emergency_review_notice(True, _display_line)
+        except Exception:
+            pass
+
+    return {
+        "matched_interceptions": len(rules["interceptions"]),
+        "matched_patterns": len(rules["patterns"]),
+        "decision": result["decision"],
+        "display_line": _display_line,
+        "reason": result["reason"],
+        "winning_rule_id": result.get("winning_rule_id"),
+        "pace_result": pace_result,
+        "mindol_context": mindol_context if mindol_context else "",
+        "mindol_hits": len(mindol_hits),
+        "suggestions": _suggestions,
+        "strike_context": strike_context,
+        "constancy_recovery": constancy_recovery,
+        "constancy_task_id": constancy_task_id,
+        "proactive_proposal": proactive_proposal,
+        "deep_review_required": deep_review_required,
+        "deep_review_report": deep_review_report,
+        "intent_drift": intent_drift,
+        "decision_timeout": decision_timeout,
+        "decision_elapsed_ms": decision_elapsed_ms,
+        "mirror_report": mirror_report,
+    }
+
+def post_review(task_context: dict, task_result: dict) -> dict:
+
+    """任务后复盘"""
+
+    result = full_review(task_context, task_result)
+
+    # ========== Mindol 语义归档 ==========
+    try:
+        ctx_str = json.dumps(task_context, ensure_ascii=False)[:200]
+        res_str = json.dumps(task_result, ensure_ascii=False)[:200]
+        memory_archive("post_review", f"{result.get('decision','?')} | ctx={ctx_str} | res={res_str}")
+    except Exception:
+        pass
+
+    # ========== v3.5: 复盘结论回流规则置信度（双向反馈闭环） ==========
+    try:
+        from evo.main import adjust_rule_confidence
+        _pos = getattr(result, "positive_signals", []) or []
+        _neg = getattr(result, "negative_signals", []) or []
+        for _sig in _pos:
+            for _rid in (getattr(_sig, "linked_rules", []) or []):
+                adjust_rule_confidence(_rid, +0.2, reason=str(getattr(_sig, "description", ""))[:60], source="post_review_positive")
+        for _sig in _neg:
+            for _rid in (getattr(_sig, "linked_rules", []) or []):
+                adjust_rule_confidence(_rid, -0.2, reason=str(getattr(_sig, "description", ""))[:60], source="post_review_negative")
+    except Exception:
+        pass
+
+    # ========== v3.5: 输出实质验证（去伪存真·claim_checker，去静默化: 记录审计日志） ==========
+    try:
+        from evo.claim_checker import get_checker
+        _out_text = str(task_result.get("output", task_result.get("text", task_result.get("message", ""))))[:2000]
+        if _out_text:
+            _vc = get_checker().verify_output(_out_text, task_context)
+            _append_audit(f"[CLAIM-CHECK] verdict={_vc.get('verdict', '?')} claims={_vc.get('total_claims', 0)} contradicted={_vc.get('contradicted', 0)}")
+            if _vc.get("verdict") == "FAIL":
+                print(f"[CLAIM-CHECK] 输出含 {_vc.get('contradicted', 0)} 条矛盾声明，已记录待修正")
+    except Exception as _ce:
+        _append_audit(f"[CLAIM-CHECK] ERROR {_ce}")
+
+    # 自动维护：检查距上次维护是否超过24h
+    _maint_file = os.path.join(os.path.dirname(__file__), "..", "var", "state", "last_maintenance.txt")
+    _run_maint = False
+    if os.path.isfile(_maint_file):
+        try:
+            with open(_maint_file, 'r') as _mf:
+                _last_maint = datetime.fromisoformat(_mf.read().strip())
+            if (datetime.now() - _last_maint).total_seconds() > 86400:
+                _run_maint = True
+        except:
+            _run_maint = True
+    else:
+        _run_maint = True
+    if _run_maint:
+        try:
+            run_maintenance()
+            with open(_maint_file, 'w') as _mf:
+                _mf.write(datetime.now().isoformat())
+        except Exception as _me:
+            pass
+
+    return result
+
+
+
+
+
+def system_health() -> dict:
+
+    """系统健康度"""
+
+    return health_check()
+
+
+
+
+
+if __name__ == "__main__":
+
+    import sys
+
+    if len(sys.argv) < 2:
+
+        print("用法: python call_diegin.py <check|review|health|maintain|archive|search> [args...]")
+
+        sys.exit(1)
+
+
+
+    mode = sys.argv[1]
+
+
+
+    if mode == "check" or mode == "stdin":
+
+        if len(sys.argv) > 2:
+
+            raw = sys.argv[2]
+
+        else:
+
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _decode_stdin_bytes(_b).strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
+
+        ctx = json.loads(raw)
+
+        result = pre_check(ctx)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "check_file":
+
+        fp = sys.argv[2]
+
+        with open(fp, 'r', encoding='utf-8-sig') as f:
+
+            ctx = json.loads(f.read())  # Handle BOM
+
+        result = pre_check(ctx)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "review":
+
+        # v3.6.1: JSON 经 argv 在 Windows 会损坏（引号/换行/中文），优先临时文件 @path，其次 stdin 管道
+
+        _payload = None
+
+        if len(sys.argv) > 2 and sys.argv[2].startswith("@"):
+
+            with open(sys.argv[2][1:], "r", encoding="utf-8") as _f:
+
+                _payload = json.load(_f)
+
+        if _payload is None and not sys.stdin.isatty():
+
+            _raw = sys.stdin.read().strip()
+
+            _parts = _raw.split("\n@@RESULT@@\n", 1)
+
+            _payload = [_parts[0], _parts[1] if len(_parts) > 1 else ""]
+
+        if _payload is None:
+
+            _payload = [sys.argv[2] if len(sys.argv) > 2 else "", sys.argv[3] if len(sys.argv) > 3 else ""]
+
+        def _load_json(x, default):
+
+            if not x:
+
+                return default
+
+            if isinstance(x, str):
+
+                try:
+
+                    return json.loads(x)
+
+                except Exception:
+
+                    return default
+
+            return x
+
+        ctx = _load_json(_payload[0], {"task_id": "unknown"})
+
+        result = _load_json(_payload[1] if len(_payload) > 1 else "", {"status": "completed"})
+
+        result = post_review(ctx, result)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "health":
+
+        import io
+
+        old_out = sys.stdout
+
+        sys.stdout = io.StringIO()
+
+        result = system_health()
+
+        sys.stdout = old_out
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "maintain":
+
+        run_maintenance()
+
+
+
+    elif mode == "archive":
+
+        content = sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read()
+
+        source = sys.argv[3] if len(sys.argv) > 3 else "dgen_cli"
+
+        ok = dgen_archive(content, source)
+
+        print(json.dumps({"ok": ok}, ensure_ascii=False))
+
+
+
+    elif mode == "search":
+
+        query = sys.argv[2] if len(sys.argv) > 2 else ""
+
+        results = mempalace_search(query)
+
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "record_evidence":
+        """记录一条证据到 EvidenceVault"""
+        try:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            raw_input = _decode_stdin_bytes(_b).strip()
+            ctx = json.loads(raw_input) if raw_input else {}
+            from evo.evidence_vault import EvidenceVault
+            ev = EvidenceVault()
+            _entry = ev.record(
+                rule_id=ctx.get("rule_id", "unknown"),
+                verdict=ctx.get("verdict", "pass"),
+                reason=ctx.get("reason", ""),
+                source=ctx.get("source", "auto"),
+                context={"detail": ctx.get("detail", ""), "tool": ctx.get("rule_id", "")}
+            )
+            if _entry.get("rejected"):
+                print(json.dumps({"ok": False, "rejected": True,
+                              "reason": _entry.get("reject_reason", "")}, ensure_ascii=False))
+            else:
+                print(json.dumps({"ok": True, "ts": _entry.get("ts", "")}, ensure_ascii=False))
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+    elif mode == "feedback":
+
+        """用户反馈三态模型"""
+
+        rule_id = sys.argv[2] if len(sys.argv) > 2 else ""
+
+        feedback = sys.argv[3] if len(sys.argv) > 3 else "silent"
+
+        user_action = sys.argv[4] if len(sys.argv) > 4 else None
+
+        result = record_user_feedback(rule_id, feedback, user_action)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+
+    elif mode == "sandwich":
+
+        """守三攻七复盘（自动钩子版）：python call_diegin.py sandwich <task_type> '<pos_json>' '<neg_json>'"""
+
+        task_type = sys.argv[2] if len(sys.argv) > 2 else "general"
+
+        positive = json.loads(sys.argv[3]) if len(sys.argv) > 3 else []
+
+        negative = json.loads(sys.argv[4]) if len(sys.argv) > 4 else []
+
+        result = auto_sandwich_trigger(task_type, positive, negative)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    
+
+    elif mode == "suggest":
+
+        """攻七：返回与当前上下文匹配的成功模式建议（引擎级匹配）
+
+        用法: python call_diegin.py suggest '<context_json>'
+
+        支持:
+
+          纯文本: 自动转为 {"prompt": "<text>"}
+
+          JSON: 直接作为上下文，支持 tool/op/task_type 等字段
+
+        """
+
+        if not sys.stdin.isatty():
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _decode_stdin_bytes(_b).strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
+        elif len(sys.argv) > 2:
+            raw = sys.argv[2]
+        else:
+            raw = ""
+
+        from evo.main import _get_engine, _get_arbiter
+
+        engine = _get_engine()
+
+        # 解析输入
+
+        try:
+
+            context = json.loads(raw)
+
+        except json.JSONDecodeError:
+
+            context = {"prompt": raw, "task_type": "general", "op": "unknown"}
+
+        # 双通道仲裁：先检查守三是否有拦截
+
+        interceptions = engine.get_interceptions(active_only=True)
+
+        matched_inters = []
+
+        for rule in interceptions:
+
+            if engine._match_condition(rule.trigger_condition, context):
+
+                matched_inters.append(rule)
+
+        arbiter_obj = _get_arbiter()
+
+        # 裁决律真实输入：P2 止观门状态 + P3 缓急律通道
+        try:
+            from evo.main import pace_classify, closure_is_closed
+            _pace_c = pace_classify(context)
+            _tid = context.get("task_id", context.get("cmd", context.get("message", "")))
+            _cs = {"status": "closed" if (_tid and closure_is_closed(_tid)) else "open", "task_id": _tid}
+        except Exception:
+            _pace_c, _cs = None, None
+        arb_result = arbiter_obj.resolve(matched_inters, [], closure_state=_cs, pace_channel=_pace_c)
+
+        is_blocked = arb_result.decision.value in ("BLOCK", "IRON_WALL_BLOCK", "ESCALATE")
+
+        # 用引擎匹配（复用 _match_condition AST解析器）
+
+        matched = engine.match_patterns(context, top_k=5)
+
+        suggestions = []
+
+        for p in matched:
+
+            suggestions.append({
+
+                "id": p.id if hasattr(p, 'id') else '',
+
+                "scenario": p.trigger_scenario if hasattr(p, 'trigger_scenario') else '',
+
+                "decision": p.decision_logic if hasattr(p, 'decision_logic') else '',
+
+                "confidence": getattr(p, 'confidence', 0),
+
+                "auto_promoted": getattr(p, 'auto_promoted', False),
+
+            })
+
+        result = {
+
+            "suggestions": [] if is_blocked else suggestions,
+
+            "count": 0 if is_blocked else len(suggestions),
+
+            "total_patterns": len(engine.get_patterns(active_only=True)),
+
+            "matched_via": "engine_ast",
+
+            "guard_decision": arb_result.decision.value if hasattr(arb_result, 'decision') else 'ALLOW',
+
+            "guard_blocked": is_blocked,
+
+            "guard_reason": arb_result.reason if is_blocked else "",
+
+        }
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    elif mode == "constancy_suspend_latest":
+        """恒常门：会话结束时挂起最近任务（保活可恢复），供 stop 钩子调用"""
+        try:
+            from evo.main import constancy_recoverable, constancy_suspend
+            _rec = constancy_recoverable()
+            _tid = ""
+            if _rec:
+                _tid = _rec[0]["task_id"]
+                constancy_suspend(_tid, reason="会话结束挂起")
+            print(json.dumps({"ok": True, "task_id": str(_tid)[:40]}))
+        except Exception as _e:
+            print(json.dumps({"ok": False, "error": str(_e)[:100]}))
+
+    elif mode == "pre_reply":
+        """UserPromptSubmit 聚合模式：一次引擎加载完成所有预检工作
+        用法: echo '<prompt_json>' | python call_diegin.py pre_reply
+        合并 check + health + suggest + arbitrate_detail + verify + mindol record
+        输出: JSON (含完整结果)
+        退出码: 1=block, 0=allow
+        """
+        import sys as _sys
+        try:
+            if not _sys.stdin.isatty():
+                _b = _sys.stdin.buffer.read()
+                _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+                raw = _decode_stdin_bytes(_b).strip()
+            else:
+                raw = _sys.argv[2]
+        except (IndexError, IOError):
+            raw = "{}"
+        input_data = json.loads(raw) if raw else {}
+        prompt = input_data.get("prompt", input_data.get("text", ""))
+        turn_id = input_data.get("turn_id", "")
+        blocked_error_type = input_data.get("blocked_error_type", "")
+
+        # 引擎级导入（一次加载）
+        from evo.main import (
+            _get_engine, _get_arbiter, get_rules_for_task, arbitrate,
+            health_check as _health_check, get_vault, run_maintenance
+        )
+        from mindol.diegin_integration import memory_format_context, memory_archive as dgen_archive
+        from evo.evidence_vault import EvidenceVault
+
+        # 构建上下文
+        ctx = {
+            "task_type": "user_prompt",
+            "text": prompt,
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": prompt,
+        }
+        if blocked_error_type:
+            ctx["blocked_error_type"] = blocked_error_type
+
+        # 0. raw_chat 写入 Mindol（异步）
+        try:
+            if prompt and len(prompt) > 5:
+                from mindol.diegin_integration import save_chat
+                import threading
+                _ = threading.Thread(target=save_chat, args=(prompt[:2000],), daemon=True).start()
+        except Exception:
+            pass
+
+        pass
+        # 自照镜·勇气信号下一轮用户交互确认（定稿第九章）：负面反馈 → 归零；否则生效
+        _user_negative = None
+        try:
+            from evo.main import mirror_confirm_courage
+            _neg_words = ("不满意", "不对", "错了", "不是这样", "失败", "不行", "停止", "取消", "别", "不要", "拒绝", "有问题", "bug", "回退")
+            _user_negative = bool(any(_w in (prompt or "") for _w in _neg_words))
+            mirror_confirm_courage(confirmed=not _user_negative)
+        except Exception:
+            pass
+
+        # [PERF-D 2026-08-20] 情绪调制：自照镜 courage → Mindol mood（检索空间权重调制）
+        try:
+            from evo.main import mirror_status
+            from mindol.diegin_integration import memory_set_mood
+            _mood_v = float(mirror_status().get("courage", 0.0) or 0.0)
+            memory_set_mood(_mood_v * 2.0 - 1.0, source="self_mirror_courage")
+        except Exception:
+            pass
+
+        # 恒常门·恢复意图解析 + 任务落库（先解析恢复，再落库，避免同轮自指）
+        constancy_current_task_id = ""
+        _fuzzy_candidates = []
+        try:
+            from evo.main import constancy_track_prompt, constancy_resume, constancy_recoverable, constancy_find_by_intent
+            _rec_tasks = constancy_recoverable()
+            _rec_ids = {t.get("task_id") for t in _rec_tasks}
+            _cand = input_data.get("resume_task_id", "") or ""
+            if not _cand:
+                import re as _re
+                _m = _re.search(r"(?:resume_task_id|恢复|继续)\s*[:=]?\s*(task_\w+)", prompt or "")
+                if _m:
+                    _cand = _m.group(1)
+                else:
+                    # v3.9.1 模糊恢复：无 task_id 但含恢复/继续意图 → 按意图检索可恢复任务
+                    # v3.9.2：空壳降权 + Mindol 兜底（kind=memory 片段仅提示，永不自动恢复）
+                    _p = (prompt or "").strip()
+                    if _re.search(r"(?:恢复|继续)", _p):
+                        try:
+                            _fuzzy = constancy_find_by_intent(_p, top_k=3) or []
+                            if _fuzzy:
+                                _best = _fuzzy[0]
+                                _second = _fuzzy[1] if len(_fuzzy) > 1 else None
+                                # 唯一高置信（≥0.30 且与次名差 ≥0.15）→ 自动恢复；否则列候选待确认
+                                if (_best.get("task_id") and _best["score"] >= 0.30 and
+                                        (not _second or _best["score"] - _second["score"] >= 0.15)):
+                                    _cand = _best["task_id"]
+                                else:
+                                    _fuzzy_candidates = _fuzzy
+                        except Exception:
+                            _fuzzy_candidates = []
+            if _cand and _cand in _rec_ids:
+                try:
+                    if constancy_resume(_cand):
+                        constancy_current_task_id = _cand
+                        ctx["constancy_resumed_task_id"] = _cand
+                except Exception:
+                    pass
+            _trk = constancy_track_prompt(prompt, source="pre_reply",
+                                          current_task_id=constancy_current_task_id or None,
+                                          turn_id=turn_id)
+            if not constancy_current_task_id and _trk and _trk.get("task_id"):
+                constancy_current_task_id = _trk["task_id"]
+            # 恒常门·完成自动信号：用户明确结束语 → 标记当前任务完成
+            if constancy_current_task_id:
+                _low_p = (prompt or "").lower()
+                if any(_w in _low_p for _w in ("完成了", "搞定了", "任务完成", "本任务完成", "收工")):
+                    try:
+                        from evo.main import constancy_complete
+                        constancy_complete(constancy_current_task_id)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        ctx["constancy_current_task_id"] = constancy_current_task_id
+
+        # 预策·③：用户意图上下文落盘（post_tool record_success 三重判定读取；异常不阻塞主流程）
+        try:
+            write_current_intent(prompt, constancy_current_task_id, turn_id, _user_negative)
+        except Exception:
+            pass
+
+        # 1. 预检
+        check_result = pre_check(ctx)
+        decision = check_result.get("decision", "allow")
+        matched_count = check_result.get("matched_interceptions", 0)
+        winning_rule_id = check_result.get("winning_rule_id")
+        reason = check_result.get("reason", "")
+        display_line = check_result.get("display_line", "")
+        mindol_ctx = check_result.get("mindol_context", "")
+        strike_context = check_result.get("strike_context", "")
+
+        # [PERF-D] 跨空间联想并入注入（创造性：trade×pattern×abstract 重组候选）
+        try:
+            from mindol.diegin_integration import memory_associate
+            _assoc = memory_associate(prompt or "", top_k=2)
+            if _assoc:
+                _al = " | ".join(str(a.get("text", ""))[:150] for a in _assoc)
+                mindol_ctx = ("[联想] " + _al + " | " + mindol_ctx) if mindol_ctx else ("[联想] " + _al)
+        except Exception:
+            pass
+
+        if decision in ("block", "iron_wall_block"):
+            # block 路径：输出阻断信息，退出 1
+            enhanced = display_line
+            if mindol_ctx:
+                short_ctx = mindol_ctx.replace("\n", " ").replace("\r", "")
+                if len(short_ctx) > 200:
+                    short_ctx = short_ctx[:200] + "..."
+                enhanced += " | mem:" + short_ctx
+            print(enhanced)
+            _sys.exit(1)
+
+        # 2. allow 路径：继续执行全部操作
+        engine = _get_engine()
+        vault = get_vault()
+
+        # 3. 健康度（捕获 stdout，避免健康报告污染 JSON 输出）
+        import io as _io
+        _old_stdout = sys.stdout
+        sys.stdout = _io.StringIO()
+        health_result = _health_check()
+        sys.stdout = _old_stdout
+
+        # 4. 攻七建议
+        arbiter_obj = _get_arbiter()
+        interceptions = engine.get_interceptions(active_only=True)
+        matched_inters = []
+        for rule in interceptions:
+            if engine._match_condition(rule.trigger_condition, ctx):
+                matched_inters.append(rule)
+        # 裁决律真实输入：P2 止观门状态 + P3 缓急律通道
+        try:
+            from evo.main import pace_classify, closure_is_closed
+            _pace_c = pace_classify(ctx)
+            _tid = ctx.get("task_id", ctx.get("cmd", ctx.get("message", "")))
+            _cs = {"status": "closed" if (_tid and closure_is_closed(_tid)) else "open", "task_id": _tid}
+        except Exception:
+            _pace_c, _cs = None, None
+        arb_result = arbiter_obj.resolve(matched_inters, [], closure_state=_cs, pace_channel=_pace_c)
+        is_blocked = getattr(arb_result, 'decision', None)
+        is_blocked_val = is_blocked.value if is_blocked else "ALLOW"
+        guard_blocked = is_blocked_val in ("BLOCK", "IRON_WALL_BLOCK", "ESCALATE")
+
+        matched = engine.match_patterns(ctx, top_k=5)
+        suggestions_list = []
+        for p in matched:
+            suggestions_list.append({
+                "id": getattr(p, "id", ""),
+                "scenario": getattr(p, "trigger_scenario", ""),
+                "decision": getattr(p, "decision_logic", ""),
+                "confidence": getattr(p, "confidence", 0),
+            })
+
+        # 格式化攻七输出文本
+        sug_lines = []
+        for s in suggestions_list:
+            sug_lines.append("  - " + s["id"] + ": " + s["decision"])
+        suggestions_text = ""
+        if sug_lines:
+            suggestions_text = "\n攻七·推荐路径\n" + "\n".join(sug_lines)
+
+        # 5. 仲裁详情
+        arb_detail_rules = get_rules_for_task(ctx)
+        arb_detail_result = arbitrate(arb_detail_rules["interceptions"], arb_detail_rules["patterns"])
+        conflict_rules_list = []
+        for r in arb_detail_rules["interceptions"]:
+            conflict_rules_list.append({
+                "id": getattr(r, "id", "?"),
+                "severity": getattr(r, "severity", "?"),
+            })
+        detail = {
+            "matched_interceptions": len(arb_detail_rules["interceptions"]),
+            "matched_patterns": len(arb_detail_rules["patterns"]),
+            "decision": arb_detail_result["decision"],
+            "reason": arb_detail_result["reason"],
+            "winning_rule_id": arb_detail_result.get("winning_rule_id"),
+            "conflict_rules": conflict_rules_list,
+            "degradation": arb_detail_result.get("degradation_type", ""),
+        }
+
+        # 6. 一致性验证（读上次决策，写本次）
+        import os as _os
+        _last_check_file = _os.path.join(_os.path.dirname(__file__), "..", "var", "state", "last_check_result.json")
+        verify_result = {"current_decision": decision, "consistency": "first_check", "flip_detected": False}
+        if _os.path.exists(_last_check_file):
+            try:
+                with open(_last_check_file, "r", encoding="utf-8") as _f:
+                    _last = json.load(_f)
+                _prev = _last.get("decision", "unknown")
+                if _prev != decision:
+                    verify_result["consistency"] = "flipped"
+                    verify_result["flip_detected"] = True
+                    verify_result["previous_decision"] = _prev
+                else:
+                    verify_result["consistency"] = "consistent"
+            except Exception:
+                pass
+        # 保存当前决策
+        try:
+            _os.makedirs(_os.path.dirname(_last_check_file), exist_ok=True)
+            with open(_last_check_file, "w", encoding="utf-8") as _f:
+                json.dump({"decision": decision, "ts": datetime.now().isoformat()}, _f, ensure_ascii=False)
+        except Exception:
+            pass
+
+        # 7. 写入 Mindol 记忆（pre_reply 空间）
+        try:
+            dgen_archive("pre_reply", f"decision={decision} matched={matched_count} status=allow", {})
+        except Exception:
+            pass
+
+        # 8. 构建输出文本
+        marker_str = "[DGEN]"
+        mindol_str = ""
+        if mindol_ctx:
+            short_ctx = mindol_ctx.replace("\n", " ").replace("\r", "")
+            if len(short_ctx) > 150:
+                short_ctx = short_ctx[:150] + "..."
+            mindol_str = " mem:" + short_ctx
+        strike_str = ""
+        if strike_context:
+            strike_str = "\n" + strike_context
+        output_text = marker_str + " PASS" + mindol_str + suggestions_text + strike_str
+        # 恒常门·恢复/主动推进提示（用户可见；恢复前用户确认，摘要≤50字）
+        constancy_recovery = check_result.get("constancy_recovery") or None
+        proactive_proposal = check_result.get("proactive_proposal") or None
+        _constancy_hint = ""
+        try:
+            if constancy_recovery and constancy_recovery.get("has_pending"):
+                _lines = ["\n[恒常门] 检测到未完成任务:"]
+                for _t in (constancy_recovery.get("tasks") or [])[:3]:
+                    _age = _constancy_age_text(_t.get("updated_at", ""))
+                    _age_s = "（%s）" % _age if _age else ""
+                    _bulk = " (信息量大，恢复后分批加载)" if _t.get("cold_stored") and _t.get("bulk_hint") else ""
+                    _line = "  - %s [%s] %s%s%s" % (
+                        _t.get("task_id", ""), _t.get("status", "paused"),
+                        str(_t.get("summary", ""))[:24], _age_s, _bulk)
+                    # v3.9.3 附带完成标准+待办（三件套），恢复前即可见任务全貌
+                    _c = str(_t.get("completion_criteria", ""))[:80]
+                    _p = [str(x)[:40] for x in (_t.get("pending_items") or [])][:2]
+                    if _c:
+                        _line += "\n      完成标准: %s" % _c
+                    if _p:
+                        _line += "\n      待办: %s" % " | ".join(_p)[:80]
+                    _lines.append(_line)
+                _lines.append("如需继续请回复: 继续 <task_id>")
+                _constancy_hint = "\n".join(_lines)
+            elif constancy_recovery and constancy_recovery.get("resumed"):
+                _lines = ["\n[恒常门] 已恢复任务 %s，继续执行" % str(constancy_recovery.get("resume_requested", ""))[:40]]
+                for _t in (constancy_recovery.get("tasks") or [])[:1]:
+                    _i = str(_t.get("intent_summary", ""))[:120]
+                    _c = str(_t.get("completion_criteria", ""))[:200]
+                    _p = _t.get("pending_items") or []
+                    if _i:
+                        _lines.append("  目标: %s" % _i)
+                    if _c:
+                        _lines.append("  完成标准: %s" % _c)
+                    if _p:
+                        _lines.append("  待办: %s" % " | ".join(str(x) for x in _p)[:200])
+                _constancy_hint = "\n".join(_lines)
+            if not _constancy_hint and _fuzzy_candidates:
+                _task_cands = [_f for _f in _fuzzy_candidates if _f.get("kind") != "memory"]
+                _mem_cands = [_f for _f in _fuzzy_candidates if _f.get("kind") == "memory"]
+                _lines = []
+                if _task_cands:
+                    _lines.append("\n[恒常门] 检测到多个可能任务，请确认要恢复哪个:")
+                    for _f in _task_cands[:3]:
+                        _i = str(_f.get("summary", ""))[:50]
+                        _c = str(_f.get("completion_criteria", ""))[:80]
+                        _p = _f.get("pending_items") or []
+                        _p_s = " | ".join(str(x)[:40] for x in _p[:2])[:80]
+                        _line = "  - %s %s（匹配度 %.0f%%）" % (
+                            _f.get("task_id", ""), _i, (_f.get("score", 0) or 0) * 100)
+                        if _c:
+                            _line += "\n      完成标准: %s" % _c
+                        if _p_s:
+                            _line += "\n      待办: %s" % _p_s
+                        _lines.append(_line)
+                    _lines.append("回复: 继续 <task_id> 以确认")
+                if _mem_cands:
+                    _lines.append("\n[恒常门] 未匹配到明确任务，Mindol 记忆相关片段（供定位意图，不自动恢复）:")
+                    for _m in _mem_cands[:3]:
+                        _lines.append("  - [%s %.0f%%] %s" % (
+                            _m.get("space", "codex"), (_m.get("score", 0) or 0) * 100,
+                            str(_m.get("summary", ""))[:60]))
+                    _lines.append("请补充任务描述或回复: 继续 <task_id>")
+                _constancy_hint = "\n".join(_lines)
+            if not _constancy_hint and proactive_proposal and proactive_proposal.get("triggered"):
+                _constancy_hint = "\n[恒常门] 连续3轮无输入，有staging候选规则待验证，可主动回归校验（需用户确认）"
+            if _constancy_hint:
+                output_text += _constancy_hint
+            # 一二不过三·人工介入/静默锁止可见性（定稿第三章升级三步③）
+            try:
+                _trk = _get_tracker()
+                _lockdown = _trk.check_human_escalation()
+                _esc = _trk.get_escalation_status()
+                _esc_lines = []
+                for _a in (_esc.get("awaiting") or []):
+                    _esc_lines.append("  - 待人工介入 %s（截止 %s）" % (
+                        _a.get("error_type", ""), str(_a.get("deadline", ""))[:19]))
+                for _l in (_esc.get("locked") or []):
+                    _esc_lines.append("  - 静默锁止 %s（%s）" % (
+                        _l.get("error_type", ""), str(_l.get("locked_at", ""))[:19]))
+                if _esc_lines:
+                    output_text += "\n[一二不过三] 升级事件需人工介入:\n" + "\n".join(_esc_lines)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        output_text += "\n\n=== PROTOCOL ==="
+        output_text += "\nFirst tool command MUST contain: " + marker_str
+        output_text += "\n=== END PROTOCOL ==="
+
+        # 9. 审计日志
+        try:
+            _audit_log = _os.path.join(_os.path.dirname(__file__), "..", "var", "logs", "diegin_audit.log")
+            _ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            _msg = f"{_ts} {_ts} [HOOK:DGEN-CHECK] OK decision={decision} matched={matched_count}"
+            if "P6记忆" in reason:
+                _msg += " | P6-ADJ: " + str(reason)[:300]
+            _d = _os.path.dirname(_audit_log)
+            if _d and not _os.path.exists(_d):
+                _os.makedirs(_d, exist_ok=True)
+            with open(_audit_log, "a", encoding="utf-8") as _f:
+                _f.write(f"{_msg}\n")
+        except Exception:
+            pass
+
+        # 10. 输出完整结果
+        output = {
+            "decision": decision,
+            "matched_count": matched_count,
+            "winning_rule_id": winning_rule_id,
+            "reason": reason,
+            "health": health_result,
+            "suggestions": suggestions_list,
+            "arbitrate_detail": detail,
+            "verify": verify_result,
+            "display_text": output_text,
+            "mindol_context": mindol_ctx,
+            "strike_context": strike_context,
+            "constancy_recovery": constancy_recovery,
+            "constancy_task_id": constancy_current_task_id,
+            "proactive_proposal": proactive_proposal,
+        }
+        print(json.dumps(output, ensure_ascii=False))
+
+
+    elif mode == "post_tool_batch":
+        """PostToolUse 聚合模式（PERF）：一次引擎加载完成常规路径所有动作
+        用法: echo '<big_json>' | python call_diegin.py post_tool_batch
+        合并: health + feedback_adopt(条件) + record_success(条件) + closure_close
+              + mindol record post_tool + record_evidence + mindol record raw_chat
+        输出: JSON 汇总
+        """
+        try:
+            if not sys.stdin.isatty():
+                _b = sys.stdin.buffer.read()
+                _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+                _raw = _decode_stdin_bytes(_b).strip()
+            else:
+                _raw = sys.argv[2] if len(sys.argv) > 2 else "{}"
+        except (IndexError, IOError):
+            _raw = "{}"
+        _d = json.loads(_raw) if _raw else {}
+
+        _out = {"mode": "post_tool_batch"}
+
+        # 1. health（原 contract tool_post -> health；health_check 直接 print，须捕获 stdout）
+        try:
+            import contextlib, io as _io
+            from evo.main import health_check as _hc
+            _buf = _io.StringIO()
+            with contextlib.redirect_stdout(_buf):
+                _h = _hc()
+            _out["health"] = {"active_rules": _h.get("active_rules", _h.get("total_rules", 0)) if isinstance(_h, dict) else 0}
+        except Exception as _e:
+            _out["health"] = {"error": str(_e)[:100]}
+
+        # 2. feedback_adopt（条件：有 prio 且工具成功）
+        try:
+            _pid = _d.get("prio_pattern_id", "")
+            _adopted = bool(_d.get("adopted", True))
+            if _pid:
+                from evo.main import record_user_feedback
+                _res = record_user_feedback(_pid, "agree" if _adopted else "veto")
+                _out["feedback_adopt"] = {"pattern_id": _pid, "result": str(_res)[:100]}
+                _append_audit("[FEEDBACK-ADOPT] post_tool_batch auto_adopt pattern=" + str(_pid)[:60])
+        except Exception as _e:
+            _out["feedback_adopt"] = {"error": str(_e)[:100]}
+
+        # 3. record_success（条件：有 tool_name，保留原阈值/去重/三重判定）
+        try:
+            _tn = _d.get("tool_name", "")
+            if _tn:
+                _method = _d.get("method", "") or ""
+                _rs_intent = _d.get("intent_summary") or ""
+                _rs_result = _d.get("result_text") or ""
+                _rs_user_negative = _d.get("user_negative")
+                _rs_tool_ok = _d.get("tool_ok")
+                _tn_l = _tn.lower()
+                _readonly = {"ls","dir","get-childitem","echo","write-output","cd","pwd",
+                             "get-location","write-host","cat","type","find","select-string",
+                             "get-content","get-process","get-service","get-date",
+                             "get-item","get-help","get-command","get-alias","get-psdrive",
+                             "measure","sort","where-object","format-table","format-list",
+                             "out-string","write-progress","prompt"}
+                import re as _re
+                if _tn_l in _readonly or _re.match(r"^(ls|dir|echo|cd|pwd|get-|write-host)", _tn_l):
+                    _out["record_success"] = {"action": "skipped_readonly", "tool": _tn}
+                else:
+                    import os as _os_rs, time as _time_rs
+                    _counter_file = _os_rs.path.join(_os_rs.path.dirname(__file__), "..", "var", "state", ".record_success_counter.json")
+                    _cooldown = 300
+                    _now = _time_rs.time()
+                    _counter = {}
+                    if _os_rs.path.exists(_counter_file):
+                        try:
+                            with open(_counter_file, "r", encoding="utf-8") as _f:
+                                _counter = json.load(_f)
+                        except Exception:
+                            _counter = {}
+                    _staging_skip = False
+                    try:
+                        from evo.main import _get_engine as _ge
+                        _pat = _ge().get_pattern_by_id("pat_auto_tool_" + _tn.replace(".", "_") + "_1")
+                        if _pat and getattr(_pat, "lifecycle_status", "") == "staging":
+                            _staging_skip = True
+                    except Exception:
+                        pass
+                    _last = _counter.get(_tn, 0)
+                    if not _staging_skip and _now - _last < _cooldown:
+                        _out["record_success"] = {"action": "skipped_dedup", "tool": _tn}
+                    else:
+                        _counter[_tn] = _now
+                        try:
+                            _os_rs.makedirs(_os_rs.path.dirname(_counter_file), exist_ok=True)
+                            with open(_counter_file, "w", encoding="utf-8") as _f:
+                                json.dump(_counter, _f, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+                        _ok = True
+                        try:
+                            from evo.verdict_anchor import judge_success, intent_consistency_score
+                            _cons = intent_consistency_score(_rs_intent, _rs_result) if (_rs_intent or _rs_result) else None
+                            if _rs_intent or _rs_result or _rs_user_negative is not None:
+                                _tool_ok_v = (True if _rs_tool_ok is None else bool(_rs_tool_ok))
+                                _user_not_neg = None if _rs_user_negative is None else (not bool(_rs_user_negative))
+                                _ok, _reasons = judge_success(_tool_ok_v, _user_not_neg, _cons)
+                                if not _ok:
+                                    _out["record_success"] = {"action": "rejected_triple_anchor", "tool": _tn, "reasons": _reasons}
+                        except Exception:
+                            pass
+                        if _ok:
+                            import contextlib as _cl2, io as _io2
+                            from evo.main import auto_sandwich_trigger
+                            _buf2 = _io2.StringIO()
+                            _safe_method = _sanitize_for_pattern(_method)
+                            with _cl2.redirect_stdout(_buf2):
+                                _rs_res = auto_sandwich_trigger("tool_" + _tn.replace(".", "_"), positive=[_tn], negative=[], method=_safe_method)
+                            _out["record_success"] = {"action": "saved", "tool": _tn}
+                            _out["pair"] = _pair_fail_success(_tn, _method)
+                            _append_audit("攻七 post_tool_batch tool=" + str(_tn)[:60] + " pattern_saved")
+        except Exception as _e:
+            _out["record_success"] = {"error": str(_e)[:100]}
+
+        # 4. closure_close（每次）
+        try:
+            _cid = _d.get("closure", {}).get("item_id", "") or "post_tool_unknown"
+            _csum = _d.get("closure", {}).get("summary", "") or ""
+            _cl = _d.get("closure", {}).get("learnings", []) or []
+            _snap = _d.get("closure", {}).get("snapshot") if isinstance(_d.get("closure", {}).get("snapshot"), dict) else None
+            _cg = get_closure()
+            _cres = _cg.close(_cid, _csum, learnings=_cl, snapshot=_snap)
+            _out["closure"] = {"ok": True, "id": _cid}
+        except Exception as _e:
+            _out["closure"] = {"error": str(_e)[:100]}
+
+        # 5. mindol record（每次；[PERF-C] 合并为单条 save_chat——原 post_tool 与 raw_chat 两次写入，retrieve 全空间覆盖，一次即够）
+        try:
+            from mindol.diegin_integration import save_chat
+            _mt = _d.get("mindol_post_text", "") or ""
+            _rt = _d.get("mindol_raw_chat_text", "") or ""
+            _mc = ""
+            if _mt: _mc += "post_tool: " + _mt[:450]
+            if _rt:
+                if _mc: _mc += " | "
+                _mc += _rt[:450] + " (raw_chat)"
+            if _mc:
+                save_chat(_mc, source="post_tool")
+            _out["mindol"] = {"ok": True}
+        except Exception as _e:
+            _out["mindol"] = {"error": str(_e)[:100]}
+
+        # 6. record_evidence（每次）
+        try:
+            from evo.evidence_vault import EvidenceVault
+            _ev = EvidenceVault()
+            _ectx = _d.get("evidence", {}) or {}
+            _entry = _ev.record(
+                rule_id=_ectx.get("rule_id", "unknown"),
+                verdict=_ectx.get("verdict", "pass"),
+                reason=_ectx.get("reason", ""),
+                source=_ectx.get("source", "post_tool"),
+                context={"detail": _ectx.get("detail", ""), "tool": _ectx.get("rule_id", "")}
+            )
+            _out["evidence"] = {"ok": not _entry.get("rejected", False), "ts": _entry.get("ts", "")}
+        except Exception as _e:
+            _out["evidence"] = {"error": str(_e)[:100]}
+
+        print(json.dumps(_out, ensure_ascii=False, default=str))
+
+    elif mode == "record_success":
+
+        """攻七：记录一次成功的工具调用（带阈值过滤）
+        用法: python call_diegin.py record_success <tool_name> [method]
+        method: 本次成功做法的命令/描述（实质化模式库）
+        阈值: 过滤简单查询、重复保存，只保留有学习价值的操作
+        """
+
+        tool_name = sys.argv[2] if len(sys.argv) > 2 else "unknown"
+        method = sys.argv[3] if len(sys.argv) > 3 else ""
+        _rs_intent = ""
+        _rs_result = ""
+        _rs_user_negative = None
+        _rs_tool_ok = None
+        # v3.6.6 修复：PowerShell 传参会拆分含引号/分号的命令 → 支持 stdin JSON 传 method（无损）
+        if not method and not sys.stdin.isatty():
+            try:
+                _b = sys.stdin.buffer.read()
+                _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+                _in = _decode_stdin_bytes(_b).strip()
+                if _in:
+                    _j = json.loads(_in)
+                    if isinstance(_j, dict):
+                        tool_name = _j.get("tool_name", tool_name) or tool_name
+                        method = _j.get("method", "") or ""
+                        _rs_intent = _j.get("intent_summary") or ""
+                        _rs_result = _j.get("result_text") or ""
+                        _rs_user_negative = _j.get("user_negative")
+                        _rs_tool_ok = _j.get("tool_ok")
+            except Exception:
+                pass
+        _tn = tool_name.lower()
+
+        # 阈值 1: 跳过简单只读操作
+        _readonly = {"ls","dir","get-childitem","echo","write-output","cd","pwd",
+                     "get-location","write-host","cat","type","find","select-string",
+                     "get-content","get-process","get-service","get-date",
+                     "get-item","get-help","get-command","get-alias","get-psdrive",
+                     "measure","sort","where-object","format-table","format-list",
+                     "out-string","write-progress","prompt"}
+        import re as _re
+        if _tn in _readonly or _re.match(r"^(ls|dir|echo|cd|pwd|get-|write-host)", _tn):
+            _r = {"action": "skipped_readonly", "tool": tool_name, "reason": "查询类操作不保存成功模式"}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            sys.exit(0)
+
+        # 阈值 2: 高频去重（同一工具 N 秒内不重复保存）
+        import os as _os, json as _json, time as _time
+        _counter_file = _os.path.join(_os.path.dirname(__file__), "..", "var", "state", ".record_success_counter.json")
+        _cooldown = 300
+        _now = _time.time()
+        _counter = {}
+        if _os.path.exists(_counter_file):
+            try:
+                with open(_counter_file, "r", encoding="utf-8") as _f:
+                    _counter = _json.load(_f)
+            except Exception:
+                _counter = {}
+        # v3.6.3 验证门兼容：staging 模式必须允许重复触发以完成验证（第2次转 active）
+        _staging_skip = False
+        try:
+            from evo.main import _get_engine
+            _pat = _get_engine().get_pattern_by_id("pat_auto_tool_" + tool_name.replace(".", "_") + "_1")
+            if _pat and getattr(_pat, "lifecycle_status", "") == "staging":
+                _staging_skip = True
+        except Exception:
+            pass
+        _last = _counter.get(tool_name, 0)
+        if not _staging_skip and _now - _last < _cooldown:
+            _r = {"action": "skipped_dedup", "tool": tool_name, "reason": "5分钟内已保存过 " + tool_name + " 的模式"}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            sys.exit(0)
+        _counter[tool_name] = _now
+        try:
+            _os.makedirs(_os.path.dirname(_counter_file), exist_ok=True)
+            with open(_counter_file, "w", encoding="utf-8") as _f:
+                _json.dump(_counter, _f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        # 通过阈值：保存成功模式（v3.6.1 带方法内容实质化）
+        # 定稿第一章·成功三重判定：工具成功/用户未不满/意图一致性≥0.7，至少两重。
+        # hook 场景无意图上下文时保持单重兼容（降级：工具成功即记），完整信号时启用三重门。
+        try:
+            from evo.verdict_anchor import judge_success, intent_consistency_score
+            _cons = intent_consistency_score(_rs_intent, _rs_result) if (_rs_intent or _rs_result) else None
+            _ok = True
+            if _rs_intent or _rs_result or _rs_user_negative is not None:
+                _tool_ok = (True if _rs_tool_ok is None else bool(_rs_tool_ok))
+                # user_negative=false → 用户未表示不满意（judge_success 的 user_not_negative 语义）
+                _user_not_neg = None if _rs_user_negative is None else (not bool(_rs_user_negative))
+                _ok, _reasons = judge_success(_tool_ok, _user_not_neg, _cons)
+                if not _ok:
+                    _r = {"action": "rejected_triple_anchor", "tool": tool_name,
+                          "reasons": _reasons, "consistency": _cons}
+                    print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+                    sys.exit(0)
+        except Exception:
+            pass
+
+        from evo.main import auto_sandwich_trigger
+        result = auto_sandwich_trigger("tool_" + tool_name.replace(".", "_"), positive=[tool_name], negative=[], method=method)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    elif mode == "audit_patterns":
+        """攻七质量审计（防再生）：扫描成功模式，空壳自动归档
+        用法: python call_diegin.py audit_patterns
+        空壳判定（与 record_success v3.7 门槛一致）：
+          - decision_logic 为空 / 去空白后 <6 字符 / 含无学习价值词
+          - 或 trigger_condition 与 trigger_scenario 均为空（无触发能力）
+        归档为 archived 而非删除，保留可追溯；幂等，二次运行不重复归档。
+        """
+        try:
+            from evo.main import _get_engine
+            engine = _get_engine()
+            _sp = os.path.join(os.path.dirname(__file__), "evo", "rules", "success_patterns.json")
+            with open(_sp, "r", encoding="utf-8") as _f:
+                patterns = json.load(_f)
+        except Exception as _e:
+            _r = {"action": "error", "error": str(_e)}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+
+        _hollow_words = ("成功完成exit=0", "completedexit=0", "工具成功完成", "unknown")
+        archived_ids = []
+        kept_ids = []
+        for _p in patterns:
+            _pid = _p.get("id", "")
+            _logic = str(_p.get("decision_logic", "") or "").strip()
+            _scene = str(_p.get("trigger_scenario", "") or "").strip()
+            _cond = str(_p.get("trigger_condition", "") or "").strip()
+            _life = _p.get("lifecycle_status", "")
+            _dl_compact = _logic.replace(" ", "").replace("\u3000", "").lower()
+            is_hollow = (len(_dl_compact) < 6) or any(_w in _dl_compact for _w in _hollow_words)
+            if not is_hollow and not _cond and not _scene:
+                is_hollow = True
+            # [L4-防再生] 工具名级伪模式：decision_logic 为纯工具名/标识符且无触发条件 → 视为空壳归档
+            if not is_hollow and not _cond:
+                import re as _are
+                if _logic and len(_logic) <= 40 and not _are.search(r"[\s=;|&>^$()\[\]\{\}:]", _logic) and _logic.replace("_", "").isalnum():
+                    is_hollow = True
+            if not is_hollow:
+                kept_ids.append(_pid)
+                continue
+            if _life == "archived":
+                continue  # 幂等：已归档跳过
+            try:
+                engine.update_pattern(
+                    _pid,
+                    lifecycle_status="archived",
+                    archive_reason="quality_gate_hollow",
+                    archived_at=datetime.now().isoformat(),
+                )
+                archived_ids.append(_pid)
+            except Exception as _e:
+                _append_audit(f"[AUDIT-PATTERNS] 归档失败 {_pid}: {_e}")
+
+        _total = len(patterns)
+        _r = {
+            "action": "audit_patterns",
+            "total": _total,
+            "archived": len(archived_ids),
+            "kept": len(kept_ids),
+            "archived_ids": archived_ids,
+        }
+        print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+        if archived_ids:
+            _append_audit(f"[AUDIT-PATTERNS] 空壳模式归档 archived={len(archived_ids)} total={_total} ids={','.join(archived_ids[:20])}")
+    elif mode == "audit_staging":
+        """举一反三 staging 积压清理（防再生）
+        死亡判定：
+          - 源模式（pat_auto_tool_*）已归档或不存在 → 归档
+          - 创建超 14 天且从未触发 → 归档
+          - 测试残留（TestTool 等）→ 归档
+        有效判定：triggered_count >= 2 → 转 active（回归校验通过）
+        """
+        try:
+            from evo.main import _get_engine
+            import datetime as _dt
+            engine = _get_engine()
+            rules = engine.get_interceptions(active_only=False)
+            staging = [r for r in rules if getattr(r, "lifecycle_status", "") == "staging"]
+            pats = engine.get_patterns(active_only=False)
+            pat_map = {getattr(p, "id", ""): p for p in pats}
+            now = _dt.datetime.now(_dt.timezone.utc)
+            archived = []
+            promoted = []
+            kept = []
+            for r in staging:
+                rid = getattr(r, "id", "")
+                if "testtool" in rid.lower():
+                    engine.update_interception(rid, lifecycle_status="archived",
+                                               archive_reason="staging_test_residue",
+                                               archived_at=now.isoformat())
+                    archived.append(rid)
+                    continue
+                if rid.startswith("pat_rule_pat_auto_tool_"):
+                    src_id = rid[len("pat_rule_"):]
+                    src_pat = pat_map.get(src_id)
+                    if src_pat is None or getattr(src_pat, "lifecycle_status", "") == "archived":
+                        engine.update_interception(rid, lifecycle_status="archived",
+                                                   archive_reason="source_pattern_archived",
+                                                   archived_at=now.isoformat())
+                        archived.append(rid)
+                        continue
+                ca = str(getattr(r, "created_at", "") or "")
+                try:
+                    if ca.endswith("Z"):
+                        ca = ca[:-1] + "+00:00"
+                    created_dt = _dt.datetime.fromisoformat(ca)
+                    if created_dt.tzinfo is None:
+                        created_dt = created_dt.replace(tzinfo=_dt.timezone.utc)
+                    age_days = (now - created_dt).total_seconds() / 86400
+                except Exception:
+                    age_days = 999
+                tc = getattr(r, "triggered_count", 0) or 0
+                if tc >= 2:
+                    engine.update_interception(rid, lifecycle_status="active",
+                                               verified_at=now.isoformat())
+                    promoted.append(rid)
+                elif age_days > 14:
+                    engine.update_interception(rid, lifecycle_status="archived",
+                                               archive_reason="staging_never_triggered_14d",
+                                               archived_at=now.isoformat())
+                    archived.append(rid)
+                else:
+                    kept.append(rid)
+            engine.save_all()
+            try:
+                sq_path = os.path.join(os.path.dirname(__file__), "..", "var", "state", "staging_queue.json")
+                with open(sq_path, "r", encoding="utf-8") as _f:
+                    sq = json.load(_f)
+                if isinstance(sq, list):
+                    sq = [q for q in sq if q.get("id") not in archived]
+                    with open(sq_path, "w", encoding="utf-8") as _f:
+                        json.dump(sq, _f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+            _r = {
+                "action": "audit_staging",
+                "total": len(staging),
+                "archived": len(archived),
+                "promoted": len(promoted),
+                "kept": len(kept),
+                "archived_ids": archived[:30],
+                "promoted_ids": promoted,
+            }
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            if archived:
+                _append_audit("[AUDIT-STAGING] 死亡staging清理 archived=%d promoted=%d kept=%d ids=%s"
+                              % (len(archived), len(promoted), len(kept), ",".join(archived[:20])))
+        except Exception as _e:
+            print(json.dumps({"action": "audit_staging", "error": str(_e)}, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+    elif mode == "audit_evidence":
+        """去伪存真：证据库去假阳性（防再生）
+        将 evidence_filter 批量产生的假 pass（存在≠验证）标记为 skip，
+        保留可追溯（reason 前缀 [伪]），不删除记录。
+        """
+        try:
+            _trail_path = os.path.join(os.path.dirname(__file__), "..", "var", "state", "evidence_trail.json")
+            with open(_trail_path, "r", encoding="utf-8") as _f:
+                trail = json.load(_f)
+            if not isinstance(trail, list):
+                trail = []
+            cleaned = 0
+            for _e in trail:
+                _src = str(_e.get("source", "") or "")
+                _verdict = str(_e.get("verdict", "") or "")
+                _reason = str(_e.get("reason", "") or "")
+                if _src == "evidence_filter" and _verdict == "pass":
+                    _e["verdict"] = "skip"
+                    _e["reason"] = "[伪] 非验证动作（evidence_filter 批量产生），2026-08-05 清理: " + _reason[:120]
+                    cleaned += 1
+            with open(_trail_path, "w", encoding="utf-8") as _f:
+                json.dump(trail, _f, ensure_ascii=False, indent=2)
+            _pass = sum(1 for e in trail if e.get("verdict") == "pass")
+            _skip = sum(1 for e in trail if e.get("verdict") == "skip")
+            _r = {"action": "audit_evidence", "total": len(trail), "cleaned": cleaned,
+                  "pass": _pass, "skip": _skip, "fail": sum(1 for e in trail if e.get("verdict") == "fail")}
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            if cleaned:
+                _append_audit("[AUDIT-EVIDENCE] 假证据清理 cleaned=%d total=%d pass=%d"
+                              % (cleaned, len(trail), _pass))
+        except Exception as _e:
+            print(json.dumps({"action": "audit_evidence", "error": str(_e)}, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+    elif mode == "feedback_adopt":
+        """攻七反馈闭环（Q4）：AI/用户对攻七建议的采纳或否决
+        用法: python call_diegin.py feedback_adopt
+        stdin JSON: {"pattern_id": "...", "adopted": true|false, "reason": "..."}
+          adopted=true  → record_user_feedback(agree)  置信度+0.5
+          adopted=false → record_user_feedback(veto)   置信度×0.7 + override_count
+        由 post_tool 在工具成功时自动调用（推荐→采用→强化闭环）
+        """
+        try:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            _in = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+            _pid = _in.get("pattern_id", "")
+            _adopted = bool(_in.get("adopted", True))
+            _reason = str(_in.get("reason", "") or "")[:120]
+            if not _pid:
+                print(json.dumps({"action": "feedback_adopt", "error": "pattern_id 缺失"}, ensure_ascii=False, indent=2))
+                sys.exit(1)
+            from evo.main import record_user_feedback
+            _res = record_user_feedback(_pid, "agree" if _adopted else "veto")
+            _r = {
+                "action": "feedback_adopt",
+                "pattern_id": _pid,
+                "adopted": _adopted,
+                "feedback_result": _res,
+                "reason": _reason,
+            }
+            print(json.dumps(_r, ensure_ascii=False, indent=2, default=str))
+            _append_audit("[FEEDBACK-ADOPT] %s pattern=%s result=%s %s"
+                          % ("adopted" if _adopted else "vetoed", _pid,
+                             str(_res.get("action", "?")), _reason))
+        except Exception as _e:
+            print(json.dumps({"action": "feedback_adopt", "error": str(_e)}, ensure_ascii=False, indent=2, default=str))
+            sys.exit(1)
+    elif mode == "record_error":
+        """一二不过三：记录并追踪一次错误
+        用法: python call_diegin.py record_error <error_type> [detail] [severity]
+        第1次：自动创建拦截规则
+        第2次：加固规则
+        第3次：写 override.json 强制阻断
+        """
+        if len(sys.argv) > 2:
+            error_type = sys.argv[2]
+            detail = sys.argv[3] if len(sys.argv) > 3 else ""
+            severity = sys.argv[4] if len(sys.argv) > 4 else "high"
+            cmd = sys.argv[5] if len(sys.argv) > 5 else ""
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            _in = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+            error_type = _in.get("error_type", _in.get("type", "unknown"))
+            detail = _in.get("detail", _in.get("error", ""))
+            severity = _in.get("severity", "high")
+            cmd = _in.get("cmd", _in.get("command", ""))
+        # 恒常门联动：工具失败 → 阻塞最近可恢复任务（blocker_report 上报，父任务可决策）
+        try:
+            from evo.main import constancy_recoverable, constancy_block
+            _rec = constancy_recoverable()
+            if _rec:
+                constancy_block(_rec[0]["task_id"],
+                                blocker_report="工具失败: %s (%s)" % (error_type, str(detail)[:200]))
+        except Exception:
+            pass
+        # [P0-20260825] 探测类命令豁免双保险：cmd 或 detail 含探测特征（curl 端口/连通性/状态码探测）
+        # 探测失败是预期结果（如浏览器未开、代理未就绪），不记 strike、不升级、不写 override。
+        try:
+            from evo.error_detector import _is_probe_command
+            _probe_cmd = cmd or detail
+            if "cmd=" in str(_probe_cmd):
+                _probe_cmd = str(_probe_cmd).split("cmd=", 1)[-1]
+            if _is_probe_command(str(_probe_cmd)):
+                _write_recent_failure(error_type, detail, cmd)
+                print(json.dumps({"action": "probe_skip",
+                                  "reason": "探测类命令失败豁免（非 AI 错误，不记 strike）",
+                                  "error_type": error_type}, ensure_ascii=False, indent=2, default=str))
+                sys.exit(0)
+        except Exception:
+            pass
+        result = ensure_three_strikes(error_type, detail, severity)
+        _write_recent_failure(error_type, detail, cmd)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    elif mode == "arbitrate_detail":
+        """去伪存真：完整冲突仲裁详情（带规则冲突分析）
+        用法: echo '<context_json>' | python call_diegin.py arbitrate_detail
+        或: python call_diegin.py arbitrate_detail '<context_json>'
+        返回: 完整冲突集、胜出规则、降级信息、仲裁链路
+        """
+        if len(sys.argv) > 2:
+            raw = sys.argv[2]
+        else:
+            _b = sys.stdin.buffer.read(); _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b; raw = _decode_stdin_bytes(_b).strip()  # [A1] PS管道BOM/GBK编码注入时json.loads崩溃，字节级去BOM+UTF8解码.lstrip("\ufeff")  # [A1] PS管道注入UTF-8 BOM时json.loads崩溃，去BOM
+        ctx = json.loads(raw)
+        rules = get_rules_for_task(ctx)
+        result = arbitrate(rules["interceptions"], rules["patterns"])
+        output = {
+            "matched_interceptions": len(rules["interceptions"]),
+            "matched_patterns": len(rules["patterns"]),
+            "decision": result["decision"],
+            "reason": result["reason"],
+            "winning_rule_id": result.get("winning_rule_id"),
+            "conflict_rules": [
+                {"id": r.id, "severity": getattr(r, "severity", "?"), "reason": getattr(r, "reason", "")}
+                for r in rules["interceptions"]
+            ] if rules["interceptions"] else [],
+            "degradation": result.get("degradation_type", ""),
+        }
+        print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
+
+
+    elif mode == "verify":
+        """去伪存真：一致性验证（跨检查对比）
+        用法: python call_diegin.py verify '<current_check_json>' [last_check_file]
+        比较当前检查结果与上一次检查，检测决策是否反转
+        """
+        import os as _os
+        raw = sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip()
+        current = json.loads(raw) if raw else {}
+        last_file = sys.argv[3] if len(sys.argv) > 3 else _os.path.join(_os.path.dirname(__file__), "..", "var", "state", "last_check_result.json")
+        result = {
+            "current_decision": current.get("decision", "unknown"),
+            "consistency": "first_check",
+            "flip_detected": False,
+        }
+        if _os.path.exists(last_file):
+            try:
+                with open(last_file, "r", encoding="utf-8") as f:
+                    last = json.load(f)
+                prev = last.get("decision", "unknown")
+                curr = current.get("decision", "unknown")
+                if prev != curr:
+                    result["consistency"] = "flipped"
+                    result["flip_detected"] = True
+                    result["previous_decision"] = prev
+                    result["reason"] = f"决策反转: {prev} → {curr}, 需人工确认"
+                else:
+                    result["consistency"] = "consistent"
+            except Exception:
+                pass
+        # 保存当前结果供下次对比
+        try:
+            _os.makedirs(_os.path.dirname(last_file), exist_ok=True)
+            with open(last_file, "w", encoding="utf-8") as f:
+                json.dump(current, f, ensure_ascii=False)
+        except Exception:
+            pass
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+
+
+
+
+
+
+    elif mode == "verify_rules":
+        """去伪存真·验证增强：批量验证规则库质量"""
+        import os as _os_vr, json as _j_vr
+
+        rules_path = _os_vr.path.join(_os_vr.path.dirname(__file__), "evo", "rules", "interception_rules.json")
+        patterns_path = _os_vr.path.join(_os_vr.path.dirname(__file__), "evo", "rules", "success_patterns.json")
+
+        rules = []
+        if _os_vr.path.exists(rules_path):
+            with open(rules_path, "r", encoding="utf-8") as f:
+                rules = _j_vr.load(f)
+
+        patterns = []
+        if _os_vr.path.exists(patterns_path):
+            with open(patterns_path, "r", encoding="utf-8") as f:
+                patterns = _j_vr.load(f)
+
+        checks = {"passed": 0, "warnings": 0, "errors": 0, "items": []}
+
+        # 检查每条拦截规则
+        for rule in rules:
+            rid = rule.get("id", "?")
+            items = []
+
+            # 1. 必须有关键字段
+            if not rule.get("trigger_condition"):
+                items.append({"severity": "error", "msg": f"{rid}: 缺少 trigger_condition"})
+            if not rule.get("action"):
+                items.append({"severity": "error", "msg": f"{rid}: 缺少 action"})
+
+            # 2. 必须有原则归属标签
+            tags = rule.get("tags", [])
+            tag_str = " ".join(tags)
+            principle_tags = [t for t in tags if "principle:" in t]
+            if not principle_tags:
+                # 推断归属
+                lifecycle = rule.get("lifecycle_status", "")
+                source = rule.get("source", "")
+                if lifecycle in ("blocking", "critical") or "self_error" in tag_str:
+                    inferred = "principle:一二不过三"
+                elif lifecycle in ("staging", "cached") or "举一反三" in tag_str:
+                    inferred = "principle:举一反三"
+                elif source == "war_game" or "pattern" in tag_str:
+                    inferred = "principle:攻七"
+                else:
+                    inferred = "principle:守三"
+                items.append({"severity": "warning", "msg": f"{rid}: 缺少principle标签，推断为 {inferred}"})
+
+            # 3. 检查置信度合理性
+            conf = rule.get("confidence", 0)
+            if conf <= 0:
+                items.append({"severity": "error", "msg": f"{rid}: 置信度为0，规则无效"})
+            elif conf < 2.0:
+                items.append({"severity": "warning", "msg": f"{rid}: 置信度过低({conf})，建议降权"})
+
+            # 4. 严重度标签标准
+            sev = rule.get("severity", "")
+            if sev not in ("critical", "high", "medium", "low"):
+                items.append({"severity": "warning", "msg": f"{rid}: 严重度'{sev}'非标准值(critical/high/medium/low)"})
+
+            # 汇总
+            for item in items:
+                if item["severity"] == "error":
+                    checks["errors"] += 1
+                elif item["severity"] == "warning":
+                    checks["warnings"] += 1
+                if item not in checks["items"]:
+                    checks["items"].append(item)
+            if not items:
+                checks["passed"] += 1
+
+        # 检查规则间冲突
+        for i, r1 in enumerate(rules):
+            for r2 in rules[i+1:]:
+                if r1.get("id") == r2.get("id"):
+                    continue
+                c1 = r1.get("trigger_condition", "")
+                c2 = r2.get("trigger_condition", "")
+                a1 = r1.get("action", "")
+                a2 = r2.get("action", "")
+                # 相同触发条件但不同动作 → 潜在冲突
+                if c1 and c2 and c1 == c2 and a1 != a2:
+                    checks["items"].append({
+                        "severity": "warning",
+                        "msg": f"规则冲突: {r1['id']}和{r2['id']} 触发条件相同但动作不同"
+                    })
+                    checks["warnings"] += 1
+
+        result = {
+            "principle": "去伪存真·规则验证",
+            "total_rules": len(rules),
+            "total_patterns": len(patterns),
+            "checks": checks,
+            "health": "good" if checks["errors"] == 0 else "needs_attention",
+        }
+        print(_j_vr.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "generalize_cross_domain":
+
+        """举一反三：跨域泛化"""
+
+        result = generalize_cross_domain()
+
+        print(json.dumps({"created": result}, ensure_ascii=False, indent=2))
+
+
+    elif mode == "generalize_patterns":
+
+        """举一反三：从成功模式泛化为拦截规则"""
+
+        result = generalize_from_patterns()
+
+        print(json.dumps({"created": result}, ensure_ascii=False, indent=2))
+
+
+    elif mode == "pace_check":
+        """缓急律：检查当前任务类型分类"""
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+        pm = get_pacemaker()
+        result = pm.classify(ctx)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "pace_status":
+        """缓急律：查看调度器状态"""
+        pm = get_pacemaker()
+        result = pm.get_status()
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "pace_status":
+        """缓急律：查看调度器状态"""
+        pm = get_pacemaker()
+        result = pm.get_status()
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "closure_open":
+        """止观门：打开一个事项"""
+        item_id = sys.argv[2]
+        desc = sys.argv[3] if len(sys.argv) > 3 else ""
+        cg = get_closure()
+        result = cg.open(item_id, desc)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    elif mode == "closure_close":
+        """止观门：封存一个事项（v3.7 支持 stdin JSON 传 learnings）"""
+        learnings = None
+        if len(sys.argv) > 2:
+            item_id = sys.argv[2]
+            summary = sys.argv[3] if len(sys.argv) > 3 else ""
+            _snap = None
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            _in = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+            item_id = _in.get("item_id", _in.get("id", "unknown"))
+            summary = _in.get("summary", _in.get("description", ""))
+            learnings = _in.get("learnings", None)
+            _snap = _in.get("snapshot") if isinstance(_in.get("snapshot"), dict) else None
+        cg = get_closure()
+        result = cg.close(item_id, summary, learnings=learnings, snapshot=_snap)
+        # 恒常门联动：封存时显式传入 constancy_task_id → 标记恒常门任务完成
+        try:
+            _cid = ""
+            if len(sys.argv) > 2:
+                _cid = sys.argv[4] if len(sys.argv) > 4 else ""
+            else:
+                _cid = _in.get("constancy_task_id", "") or ""
+            if _cid:
+                from evo.main import constancy_complete
+                if constancy_complete(_cid):
+                    result["constancy_completed"] = _cid
+        except Exception:
+            pass
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    elif mode == "closure_status":
+        """止观门：查看封存状态"""
+        cg = get_closure()
+        result = cg.get_status()
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "evidence_status":
+        """去伪存真：查看证据库状态"""
+        try:
+            from evo.main import get_vault
+            v = get_vault()
+            result = v.get_stats()
+        except Exception as e:
+            result = {"error": str(e), "principle": "去伪存真·证据库"}
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "evidence_trail":
+        """去伪存真：查看最近证据链"""
+        try:
+            from evo.main import get_vault
+            v = get_vault()
+            result = {"principle": "去伪存真·证据链", "recent": v.get_recent(15)}
+        except Exception as e:
+            result = {"error": str(e)}
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "generalize":
+
+        """举一反三：从单条或所有规则推导跨场景候选规则"""
+
+        rule_id = sys.argv[2] if len(sys.argv) > 2 else None
+
+        result = generalize_rule(rule_id)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+
+
+    elif mode == "verify_output":
+        """去伪存真·实质验证: python call_diegin.py verify_output "<输出文本>" """
+        from evo.claim_checker import get_checker
+        _text = sys.argv[2] if len(sys.argv) > 2 else sys.stdin.read().strip()
+        print(json.dumps(get_checker().verify_output(_text), ensure_ascii=False, indent=2))
+
+    elif mode == "principle_health":
+        """P2 八原则健康看板"""
+        from evo.main import principle_health
+        print(json.dumps(principle_health(), ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "verify_fix":
+        """①改毕验：确认修复结果
+        用法: python call_diegin.py verify_fix <error_type> <success=true|false> [detail]
+        success=true → 修复成功，经验固化到攻七模式库
+        """
+        error_type = sys.argv[2] if len(sys.argv) > 2 else ""
+        success = (sys.argv[3] if len(sys.argv) > 3 else "true").lower() in ("true", "1", "yes")
+        detail = sys.argv[4] if len(sys.argv) > 4 else ""
+        result = _get_tracker().verify_fix(error_type, success, detail)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "sandwich_legacy":
+
+        """守三攻七复盘（旧版无钩子）：python call_diegin.py sandwich_legacy <task_type> '<pos_json>' '<neg_json>'"""
+
+        task_type = sys.argv[2] if len(sys.argv) > 2 else "general"
+
+        positive = json.loads(sys.argv[3]) if len(sys.argv) > 3 else []
+
+        negative = json.loads(sys.argv[4]) if len(sys.argv) > 4 else []
+
+        result = auto_sandwich(positive, negative, task_type)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "dgen_param_adjust":
+        """运维手册 2.9 · 记录参数调整：python call_diegin.py dgen_param_adjust <what> [reason] [expected_impact]"""
+        if len(sys.argv) < 3:
+            print(json.dumps({"error": "usage: dgen_param_adjust <what> [reason] [expected_impact]"}, ensure_ascii=False))
+        else:
+            _what = sys.argv[2]
+            _reason = sys.argv[3] if len(sys.argv) > 3 else ""
+            _impact = sys.argv[4] if len(sys.argv) > 4 else ""
+            try:
+                print(json.dumps(_get_tracker().record_param_adjustment(_what, _reason, _impact), ensure_ascii=False, indent=2))
+            except Exception as _e:
+                print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "dgen_param_status":
+        """运维手册 2.9 · 参数扰动警告状态"""
+        try:
+            print(json.dumps(_get_tracker().param_adjustment_warning(), ensure_ascii=False, indent=2))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "dgen_escalation_status":
+        """一二不过三·人工介入/静默锁止状态查询"""
+        try:
+            _trk = _get_tracker()
+            _trk.check_human_escalation()
+            print(json.dumps(_trk.get_escalation_status(), ensure_ascii=False, indent=2))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "dgen_human_confirm":
+        """一二不过三·人工介入确认：python call_diegin.py dgen_human_confirm <error_type> [note]"""
+        if len(sys.argv) < 3:
+            print(json.dumps({"error": "usage: dgen_human_confirm <error_type> [note]"}, ensure_ascii=False))
+        else:
+            _et = sys.argv[2]
+            _note = sys.argv[3] if len(sys.argv) > 3 else ""
+            try:
+                print(json.dumps(_get_tracker().human_confirm(_et, _note), ensure_ascii=False, indent=2))
+            except Exception as _e:
+                print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "dgen_check":
+
+        """全量预检：检索+仲裁+归档到MemPalace（一次性完整调用）"""
+
+        ctx = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
+
+        result = pre_check(ctx)
+
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+
+    elif mode == "activate":
+
+        """
+
+        统一接入入口：任何对话中执行此命令实现迭进接入。
+
+        效果：加载规则库   健康检查   输出接入摘要
+
+        """
+
+        from evo.main import self_check
+
+        from datetime import datetime
+
+        
+
+        # 加载并自检
+
+        check_ok = self_check()
+
+        import io
+
+        _old_stdout, sys.stdout = sys.stdout, io.StringIO()
+
+        health = system_health()
+
+        sys.stdout = _old_stdout
+
+        
+
+        # 组装接入报告
+
+        report = {
+
+            "status": "activated" if check_ok else "failed",
+
+            "activated_at": datetime.now().isoformat(),
+
+            "engine": "迭进-diegin",
+
+            "interception_rules": health.get("interception_rules", 0),
+
+            "success_patterns": health.get("success_patterns", 0),
+
+            "meta_experiences": health.get("meta_experiences", 0),
+
+            "precedents": health.get("precedents", 0),
+
+            "health_summary": health,
+
+            "note": "迭进已就绪。使用规则: 守三攻七+一二不过三+三态反馈"
+
+        }
+
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    elif mode == "analyze":
+        """Analyze tool execution result and record strikes (post-tool analysis)"""
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+        tool_name = ctx.get("tool_name", ctx.get("tool", ""))
+        exit_code = ctx.get("exit_code", ctx.get("exit", 0))
+        cmd = ctx.get("cmd", ctx.get("command", ""))
+        error_out = ctx.get("error", ctx.get("stderr", ctx.get("err", "")))
+        stdout_out = ctx.get("stdout", ctx.get("out", ""))
+
+        if tool_name in ("Bash", "PowerShell", "Shell", "cmd"):
+            op = "cmd"
+        elif "git" in tool_name.lower() or "git" in cmd.lower():
+            op = "git_push"
+        elif tool_name in ("FileWrite", "file_write", "write"):
+            op = "file_write"
+        else:
+            op = "cmd"
+
+        if exit_code == 0 and not error_out:
+            result = {"action": "skip", "reason": "no error"}
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        else:
+            detect_ctx = {
+                "op": op, "cmd": cmd, "exit": exit_code,
+                "out": stdout_out, "err": error_out,
+                "dur": ctx.get("dur", ctx.get("duration", 0)),
+                "path": ctx.get("path", ctx.get("file", "")),
+            }
+            detector = ErrorDetector()  # Uses singleton tracker
+            result = detector.detect_and_record(detect_ctx)
+            print(json.dumps(result or {}, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "record_error":
+        """Record a self-detected error for one-two-no-three tracking"""
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+        error_type = ctx.get("error_type", ctx.get("type", "unknown"))
+        detail = ctx.get("detail", ctx.get("error", ""))
+        severity = ctx.get("severity", "high")
+        result = ensure_three_strikes(error_type, detail, severity)
+        print(json.dumps(result or {}, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "generate_fix":
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+        error_type = ctx.get("error_type", ctx.get("type", ctx.get("detected_type", "unknown")))
+        detail = ctx.get("detail", ctx.get("error", ""))
+        severity = ctx.get("severity", "high")
+        cmd = ctx.get("cmd", ctx.get("command", ""))
+        tool_name = ctx.get("tool_name", ctx.get("tool", ""))
+
+        strike_result = ensure_three_strikes(error_type, detail, severity)
+
+        fix_suggestion = {}
+        fix_suggestion["error_type"] = error_type
+        fix_suggestion["detail"] = detail
+        fix_suggestion["severity"] = severity
+        fix_suggestion["strike_action"] = strike_result.get("action", "recorded")
+        fix_suggestion["fix_available"] = False
+
+        if "encoding" in error_type.lower() or "encode" in detail.lower():
+            fix_suggestion["fix_available"] = True
+            fix_suggestion["fix_type"] = "encoding"
+            fix_suggestion["fix_instruction"] = ('在文件写入操作中显式指定 encoding="utf-8" 参数, '
+                                                  "避免系统默认编码导致的 UnicodeEncodeError")
+            fix_suggestion["verify_steps"] = ["检查 exit_code=0", "检查输出无乱码"]
+
+        elif "command" in error_type.lower() or "syntax" in detail.lower():
+            fix_suggestion["fix_available"] = True
+            fix_suggestion["fix_type"] = "command_syntax"
+            if cmd:
+                fix_suggestion["fix_instruction"] = "命令语法可能存在问题: " + cmd[:100]
+            else:
+                fix_suggestion["fix_instruction"] = "检查命令语法、参数路径、环境依赖是否正确"
+            fix_suggestion["verify_steps"] = ["检查 exit_code=0", "验证输出符合预期"]
+
+        elif "timeout" in error_type.lower() or "timeout" in detail.lower():
+            fix_suggestion["fix_available"] = True
+            fix_suggestion["fix_type"] = "timeout"
+            fix_suggestion["fix_instruction"] = "操作超时，建议增加超时时间、分步骤执行或改用异步方式"
+            fix_suggestion["verify_steps"] = ["重新执行并检查是否完成"]
+
+        elif "git" in error_type.lower() or "git" in tool_name.lower():
+            fix_suggestion["fix_available"] = True
+            fix_suggestion["fix_type"] = "git"
+            fix_suggestion["fix_instruction"] = "Git操作失败，建议检查网络连接、认证信息、远程仓库状态"
+            fix_suggestion["verify_steps"] = ["检查 git remote -v", "检查认证状态", "重新尝试"]
+
+        else:
+            fix_suggestion["fix_instruction"] = "检测到错误: " + detail[:100] + "，建议检查操作参数和环境配置"
+            fix_suggestion["verify_steps"] = ["分析错误日志", "修正参数后重试"]
+
+        output = {
+            "fix": fix_suggestion,
+            "strike": strike_result,
+            "principle": "一二不过三·立改",
+            "note": "fix_instruction 包含建议的修复操作，执行后请调用 verify_fix 验证"
+        }
+        print(json.dumps(output, ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "verify_fix":
+        if len(sys.argv) > 2:
+            ctx = json.loads(sys.argv[2])
+        else:
+            _b = sys.stdin.buffer.read()
+            _b = _b[3:] if _b.startswith(b"\xef\xbb\xbf") else _b
+            ctx = json.loads(_decode_stdin_bytes(_b).strip() or "{}")
+        error_type = ctx.get("error_type", "unknown")
+        fix_exit_code = ctx.get("exit_code", ctx.get("exit", -1))
+        fix_error = ctx.get("error", ctx.get("err", ""))
+
+        verified = fix_exit_code == 0 and not fix_error
+        result = {
+            "error_type": error_type,
+            "verified": verified,
+            "exit_code": fix_exit_code,
+            "detail": "修复验证通过" if verified else "修复验证失败: exit=" + str(fix_exit_code),
+            "principle": "一二不过三·改毕验",
+        }
+
+        if verified:
+            result["reset_strike"] = True
+            result["success_pattern_eligible"] = True
+            result["next_step"] = "修复成功，可纳入攻七成功模式"
+        else:
+            result["reset_strike"] = False
+            result["next_step"] = "修复失败，请检查 fix_instruction 后重试，或进入第2次阻断流程"
+
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    elif mode == "deep_review":
+        """守三·深度复盘：系统性回顾 strike 日志并生成改进建议（只读报告，不写规则库）"""
+        print(json.dumps(_build_deep_review_report(), ensure_ascii=False, indent=2, default=str))
+
+    elif mode == "deep_review_stage":
+        """守三·深度复盘写侧·自动生成 staging 候选（幂等，不写 override；应急触发时已自动执行）
+        用法: python call_diegin.py deep_review_stage"""
+        try:
+            print(json.dumps(stage_deep_review_candidates(), ensure_ascii=False, indent=2, default=str))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "deep_review_apply":
+        """守三·深度复盘写侧·人工一步确认：把 staging 候选写入 override
+        用法: python call_diegin.py deep_review_apply            # 只读列出待确认候选
+              python call_diegin.py deep_review_apply --confirm  # 确认应用（转 active）"""
+        _confirm = "--confirm" in sys.argv
+        try:
+            print(json.dumps(apply_deep_review_staging(confirm=_confirm), ensure_ascii=False, indent=2, default=str))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}, ensure_ascii=False, indent=2))
+
+    elif mode == "audit":
+
+        """迭进标准审核：一键执行全部检查
+        用法: python call_diegin.py audit
+        输出: 守三/攻七/一二不过三/举一反三/去伪存真 全维度状态
+        """
+        import os as _oa, json as _ja, datetime as _da
+        _base = _oa.path.dirname(_oa.path.dirname(__file__))
+
+        _s = lambda x: chr(0x2705) if x else chr(0x274C)
+        _w = lambda x: chr(0x26A0) + " " + x if x else ""
+
+        print("=" * 56)
+        print("  迭进 (Diegin) 标准审核报告")
+        print("  " + _da.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        print("=" * 56)
+
+        # ── 1. 守三：规则库 ──
+        _rf = _oa.path.join(_base, "engine", "evo", "rules", "interception_rules.json")
+        _rules = []
+        if _oa.path.exists(_rf):
+            with open(_rf, "r", encoding="utf-8") as _f:
+                _rules = _ja.load(_f)
+        _total = len(_rules)
+        _active = sum(1 for r in _rules if r.get("lifecycle_status") == "active")
+        _critical = sum(1 for r in _rules if r.get("severity") == "critical" and r.get("lifecycle_status") == "active")
+        _staging = sum(1 for r in _rules if r.get("lifecycle_status") == "staging")
+        _deprecating = sum(1 for r in _rules if r.get("lifecycle_status") == "deprecating")
+        _alerting = sum(1 for r in _rules if r.get("lifecycle_status") == "alerting")
+        _blocking = sum(1 for r in _rules if r.get("lifecycle_status") == "blocking")
+        print(f"\n{_s(_active > 0)} 守三（拦截规则）")
+        print(f"    活跃: {_active} | critical: {_critical} | staging: {_staging}")
+        print(f"    降权: {_deprecating} | 告警: {_alerting} | 阻断: {_blocking} | 总计: {_total}")
+
+        # ── 2. 攻七：成功模式 ──
+        _sf = _oa.path.join(_base, "var", "state", "success_patterns.json")
+        if not _oa.path.exists(_sf):
+            _sf = _oa.path.join(_base, "engine", "evo", "rules", "success_patterns.json")
+        _patterns = []
+        if _oa.path.exists(_sf):
+            with open(_sf, "r", encoding="utf-8") as _f:
+                _patterns = _ja.load(_f)
+        _pat_auto = sum(1 for p in _patterns if isinstance(p, dict) and p.get('source') == 'auto_detect')
+        _pat_active = sum(1 for p in _patterns if isinstance(p, dict) and p.get('lifecycle_status') == 'active')
+        print(f"\n{_s(len(_patterns) > 0)} 攻七（成功模式）")
+        print(f"    总数: {len(_patterns)} | 活跃: {_pat_active} | 自动: {_pat_auto}")
+
+        # ── 3. 一二不过三：错误追踪 ──
+        _stf = _oa.path.join(_base, "var", "state", "strikes_db.json")
+        _strikes = {}
+        if _oa.path.exists(_stf):
+            with open(_stf, "r", encoding="utf-8") as _f:
+                _strikes = _ja.load(_f)
+        # v3.8.3: 与 principle_health 同口径——fix_status=verified 视为已修复闭环，不列为待干预
+        from evo.main import audit_strike_summary as _strike_summary
+        _ss = _strike_summary(_strikes)
+        _pending_count = len(_ss["pending_high"]) + len(_ss["pending_warn"]) + len(_ss["pending_ok"])
+        print(f"\n{_s(_pending_count == 0)} 一二不过三（错误追踪）")
+        if _ss["total"] == 0:
+            print(f"    {chr(0x2705)} 无错误记录")
+        else:
+            for _k in _ss["pending_high"]:
+                print(f"    {chr(0x274C)} {_k['error_type']}: {_k['count']}次 {_w('已达阈值')}")
+            for _k in _ss["pending_warn"]:
+                print(f"    {chr(0x26A0)} {_k['error_type']}: {_k['count']}次（下一次将触发阻断）")
+            for _k in _ss["pending_ok"]:
+                print(f"    {chr(0x1F514)} {_k['error_type']}: {_k['count']}次")
+            for _k in _ss["verified"]:
+                print(f"    {chr(0x2705)} {_k['error_type']}: {_k['count']}次（已修复 verified，闭环不干预）")
+
+        # breach 日志
+        _blf = _oa.path.join(_base, "var", "state", "dgen_breach_log.json")
+        if _oa.path.exists(_blf):
+            with open(_blf, "r", encoding="utf-8") as _f:
+                _breach = _ja.load(_f)
+            if _breach:
+                print(f"    {chr(0x26A0)} Breach 记录: {len(_breach)} 条")
+                for _b in _breach[-3:]:
+                    print(f"      {_b.get('error_type','?')} (strike={_b.get('strike','?')})")
+
+        # 阻断文件
+        _ovf = _oa.path.join(_base, "var", "state", "dgen_override.json")
+        if _oa.path.exists(_ovf):
+            with open(_ovf, "r", encoding="utf-8") as _f:
+                _ov = _ja.load(_f)
+            if _ov.get("blocked_error_type"):
+                print(f"    {chr(0x26A0)} 当前阻断: {_ov['blocked_error_type']} ({_ov.get('strike_count',0)}次)")
+
+        # ── 4. 举一反三 ──
+        _xdomain = sum(1 for r in _rules if "xdomain_" in r.get("id", "") and r.get("lifecycle_status") == "active")
+        _pat_rules = sum(1 for r in _rules if "pat_rule_" in r.get("id", "") and r.get("lifecycle_status") == "active")
+        print(f"\n{_s(_xdomain > 0 or _staging > 0)} 举一反三（泛化）")
+        print(f"    跨域规则: {_xdomain} | 模式派生规则: {_pat_rules} | staging: {_staging}")
+
+        # ── 5. 引擎健康度 ──
+        print(f"\n--- 引擎健康度 ---")
+        try:
+            from evo.main import _get_engine
+            _eng = _get_engine()
+            _all_r = _eng.get_interceptions(active_only=False)
+            _all_p = _eng.get_patterns(active_only=False)
+            print(f"    规则: {len(_all_r)} | 模式: {len(_all_p)}")
+        except Exception as _ee:
+            print(f"    引擎加载失败: {_ee}")
+
+        # ── 6. 去伪存真 ──
+        # v3.8.3: 证据库统一走 get_vault（修复 audit 读 var/state 错误路径恒显 0 条）
+        _total_v = 0
+        _recent = []
+        _vault_err = ""
+        try:
+            from evo.main import get_vault
+            _vault = get_vault()
+            _vs = _vault.get_stats() if hasattr(_vault, "get_stats") else {}
+            _total_v = _vs.get("total_verdicts", 0) or 0
+            if hasattr(_vault, "get_recent"):
+                _recent = _vault.get_recent(5)
+        except Exception as _ve:
+            _total_v = -1
+            _vault_err = str(_ve)[:80]
+        print(f"\n{_s(_total_v > 0)} 去伪存真（证据链）")
+        if _total_v < 0:
+            print(f"    证据库加载失败: {_vault_err}")
+        else:
+            print(f"    裁决记录: {_total_v} 条")
+            for _e in _recent:
+                print(f"    {_e.get('ts','?')[:16]} | {_e.get('verdict','?'):8s} | {_e.get('reason','')[:50]}")
+
+        # ── 7. 缓急律 ──
+        print(f"\n--- 缓急律（节奏门）---")
+        try:
+            from evo.main import get_pacemaker
+            _pm = get_pacemaker()
+            _ps = _pm.get_status()
+            print(f"    宕机时段: {_ps.get('downtime',{}).get('start','?')}-{_ps.get('downtime',{}).get('end','?')}")
+            print(f"    当前{'在' if _ps.get('downtime',{}).get('active_now') else '不在'}宕机时段")
+            print(f"    DS高峰时段: {' / '.join(_ps.get('ds_peak',{}).get('windows',[]) or ['未配置'])}")
+            print(f"    当前{'在' if _ps.get('ds_peak',{}).get('active_now') else '不在'}DS高峰(该省则省)")
+        except Exception:
+            print(f"    未加载")
+
+        # ── 8. 止观门 ──
+        print(f"\n--- 止观门（完形律）---")
+        try:
+            from evo.main import get_closure
+            _cg = get_closure()
+            _cs = _cg.get_status()
+            print(f"    已封存: {_cs.get('closed_items',0)} 项 | 进行中: {_cs.get('open_items',0)} 项")
+        except Exception:
+            print(f"    未加载")
+
+        # ── 9. 会话阶段 ──
+        _psf = _oa.path.join(_base, "var", "state", "phase_state.json")
+        if _oa.path.exists(_psf):
+            with open(_psf, "r", encoding="utf-8") as _f:
+                _phase = _ja.load(_f)
+            _phases = _phase.get("phases", {})
+            print(f"\n--- 会话阶段 ---")
+            for _pn, _ps2 in _phases.items():
+                _st = _ps2.get("status", "?")
+                _ts = _ps2.get("ts", "")[:19] if _ps2.get("ts") else ""
+                _icon = chr(0x2705) if _st == "passed" or _st == "completed" else chr(0x26A0) if "block" in str(_st) else chr(0x1F7E1)
+                print(f"    {_icon} {_pn}: {_st} ({_ts})")
+
+        # ── 10. Mindol 记忆 ──
+        _mdb = _oa.path.join(_oa.environ.get("CODEX_HOME", _oa.path.expanduser("~/.codex")), "mindol", "memory.db")
+        print(f"\n--- Mindol 语义记忆 ---")
+        if _oa.path.exists(_mdb):
+            _mb = _oa.path.getsize(_mdb)
+            print(f"    记忆库: {_mb / 1024:.0f} KB")
+        else:
+            print(f"    未找到记忆库")
+        try:
+            _mp = _oa.path.join(_base, "engine", "mindol_bridge.py")
+            if _oa.path.exists(_mp):
+                import subprocess as _sb
+                _mr = _sb.run([sys.executable, _mp, "stats"], capture_output=True, text=True, timeout=5)
+                if _mr.stdout.strip():
+                    print(f"    空间: {_mr.stdout.strip()}")
+        except Exception:
+            pass
+
+        # ── 总结 ──
+        _issues = []
+        if _ss['pending_high']:
+            _issues.append('{} 个错误类型已达阈值'.format(len(_ss['pending_high'])))
+        if _alerting > 0:
+            _issues.append(f"{_alerting} 条告警规则")
+        if _blocking > 0:
+            _issues.append(f"{_blocking} 条阻断规则")
+        if _breach:
+            _issues.append(f"{len(_breach)} 条 breach 记录")
+        print(f"\n{'=' * 56}")
+        if _issues:
+            print(f"  {chr(0x26A0)} 发现 {len(_issues)} 个问题:")
+            for _iss in _issues:
+                print(f"    - {_iss}")
+        else:
+            print(f"  {chr(0x2705)} 系统健康，无异常")
+        print(f"{'=' * 56}")

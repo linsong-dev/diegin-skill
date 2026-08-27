@@ -1,0 +1,121 @@
+{
+  "snapshot_date": "2026-08-25",
+  "articles": [
+    {
+      "id": "art1",
+      "title": "AI Agent 为什么总重复犯错？",
+      "platforms": {
+        "juejin": {
+          "url": "https://juejin.cn/post/7676110932394442795",
+          "published": "2026-08-21",
+          "views": 118,
+          "likes": null,
+          "favorites": null,
+          "comments": 0
+        },
+        "csdn": {
+          "url": "https://blog.csdn.net/Diengin_AI/article/details/163948570",
+          "published": "2026-08-21",
+          "views": 446,
+          "likes": 5,
+          "favorites": 9,
+          "comments": 0
+        },
+        "zhihu": {
+          "url": "https://zhuanlan.zhihu.com/p/2074169044219990947",
+          "published": "2026-08-22",
+          "views": 18,
+          "likes": 0,
+          "favorites": 0,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": "art2",
+      "title": "迭进如何修复了它自己",
+      "platforms": {
+        "juejin": {
+          "url": "https://juejin.cn/post/7676809743765438470",
+          "published": "2026-08-24",
+          "views": 4,
+          "likes": null,
+          "favorites": null,
+          "comments": 0
+        },
+        "csdn": {
+          "url": "https://blog.csdn.net/Diengin_AI/article/details/164012777",
+          "published": "2026-08-24",
+          "views": 281,
+          "likes": 11,
+          "favorites": 6,
+          "comments": 0
+        },
+        "zhihu": {
+          "url": "https://zhuanlan.zhihu.com/p/2075178512844173420",
+          "published": "2026-08-24",
+          "views": 1,
+          "likes": 0,
+          "favorites": 0,
+          "comments": 0
+        }
+      }
+    },
+    {
+      "id": "art4",
+      "title": "DeepSeek 读《迭进 · 律令九章》",
+      "platforms": {
+        "juejin": {
+          "url": "https://juejin.cn/post/7677583249486020618",
+          "published": "2026-08-25",
+          "views": 10,
+          "likes": null,
+          "favorites": null,
+          "comments": 0
+        },
+        "csdn": {
+          "url": "https://blog.csdn.net/Diengin_AI/article/details/164052902",
+          "published": "2026-08-25",
+          "views": 17,
+          "likes": 1,
+          "favorites": 0,
+          "comments": 0
+        },
+        "zhihu": {
+          "url": "https://zhuanlan.zhihu.com/p/2075568790721521390",
+          "published": "2026-08-25",
+          "views": 6,
+          "likes": 0,
+          "favorites": 0,
+          "comments": 0
+        }
+      }
+    }
+  ],
+  "accounts": {
+    "csdn": {
+      "total_views": 744,
+      "likes": 17,
+      "favorites": 15,
+      "comments": 0,
+      "followers": 0
+    },
+    "juejin": {
+      "total_views": 132,
+      "followers": 0,
+      "juejin_power": 20
+    },
+    "zhihu": {
+      "creation_score": 300,
+      "level": 2,
+      "followers": 0
+    }
+  },
+  "notes": [
+    "CSDN 数据与账号累计吻合，可信",
+    "掘金点赞/收藏公开页需 hover，基线暂缺",
+    "CSDN 收藏率 ~2%（篇一2.0%/篇二2.2%）",
+    "2026-08-25 三篇三平台全文更新完成（优化版正文 + 当日数据）",
+    "更新后 CSDN 阅读：篇一446/篇二281/篇四17；掘金：118/4/10"
+  ]
+}

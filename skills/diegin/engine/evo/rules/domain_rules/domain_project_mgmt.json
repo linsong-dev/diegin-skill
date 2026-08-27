@@ -1,0 +1,78 @@
+[
+  {
+    "id": "domain_pm_status_reason",
+    "name": "状态变更须附原因",
+    "description": "任务状态从进行中→完成/阻塞时必须记录变更原因",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == project AND status_changed_to(completed|blocked) AND reason == none",
+    "action": "require_reason",
+    "tags": ["domain_pm", "traceability"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "标记任务完成或阻塞但未说明原因",
+      "expected": "状态变更附一句原因：'已完成因...' / '阻塞因...'"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:project_mgmt",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  },
+  {
+    "id": "domain_pm_delay_escalation",
+    "name": "连续延期升级通知",
+    "description": "同一任务连续延期 3 次时自动升级通知用户或负责人",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "task_delayed_count >= 3 AND escalation_sent == false",
+    "action": "require_escalation",
+    "tags": ["domain_pm", "一二不过三"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "检测到同一任务第 3 次延期",
+      "expected": "输出升级通知：该任务已连续3次延期，建议重新评估时间线"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:project_mgmt",
+    "lifecycle_status": "active",
+    "confidence": 4.5
+  },
+  {
+    "id": "domain_pm_decision_record",
+    "name": "关键决策记录备选方案",
+    "description": "做出关键决策时必须记录被否决的备选方案和理由",
+    "severity": "medium",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == decision AND alternatives_documented == false",
+    "action": "require_alternatives",
+    "tags": ["domain_pm", "traceability"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "做出重要决策但未提及被排除的备选方案",
+      "expected": "列出至少 2 个备选方案及排除理由"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:project_mgmt",
+    "lifecycle_status": "active",
+    "confidence": 3.5
+  },
+  {
+    "id": "domain_pm_scope_check",
+    "name": "需求范围确认",
+    "description": "接新需求前必须先确认范围，避免 scope creep",
+    "severity": "high",
+    "scope": "pre_reply",
+    "trigger_condition": "task_type == requirement AND scope_confirmed == false",
+    "action": "escalate",
+    "tags": ["domain_pm", "守三"],
+    "auto_fix": false,
+    "logic": {
+      "detect": "用户提出新需求但未确认边界",
+      "expected": "反问确认：'具体范围是什么？截止时间？'"
+    },
+    "created_at": "2026-07-19",
+    "source": "domain:project_mgmt",
+    "lifecycle_status": "active",
+    "confidence": 4.0
+  }
+]
