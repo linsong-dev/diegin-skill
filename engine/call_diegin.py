@@ -997,10 +997,19 @@ def pre_check(context: dict) -> dict:
                        constancy_state=constancy_recovery)
     _arb_elapsed = _arb_t.time() - _arb_start
     decision_elapsed_ms = round(_arb_elapsed * 1000, 1)
-    # 运维手册 2.3 · 决策超时熔断：衡步骤耗时>2秒 → 标记降级为 P0-P3 快速通道（本次仅提示，不重算）
+    # 运维手册 2.3 · 决策超时熔断：衡步骤耗时>2秒 → 强制降级为 P0-P3 快速通道（重算，跳过 P6/P4 微调）
     if _arb_elapsed > 2.0:
         decision_timeout = True
-        _append_audit("[DECISION-TIMEOUT] 衡耗时 %.1fs > 2s，建议采用 P0-P3 快速通道" % _arb_elapsed)
+        _append_audit("[DECISION-TIMEOUT] 衡耗时 %.1fs > 2s，强制降级 P0-P3 快速通道" % _arb_elapsed)
+        try:
+            _fast = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
+                              closure_state=closure_state, pace_channel=pace_result, context=context,
+                              constancy_state=constancy_recovery, fast_path=True)
+            _fast["timeout_fast_path"] = True
+            result = _fast
+            _append_audit("[DECISION-TIMEOUT] 快速通道重算完成，裁决=%s" % result.get("decision"))
+        except Exception as _e:
+            _append_audit("[DECISION-TIMEOUT] 快速通道重算失败，沿用完整裁决: %s" % str(_e)[:120])
 
     # ========== v3.6: 命中计数打通（守三/攻七真实统计，供一二不过三升级与 auto_promote） ==========
     try:

@@ -1291,7 +1291,8 @@ def arbitrate(interceptions: List[InterceptionRule],
               closure_state: Optional[Dict] = None,
               pace_channel: Optional[Dict] = None,
               context: Optional[Dict] = None,
-              constancy_state: Optional[Dict] = None) -> Dict[str, Any]:
+              constancy_state: Optional[Dict] = None,
+              fast_path: bool = False) -> Dict[str, Any]:
 
 
     """冲突仲裁 — 使用 arbiter.to_display() 对齐 AGENTS.md 裁决格式"""
@@ -1305,7 +1306,8 @@ def arbitrate(interceptions: List[InterceptionRule],
 
     result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits,
                                 closure_state=closure_state, pace_channel=pace_channel,
-                                context=context, constancy_state=constancy_state)
+                                context=context, constancy_state=constancy_state,
+                                fast_path=fast_path)
 
 
     display = arbiter_obj.to_display(result)

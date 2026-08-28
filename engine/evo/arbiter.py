@@ -171,7 +171,7 @@ class ConflictArbiter:
 
     def resolve(self, interceptions, patterns, mindol_hits=None,
                 closure_state=None, pace_channel=None, context=None,
-                constancy_state=None):
+                constancy_state=None, fast_path: bool = False):
         """
         九章原则网络仲裁 · 按预策律P0-P6优先级（2026-08-12 律令九章定稿）
 
@@ -359,13 +359,15 @@ class ConflictArbiter:
             )
 
         # ⭐ P6: 语义记忆权重（历史经验 → 规则置信度微调，仅本次仲裁）⭐
-        memory_note = self._apply_memory_weight(active_interceptions, patterns, mindol_hits)
+        # 运维手册 2.3 决策超时熔断：fast_path 仅 P0-P3 + 严重度兜底，跳过 P6/P4 微调
+        _fast_tag = " [快速通道|决策超时熔断]" if fast_path else ""
+        memory_note = self._apply_memory_weight(active_interceptions, patterns, mindol_hits) if not fast_path else ""
 
         # ⭐ P4: 守三 vs 攻七 置信度裁决 ⭐
         patterns = patterns or []
         active_patterns = [p for p in patterns if getattr(p, "lifecycle_status", "active") == "active"]
 
-        if active_patterns and groups["守三"]:
+        if (not fast_path) and active_patterns and groups["守三"]:
             best_interception = max(groups["守三"], key=lambda x: self._conf(x))
             best_pattern = max(active_patterns, key=lambda x: self._conf(x))
             int_conf = self._conf(best_interception)
@@ -480,25 +482,25 @@ class ConflictArbiter:
                 return ArbitrationResult(
                     decision=ResolutionType.BLOCK,
                     winning_rule=high_rules[0],
-                    reason=f"高严重度规则触发: {high_rules[0].id}" + (f" | P6记忆: {memory_note}" if memory_note else "")
+                    reason=f"高严重度规则触发: {high_rules[0].id}" + (f" | P6记忆: {memory_note}" if memory_note else "") + _fast_tag
                 )
             if _non_block_only:
                 return ArbitrationResult(
                     decision=ResolutionType.ALLOW,
                     winning_rule=_non_block_only[0],
-                    reason=f"验证/报告类规则触发(不阻断): {_non_block_only[0].id}"
+                    reason=f"验证/报告类规则触发(不阻断): {_non_block_only[0].id}" + _fast_tag
                 )
             if "medium" in severities:
                 med_rules = [r for r in active_interceptions if getattr(r, "severity", "") == "medium"]
                 return ArbitrationResult(
                     decision=ResolutionType.ESCALATE,
                     winning_rule=med_rules[0],
-                    reason=f"中严重度规则触发: {med_rules[0].id}，需确认后执行"
+                    reason=f"中严重度规则触发: {med_rules[0].id}，需确认后执行" + _fast_tag
                 )
             return ArbitrationResult(
                 decision=ResolutionType.ALLOW,
                 winning_rule=active_interceptions[0],
-                reason=f"低严重度规则触发: {active_interceptions[0].id}，不影响执行"
+                reason=f"低严重度规则触发: {active_interceptions[0].id}，不影响执行" + _fast_tag
             )
 
         return ArbitrationResult(

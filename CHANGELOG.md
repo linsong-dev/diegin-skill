@@ -1,5 +1,12 @@
 # Changelog · Diegin 迭进
 
+## 3.9.11+ L2 决策超时熔断 (2026-08-28)
+
+- feat: 运维手册 2.3 决策超时熔断落地——`engine/evo/arbiter.py` resolve() 增加 fast_path 参数（跳过 P6/P4 微调，仅 P0-P3 + 严重度兜底）；`engine/evo/main.py` arbitrate() 增加 fast_path 透传；`engine/call_diegin.py` 衡步骤耗时 >2s 强制 fast_path 重算并覆盖裁决，失败回退沿用完整裁决，审计记录降级与重算结果
+- docs: `references/迭进复核报告_2026-08-28.md` 更新 2.3 状态 ⚠️部分 → ✅ 已落地（L2 锚点 22/22）；审计日志追加落地记录
+- 范围: L2 数字锚点微调，不涉及 L1；边界声明：L1 九项机制仍为「待人工确认」，未触碰引擎
+- 验证: py_compile 通过，test_all.py 33/33 通过
+
 ## 3.9.11 (2026-08-27)
 
 - fix: 一二不过三误报链收口——post_tool 错误判定两处修复（P0-20260827）：① stderr/error 字段不再无条件触发 analyze，仅 exit≠0 认定（与 08-25 truncated 豁免同口径，exit 缺失且 stderr 非空仍兼容）；② analyze 结果匹配改精确 `"error":`，消除正常 JSON 输出（含 error_type 字段名）误判
