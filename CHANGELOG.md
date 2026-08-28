@@ -1,5 +1,14 @@
 # Changelog · Diegin 迭进
 
+## 3.9.11+ TOKEN 极速消耗治理 (2026-08-28)
+
+- fix: Mindol 联想/检索注入噪声过滤（TOKEN 治理）——联想注入剔除 strike 原始 JSON（含完整命令文本/转义路径的自动配对规则），JSON 规则体提取可读 name 后注入；检索注入过滤 post_tool 命令转储；实测 display_text 834 → 680 字符，垃圾联想不再进入每轮上下文
+- fix: 恒常门快照归档接线——run_maintenance() 每日执行 archive_old_snapshots（最近 30 全量快照，更早压缩进冷存储指针，防 constancy_tasks.json 无限膨胀）；本次一次性归档 466 条，主文件 530KB → 282KB（冷存储 436KB）
+- chore: Mindol 代谢衰减执行（22043 单元，v3.7.2 设计机制）
+- perf: pre_tool 攻七建议注入瘦身（最多 2 条，name≤40/decision≤60 字符），降低转录膨胀
+- 验证: py_compile 通过；test_all.py 33/33 通过；联想/检索/恒常门冒烟通过；四副本同步
+- 边界: 仅收敛注入面与存储，不改变裁决逻辑；检索裁决（P6）输入保持原样
+
 ## 3.9.11+ 自照镜报告机制 · L1 前置地基 (2026-08-28)
 
 - feat: 第一批 L1 前置地基落地——自照镜报告落盘（`var/reports/self_mirror_r<round>.md/.json`，保留 30 份，含九章素材/方向校准/状态/L1 挂载点）；P6 影响审计日志（`var/logs/p6_audit.jsonl`，环形 1000 条，记录来源/幅度/方向/后续裁决，运维手册 2.4）

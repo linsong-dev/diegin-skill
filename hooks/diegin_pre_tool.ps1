@@ -1,4 +1,4 @@
-﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 # [2026-08-09] 中文传输加固：PS5.1 默认 $OutputEncoding=ASCII/控制台GBK 会破坏管道中文
 # → 强制 UTF-8，保证 PS->Python stdin / Python stdout->PS 均无损（防 prompt 入库乱码、pre_reply JSON 解析失败）
 try { $OutputEncoding = $script:utf8NoBOM } catch {}
@@ -421,11 +421,14 @@ try {
                 if ($checkResult.suggestions -and $checkResult.suggestions.Count -gt 0) {
                     $sugLines = @()
                     foreach ($s in $checkResult.suggestions) {
+                        # [TOKEN 治理 2026-08-28] 建议注入瘦身：最多 2 条（防转录膨胀）
+                        if ($sugLines.Count -ge 2) { break }
                         $sugName = if ($s.scenario) { $s.scenario } else { $s.id }
+                        if ($sugName.Length -gt 40) { $sugName = $sugName.Substring(0, 40) + "…" }
                         $sugLine = "  - " + $sugName + " (置信度 " + $s.confidence + ")"
                         if ($s.decision) {
                             $dText = [string]$s.decision
-                            if ($dText.Length -gt 80) { $dText = $dText.Substring(0, 80) + "…" }
+                            if ($dText.Length -gt 60) { $dText = $dText.Substring(0, 60) + "…" }
                             $sugLine += " 做法: " + $dText
                         }
                         $sugLines += $sugLine
