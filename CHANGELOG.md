@@ -1,5 +1,12 @@
 # Changelog · Diegin 迭进
 
+## 3.9.11+ 自照镜报告机制 · L1 前置地基 (2026-08-28)
+
+- feat: 第一批 L1 前置地基落地——自照镜报告落盘（`var/reports/self_mirror_r<round>.md/.json`，保留 30 份，含九章素材/方向校准/状态/L1 挂载点）；P6 影响审计日志（`var/logs/p6_audit.jsonl`，环形 1000 条，记录来源/幅度/方向/后续裁决，运维手册 2.4）
+- files: `engine/evo/p6_audit.py`（新增）+ `engine/evo/arbiter.py`（_apply_delta 挂接）+ `engine/evo/self_mirror.py`（_write_report_files）
+- 验证: py_compile 通过，test_all.py 33/33 通过；手动验证报告落盘 + p6_audit 追加；四副本同步
+- 边界: 仅追加记录，不改变裁决行为；2.7/2.12/2.14 等 L1 机制仍为「待人工确认」，仅预留 l1_pending 挂载点
+
 ## 3.9.11+ L2 决策超时熔断 (2026-08-28)
 
 - feat: 运维手册 2.3 决策超时熔断落地——`engine/evo/arbiter.py` resolve() 增加 fast_path 参数（跳过 P6/P4 微调，仅 P0-P3 + 严重度兜底）；`engine/evo/main.py` arbitrate() 增加 fast_path 透传；`engine/call_diegin.py` 衡步骤耗时 >2s 强制 fast_path 重算并覆盖裁决，失败回退沿用完整裁决，审计记录降级与重算结果

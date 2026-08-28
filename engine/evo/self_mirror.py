@@ -375,7 +375,55 @@ class SelfMirror:
         self._state.setdefault("reports", []).append(report)
         self._state["reports"] = self._state["reports"][-10:]
         self._save()
+        self._write_report_files(report)
         return report
+
+    def _write_report_files(self, report):
+        try:
+            _rep_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                    "var", "reports")
+            os.makedirs(_rep_dir, exist_ok=True)
+            _r = int(report.get("round", 0) or 0)
+            _base = os.path.join(_rep_dir, "self_mirror_r%d" % _r)
+            with open(_base + ".json", "w", encoding="utf-8") as _f:
+                json.dump(report, _f, ensure_ascii=False, indent=2)
+            _lines = []
+            _lines.append("# 自照镜报告 r%d · %s" % (_r, report.get("ts", "")))
+            _lines.append("")
+            _lines.append("## 九章素材")
+            _lines.append("| 原则 | 关键指标 |")
+            _lines.append("|:--|:--|")
+            for _k, _v in report.items():
+                if isinstance(_v, dict):
+                    _s = "; ".join("%s=%s" % (kk, vv) for kk, vv in _v.items())
+                    _lines.append("| %s | %s |" % (_k, _s[:200]))
+            _sig = report.get("direction_calibration") or []
+            _lines.append("")
+            _lines.append("## 方向校准信号")
+            _lines.append("- " + (" | ".join(str(x) for x in _sig) if _sig else "无"))
+            _lines.append("")
+            _lines.append("## 状态")
+            _lines.append("- 同向熔断静默: %s" % report.get("same_dir_silenced", False))
+            _lines.append("- 应急抑制: %s" % report.get("emergency_suppressed", False))
+            _lines.append("- 温启动: %s" % report.get("warm_start", False))
+            _lines.append("")
+            _lines.append("## L1 挂载点（待人工确认）")
+            _lines.append("- 2.11 真理跌落听证: （空）")
+            _lines.append("- 2.12 影子基线池漂移: （空）")
+            _lines.append("- 2.14 新鲜度指数: （空）")
+            _lines.append("- 2.16 宪法解释请求: （空）")
+            with open(_base + ".md", "w", encoding="utf-8") as _f:
+                _f.write("\n".join(_lines) + "\n")
+            _mds = sorted([f for f in os.listdir(_rep_dir) if f.startswith("self_mirror_r") and f.endswith(".md")])
+            while len(_mds) > 30:
+                _old = _mds.pop(0)
+                _r_old = _old.replace("self_mirror_r", "").replace(".md", "")
+                for _suf in (".md", ".json"):
+                    _fp = os.path.join(_rep_dir, "self_mirror_r" + _r_old + _suf)
+                    if os.path.exists(_fp):
+                        os.remove(_fp)
+        except Exception:
+            pass
 
     def get_status(self) -> Dict[str, Any]:
         return {

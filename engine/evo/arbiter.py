@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from rule_engine import InterceptionRule, SuccessPattern, RuleEngine
+from p6_audit import audit_p6
 
 
 class ResolutionType(Enum):
@@ -95,6 +96,10 @@ class ConflictArbiter:
             if abs(prev) >= P6_ROUND_LIMIT:
                 return  # 单轮限幅已到，不再累加
             setattr(r, "_mem_conf_adj", max(-P6_HARD_LIMIT, min(P6_HARD_LIMIT, prev + delta)))
+            try:
+                audit_p6(getattr(r, "id", "") or "", delta, hit, r)
+            except Exception:
+                pass
 
         notes = []
         all_items = list(interceptions) + list(patterns or [])
