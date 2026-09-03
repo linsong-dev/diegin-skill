@@ -162,6 +162,8 @@ try {
     $stdin = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput()).ReadToEnd()
     $hookInput = $stdin | ConvertFrom-Json
     $prompt = $hookInput.prompt
+    $sessionId = $hookInput.session_id
+    if (-not $sessionId) { $sessionId = $hookInput.turn_id }
 
     if (Test-Path $pythonExe) {
         # [M1 契约通道 v1.0] Codex 适配器：UserPromptSubmit → 统一信封 → contract.py（三态响应）
@@ -170,7 +172,7 @@ try {
             contract="1.0"
             event="prompt_pre"
             ts=(Get-Date -Format "o")
-            context=@{ platform="codex"; hook="UserPromptSubmit"; prompt=$prompt; turn_id=$hookInput.turn_id; blocked_error_type=$blockedType }
+            context=@{ platform="codex"; hook="UserPromptSubmit"; prompt=$prompt; turn_id=$hookInput.turn_id; session_id=$sessionId; blocked_error_type=$blockedType }
         }
         $envJson = $dgEnv | ConvertTo-Json -Compress -Depth 5
 
@@ -189,6 +191,39 @@ try {
             # 契约响应 allow：inject 即注入文本（display_text）
             $displayText = $resp.inject
             if (-not $displayText) { $displayText = "[DGEN] PASS" }
+            # [TOKEN 治理 v3.9.12] 注入指纹去重：同会话 600 秒内相同注入 → 最小标记（省每轮新增 token / 缓存未命中）
+            try {
+                if ($sessionId) {
+                    $fpFile = Join-Path $g_pr "var\state\inject_fingerprint.json"
+                    $fpTable = @{}
+                    if (Test-Path $fpFile) {
+                        try {
+                            $fpObj = Get-Content $fpFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                            if ($fpObj) { $fpObj.PSObject.Properties | ForEach-Object { $fpTable[$_.Name] = $_.Value } }
+                        } catch {}
+                    }
+                    $shaBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($displayText))
+                    $sha = -join ($shaBytes | ForEach-Object { $_.ToString("x2") })
+                    $lastRec = $fpTable[$sessionId]
+                    $isDup = $false
+                    if ($lastRec -and $lastRec.hash -eq $sha) {
+                        try {
+                            $lastTs = [DateTime]::Parse($lastRec.ts)
+                            $isDup = ((Get-Date) - $lastTs).TotalSeconds -lt 600
+                        } catch { $isDup = $false }
+                    }
+                    if ($isDup) {
+                        $displayText = "[DGEN] PASS（迭进上下文未变化，跳过重复注入）"
+                        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] DEDUP skip session=$sessionId"
+                    } else {
+                        $fpTable[$sessionId] = @{hash=$sha; ts=(Get-Date -Format "o"); len=$displayText.Length}
+                        Write-AtomicFile -Path $fpFile -Content ($fpTable | ConvertTo-Json -Compress)
+                        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] FULL len=$($displayText.Length) session=$sessionId"
+                    }
+                }
+            } catch {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] DEDUP-ERROR $($_.Exception.Message)"
+            }
             # [A通道] 2026-08-19：桌面版丢弃纯文本 stdout → 改走 hookSpecificOutput.additionalContext（核心 codex.exe 已确认支持该 Wire）
             $hookOut = [ordered]@{
                 hookSpecificOutput = [ordered]@{

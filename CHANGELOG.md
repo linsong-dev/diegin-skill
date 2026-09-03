@@ -1,5 +1,40 @@
 # Changelog · Diegin 迭进
 
+## 3.9.14+ TOKEN 治理·交易对话降本 (2026-08-31)
+
+- feat: 至高元则「该用的用，该省的省」写入 SKILL.md 权威区（§〇）——节点式唤醒 09:15/11:30/15:05 禁高频轮询、长会话 >150K 强制新开、写侧降噪、风控例外
+- feat: 会话预算哨兵升级——新增单轮上下文 token 判定（rollout 尾部 token_count 事件），>150K 强制提示新开会话（level 3，优先于 MB 档位）；新增 _goal_budget_guard 目标模式预算护栏（thread_goals.token_budget，超预算/耗尽强制提示，未设且已用>50K 提示补设）
+- feat: Mindol 写侧降噪（mindol 仓库）——memory_archive/dgen_archive 不再落 JSON 全文/命令转储，`_archive_summary` 提取可读摘要（决策字段+截断 context，总长≤420）；JSON 全文只落摘要不污染检索
+- chore: 新建计划任务 `Codex_A股_午间闭环`（11:30 持仓检查，与晨核/收盘组成节点式唤醒）
+- 验证: test_all.py 38/38（原 33 + TOKEN 治理 5 项）；运行版/源码库/插件缓存四副本同步一致
+- fix: 交易会话 01a040a9 停止（goal paused + turn_aborted），桥日志 01a043b9 前缀请求归零（08-31 实测 135K/轮 × 5-15 秒轮询停）
+
+## 3.9.13+ 恒常门·进度锚点 + 会话预算哨兵 (2026-08-28)
+
+- feat: 恒常门·进度锚点——post_tool 写侧记录当前轮进度（step 计数 + 最后动作摘要，环形保留 5 会话），pre_reply 恒常门恢复提示附带「上次进度: 第N步 · 已完成/未完成 · 最后动作」，压缩/新会话恢复后无需从头探测重复执行（实锤：08-27 会话 14 次压缩后命令重复率 100%）
+- feat: 会话转录预算哨兵 _session_size_guard——按 session_id 定位会话 JSONL 大小，>0.8MB 建议新开会话、>1.5MB 强提示；仅升档注入一次（防缓存 churn）；pre_reply 补解析 session_id 透传
+- 边界: 锚点只读不写 Mindol 检索空间（防污染）；注入 ≤2 行；不改变裁决逻辑
+- 验证: py_compile 通过；test_all.py 33/33；锚点读写 E2E 通过；三副本同步
+- fix: 锚点写侧 PSCustomObject 只读属性赋值失败（JSON 反序列化后 $anchorMap.$key= 抛错）+ PowerShell 5.1 解析无 BOM 中文脚本报错（历史教训 ps1需UTF8 BOM）——改为 Hashtable 平铺写入 + 恢复 UTF-8 BOM；实测真实会话 01a0473d 锚点 step 随工具调用递增写入成功
+
+
+## 3.9.11+ TOKEN 治理·清理规则加固 (2026-08-28)
+
+- fix: 出口清洗 `_clean_mem_text` 正则失效——原 `\{[^{}]*?(\}|$)` 无法跨 `{` 匹配多条目/截断 JSON（实测真实 format_context 输出 JSON 原样泄漏）；改为栈式扫描删除 `{...}` 块（容忍嵌套/截断/多对象/字符串转义）+ 截断 JSON 尾部 name/id 提取兜底
+- chore: Mindol 源头 `format_context` 清洗接入（`_clean_mem_entry` 提取 name/id/scene），检索注入从 456 字符 JSON → 186 字符可读 rule id；无可读语义条目整条剔除；命令转储截首段（`post_tool: tool=Bash`）
+- feat: 会话转录预算哨兵 `_session_size_guard`——pre_reply 按 session_id 定位会话 JSONL 大小，超 0.8MB 升档提示「建议新开会话」、超 1.5MB 强提示；仅升档注入一次（防每轮注入变化击穿缓存）；链路：pre_reply.ps1 传 session_id → contract.py 透传 → call_diegin.py 注入
+- 边界: 检索裁决输入（memory_search/P6）保持原样；仅收敛注入面
+- 验证: py_compile 通过；test_all.py 33/33；T1/T2 失败样本修复复测通过；真实检索冒烟；哨兵三档单测通过；四副本同步
+
+## 3.9.11+ TOKEN 治理·会话成本预算 (2026-08-28)
+
+- perf: pre_reply 注入指纹去重——同会话 600s 内相同 display_text 只注入一次，重复轮次输出最小标记「[DGEN] PASS（迭进上下文未变化，跳过重复注入）」；实测 RUN1 全量注入 / RUN2 零重复注入（省每轮新增 token 与缓存未命中）
+- perf: display_text 降噪 `_clean_mem_text`——去 JSON 键值碎片/[xx%] 置信度前缀/constancy 空间标签/cmd= 命令转储/绝对路径，MEM 注入预算 150→120 字符；攻七建议 ≤2 条且单行截断 60 字符（pre_reply 与 pre_tool 两侧一致）
+- perf: 恒常门待恢复提示收敛——只展示最新 1 条任务 + 「另有 N 条暂停」计数行；年龄改用日内稳定桶（今天/昨天/N天前，不再每轮变分钟数）；完成标准 80→60 字符、待办 2→1 条
+- perf: pre_tool 会话内快速通道——同 session_id 120 秒内上次裁决 allow 则跳过全量引擎（阻断安全仍由 override/gate 前置保障），全量预检从每工具调用一次收敛到每会话 1~2 次；实测快速通道命中时引擎零调用
+- 边界: 不改裁决逻辑；快速通道仅复用 allow 裁决；注入去重仅影响注入面
+- 验证: py_compile 通过；test_all.py 33/33 通过；pre_reply 去重冒烟通过；pre_tool 快速通道冒烟通过（run1 引擎 3 次 / run2 0 次）；四副本同步
+
 ## 3.9.11+ TOKEN 极速消耗治理 (2026-08-28)
 
 - fix: Mindol 联想/检索注入噪声过滤（TOKEN 治理）——联想注入剔除 strike 原始 JSON（含完整命令文本/转义路径的自动配对规则），JSON 规则体提取可读 name 后注入；检索注入过滤 post_tool 命令转储；实测 display_text 834 → 680 字符，垃圾联想不再进入每轮上下文

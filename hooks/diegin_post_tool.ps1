@@ -130,6 +130,41 @@ try {
 }
 
 
+# [进度锚点 v3.9.13] 写侧：工具执行后记录当前轮进度（step 计数 + 最后动作摘要）
+# 目的：压缩/新会话后，恒常门恢复提示可附带「上次进行到哪一步」，避免 AI 从头探测重复执行。
+try {
+    $anchorFile = Join-Path $stateDir "progress_anchor.json"
+    $anchorMap = @{}
+    if (Test-Path $anchorFile) {
+        try {
+            $rawMap = Get-Content $anchorFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            # JSON 反序列化为 PSCustomObject，属性只读 → 平铺为 Hashtable 再写
+            if ($rawMap) { $rawMap.PSObject.Properties | ForEach-Object { $anchorMap[$_.Name] = $_.Value } }
+        } catch {}
+    }
+    if (-not $anchorMap) { $anchorMap = @{} }
+    $anchorKey = if ($hookInput.session_id) { [string]$hookInput.session_id } else { "default" }
+    if (-not $anchorKey) { $anchorKey = "default" }
+    $lastAction = ""
+    if ($toolName) { $lastAction = [string]$toolName }
+    if ($toolCmd) {
+        $ac = [string]$toolCmd
+        $ac = $ac -replace "\s+", " "
+        if ($ac.Length -gt 80) { $ac = $ac.Substring(0, 80) }
+        if ($lastAction) { $lastAction = "$lastAction | $ac" } else { $lastAction = $ac }
+    }
+    $exitOk = ($null -eq $toolExitCode -or $toolExitCode -eq 0)
+    $prev = $anchorMap[$anchorKey]
+    $newStep = 1
+    if ($prev) { try { $newStep = [int]$prev.step + 1 } catch {} }
+    $rec = @{ step = $newStep; last_action = $lastAction; ok = $exitOk; ts = (Get-Date -Format "o") }
+    $anchorMap[$anchorKey] = $rec
+    # 环形保留最近 5 个 session，防膨胀
+    $anchorObj = @{}
+    $anchorMap.GetEnumerator() | Sort-Object -Property @{Expression={ if($_.Value.ts){[DateTime]::Parse($_.Value.ts)} else {[DateTime]::MinValue} }; Descending=$true} | Select-Object -First 5 | ForEach-Object { $anchorObj[$_.Key] = $_.Value }
+    [System.IO.File]::WriteAllText($anchorFile, ($anchorObj | ConvertTo-Json -Compress), $script:utf8NoBOM)
+} catch { Add-NoBOMLog -Path $auditLog -Message "$time [ANCHOR] write_error=$($_.Exception.Message)" }
+
 # [PERF-B 2026-08-19] health/feedback_adopt/record_success/closure/mindol/evidence
 # → 全部并入 post_tool_batch 单次 Python 进程调用（下方 batch 段），消除 5 次独立进程启动 + contract.py 双层 subprocess
 # DGEN 标志状态升级（allowed -> verified）移至 batch 调用之后，复用其返回的 active_rules

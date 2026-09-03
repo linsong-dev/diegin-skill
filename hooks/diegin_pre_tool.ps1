@@ -1,4 +1,4 @@
-$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
+﻿$script:utf8NoBOM = [System.Text.UTF8Encoding]::new($false)
 # [2026-08-09] 中文传输加固：PS5.1 默认 $OutputEncoding=ASCII/控制台GBK 会破坏管道中文
 # → 强制 UTF-8，保证 PS->Python stdin / Python stdout->PS 均无损（防 prompt 入库乱码、pre_reply JSON 解析失败）
 try { $OutputEncoding = $script:utf8NoBOM } catch {}
@@ -221,11 +221,14 @@ if ($blockedType) {
 # ============================================================
 $toolName = "unknown"
 $command = ""
+$sessionId = ""
 try {
     $stdin = [System.IO.StreamReader]::new([System.Console]::OpenStandardInput()).ReadToEnd()
     if ($stdin) {
         $hookInput = $stdin | ConvertFrom-Json
         $toolName = $hookInput.tool_name
+        $sessionId = $hookInput.session_id
+        if (-not $sessionId) { $sessionId = $hookInput.turn_id }
         $toolInput = $hookInput.tool_input
         if ($toolInput) {
             if ($toolInput.command) { $command = $toolInput.command }
@@ -360,8 +363,30 @@ $finalMatched = 0
 $finalRule = ""
 $activeRules = "?"
 $engineError = $false
+# [TOKEN 治理 v3.9.12] 会话内快速通道：同会话 120 秒内上次裁决 allow → 跳过全量引擎
+# （阻断安全仍由前置 override/gate 检查保障；快速通道不产出攻七建议，控制转录增量）
+$fastPathUsed = $false
+$fastPathFile = Join-Path $stateDir "pre_tool_fastpath.json"
+if ($sessionId) {
+    try {
+        if (Test-Path $fastPathFile) {
+            $fpv = Get-Content $fastPathFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($fpv -and $fpv.session_id -eq $sessionId -and $fpv.decision -eq "allow") {
+                $fpAge = [DateTime]::Now - [DateTime]::Parse($fpv.ts)
+                if ($fpAge.TotalSeconds -lt 120) {
+                    $fastPathUsed = $true
+                    $finalDecision = "allow"
+                    $finalMatched = [int]$fpv.matched_count
+                    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:PreToolUse] FASTPATH reuse matched=$finalMatched"
+                }
+            }
+        }
+    } catch {}
+}
 try {
-    if (Test-Path $pythonExe) {
+    if ($fastPathUsed) {
+        $engineError = $false
+    } elseif (Test-Path $pythonExe) {
         # [M1 契约通道 v1.0] Codex 适配器：Codex 事件 → 统一信封 → contract.py（三态响应）
         $contractPy = Join-Path $g_pr "engine\contract.py"
         $dgEnv = [ordered]@{
@@ -393,6 +418,13 @@ try {
             $finalDecision = $checkResult.decision
             $finalMatched = $checkResult.matched_count
             $finalRule = $checkResult.winning_rule
+            # [TOKEN 治理 v3.9.12] 放行后写快速通道缓存（会话内 120 秒复用）
+            if ($sessionId -and $finalDecision -eq "allow") {
+                try {
+                    $fpw = @{session_id=$sessionId; decision=$finalDecision; matched_count=$finalMatched; ts=(Get-Date -Format "o")}
+                    [System.IO.File]::WriteAllText($fastPathFile, ($fpw | ConvertTo-Json -Compress), $script:utf8NoBOM)
+                } catch {}
+            }
 
             $s2=@{ts=(Get-Date -Format "o");decision=$finalDecision;reason=$checkResult.reason;winning_rule=$finalRule;matched_count=$finalMatched;source="pre_tool"}
             [System.IO.File]::WriteAllText($replyFile,($s2|ConvertTo-Json -Compress),$script:utf8NoBOM)

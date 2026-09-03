@@ -1,4 +1,4 @@
-# Python
+﻿# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -62,4 +62,8 @@ var/logs/*.log
 
 # Runtime skill copy (installed layout, not source layout)
 skills/diegin/
-
+# [2026-09-03] 交易工作流脚本/运行报告误入源码库，禁止再入（运行数据留在各自工作区）
+engine/evo/晨核一键.py
+engine/evo/论文复盘.py
+engine/evo/盘后闭环_daily.ps1
+var/reports/

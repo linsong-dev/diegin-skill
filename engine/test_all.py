@@ -146,6 +146,94 @@ def test_op_contains():
     return c1 and c2 and c3 and c4 and c5 and c6 and c7
 
 
+def test_token_governance():
+    """TOKEN 治理：Mindol 写侧降噪 + 会话预算哨兵 + 目标预算护栏"""
+    import os, json, tempfile, sqlite3
+    # 1) memory_archive 写侧降噪：JSON 全文/长转储不落库
+    try:
+        import sys as _sys
+        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mindol", "engine"))
+        from mindol.diegin_integration import _archive_summary, memory_archive, _ARCHIVE_TOTAL_LIMIT
+        big = json.dumps({"action": "begin", "intent_summary": "x" * 500, "detail": "y" * 1000}, ensure_ascii=False)
+        s = _archive_summary(big)
+        c1 = check("TOKEN·归档摘要压缩", len(s) <= 240 and "y" * 1000 not in s, f"{len(s)}字符")
+        calls = []
+        import mindol.diegin_integration as _di
+        class _Fake:
+            def archive(self, rule_id, content):
+                calls.append(content)
+                return True
+        _di._MEMORY_ADAPTER = _Fake()
+        memory_archive("t_rule", big, {"ctx": "z" * 800})
+        c2 = check("TOKEN·归档全文不落库", bool(calls) and len(calls[0]) <= _ARCHIVE_TOTAL_LIMIT and "y" * 1000 not in calls[0], f"{len(calls[0]) if calls else 0}字符")
+    except Exception as e:
+        c1 = check("TOKEN·归档摘要压缩", False, str(e))
+        c2 = check("TOKEN·归档全文不落库", False, str(e))
+    # 2) 会话预算哨兵：>150K 单轮上下文 → 强制提示（构造临时 rollout）
+    _warn_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "var", "state", "token_budget_warn.json")
+    _warn_backup = None
+    if os.path.exists(_warn_path):
+        with open(_warn_path, encoding="utf-8") as _fw:
+            _warn_backup = _fw.read()
+    _tmp_rollout = None
+    _tmp_goal_db = None
+    try:
+        import call_diegin as _cd
+        import uuid as _uuid
+        _home = os.environ.get("CODEX_HOME", "")
+        _sid = "test_tokenguard_" + _uuid.uuid4().hex[:8]
+        _dir = os.path.join(_home, "sessions", "test", "token")
+        os.makedirs(_dir, exist_ok=True)
+        _rf = os.path.join(_dir, f"rollout-{_sid}-x.jsonl")
+        _tmp_rollout = _rf
+        _evt = {"timestamp": "2026-08-31T00:00:00Z", "type": "event_msg", "payload": {
+            "type": "token_count", "info": {"last_token_usage": {"input_tokens": 160000}}}}
+        with open(_rf, "w", encoding="utf-8") as _fh:
+            _fh.write(json.dumps(_evt) + "\n")
+        _g = _cd._session_size_guard(_sid)
+        c3 = check("TOKEN·>150K强制提示", _g and "150000" in _g, _g[:60] if _g else "无注入")
+    except Exception as e:
+        c3 = check("TOKEN·>150K强制提示", False, str(e))
+    finally:
+        if _tmp_rollout and os.path.exists(_tmp_rollout):
+            os.remove(_tmp_rollout)
+        if _warn_backup is not None:
+            with open(_warn_path, "w", encoding="utf-8") as _fw:
+                _fw.write(_warn_backup)
+    # 3) 目标预算护栏：无 budget 且已用 >50K → 提示补设
+    try:
+        import call_diegin as _cd
+        import uuid as _uuid
+        _db = os.path.join(os.environ.get("CODEX_HOME", ""), "goals_test_" + _uuid.uuid4().hex[:8] + ".sqlite")
+        _tmp_goal_db = _db
+        if os.path.exists(_db):
+            os.remove(_db)
+        _con = sqlite3.connect(_db)
+        _con.execute("CREATE TABLE thread_goals (thread_id TEXT PRIMARY KEY, goal_id TEXT, objective TEXT, status TEXT, token_budget INTEGER, tokens_used INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER)")
+        _con.execute("INSERT INTO thread_goals VALUES ('test_goal_session','g1','目标','active',NULL,60000,0,0)")
+        _con.commit(); _con.close()
+        _g2 = _cd._goal_budget_guard("test_goal_session")
+        c4 = check("TOKEN·目标预算提示", _g2 and "token_budget" in _g2, _g2[:60] if _g2 else "无注入")
+        _con = sqlite3.connect(_db)
+        _con.execute("UPDATE thread_goals SET token_budget=50000, tokens_used=60000")
+        _con.commit(); _con.close()
+        _g3 = _cd._goal_budget_guard("test_goal_session")
+        c5 = check("TOKEN·预算耗尽强制", _g3 and "预算耗尽" in _g3, _g3[:60] if _g3 else "无注入")
+    except Exception as e:
+        c4 = check("TOKEN·目标预算提示", False, str(e))
+        c5 = check("TOKEN·预算耗尽强制", False, str(e))
+    finally:
+        if _tmp_goal_db and os.path.exists(_tmp_goal_db):
+            try:
+                os.remove(_tmp_goal_db)
+            except Exception:
+                pass
+        if _warn_backup is not None:
+            with open(_warn_path, "w", encoding="utf-8") as _fw:
+                _fw.write(_warn_backup)
+    return c1 and c2 and c3 and c4 and c5
+
+
 def test_gongqi_noise_filter():
     """攻七推荐：工具名级伪模式整体剔除 + priority 标记正确"""
     from evo.rule_engine import build_gongqi_suggestions
@@ -221,6 +309,9 @@ def main():
     print(f"\n--- 去伪存真过滤 ---", flush=True)
     test_evidence_filter()
     test_op_contains()
+
+    print(f"\n--- TOKEN 治理 ---", flush=True)
+    test_token_governance()
 
     print(f"\n--- 攻七推荐 ---", flush=True)
     test_gongqi_noise_filter()

@@ -301,6 +301,210 @@ def _constancy_age_text(updated_at: str) -> str:
         return ""
 
 
+def _progress_anchor(session_id: str) -> dict:
+    """[进度锚点 v3.9.13] 读取当前会话轮次进度（post_tool 写侧），
+    压缩/新会话后恢复提示附带「上次进行到哪一步」，避免从头探测重复执行。
+    返回 {} 表示无锚点；字段 step/last_action/ok/ts。"""
+    try:
+        if not session_id:
+            return {}
+        _st = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "var", "state", "progress_anchor.json")
+        if not os.path.isfile(_st):
+            return {}
+        with open(_st, encoding="utf-8") as _f:
+            _d = json.load(_f)
+        _rec = _d.get(session_id) or {}
+        if not isinstance(_rec, dict) or not _rec.get("last_action"):
+            return {}
+        return {
+            "step": int(_rec.get("step", 0) or 0),
+            "last_action": str(_rec.get("last_action", ""))[:100],
+            "ok": bool(_rec.get("ok", True)),
+        }
+    except Exception:
+        return {}
+
+
+def _session_last_input_tokens(session_id: str) -> int:
+    """从会话 rollout 尾部读取最近一轮 input_tokens（token_count 事件），
+    用于「单轮上下文 >150K 强制新开会话」判定。失败返回 0。"""
+    try:
+        _home = os.environ.get("CODEX_HOME", "")
+        if not _home:
+            return 0
+        import glob as _glob
+        _cands = _glob.glob(os.path.join(_home, "sessions", "**", "*" + session_id + "*.jsonl"), recursive=True)
+        if not _cands:
+            return 0
+        _f = max(_cands, key=os.path.getsize)
+        _sz = os.path.getsize(_f)
+        if _sz <= 0:
+            return 0
+        # 只读文件尾 256KB（token_count 事件密集出现在轮次结尾，无需全量扫描）
+        _tail = 256 * 1024
+        _found = 0
+        with open(_f, "r", encoding="utf-8", errors="replace") as fh:
+            if _sz > _tail:
+                fh.seek(_sz - _tail)
+                fh.readline()
+            for _line in fh:
+                if '"token_count"' not in _line:
+                    continue
+                try:
+                    _o = json.loads(_line)
+                    _info = _o.get("payload", {}).get("info", {})
+                    _last = _info.get("last_token_usage") or {}
+                    _in = int(_last.get("input_tokens", 0) or 0)
+                    if _in > 0:
+                        _found = _in  # 取 tail 内最后一条（最新轮次）
+                except Exception:
+                    continue
+        return _found
+    except Exception:
+        return 0
+
+
+def _goal_budget_guard(session_id: str) -> str:
+    """[TOKEN 治理] 目标模式预算护栏：读 thread_goals 当前会话的 token_budget，
+    超预算（tokens_used > budget）强制提示新开会话；未设 budget 且已用 >50K 时提示一次补设。
+    与 _session_size_guard 共用 token_budget_warn.json 的升档去重。"""
+    try:
+        if not session_id:
+            return ""
+        _home = os.environ.get("CODEX_HOME", "")
+        if not _home:
+            return ""
+        import glob as _glob
+        _db = _glob.glob(os.path.join(_home, "goals_*.sqlite"))
+        if not _db:
+            return ""
+        import sqlite3 as _sq
+        _row = None
+        for _dbp in _db:
+            try:
+                _con = _sq.connect("file:" + _dbp + "?mode=ro", uri=True, timeout=5)
+                try:
+                    _row = _con.execute(
+                        "SELECT token_budget, tokens_used, status FROM thread_goals WHERE thread_id=?",
+                        (session_id,)).fetchone()
+                finally:
+                    _con.close()
+            except Exception:
+                continue
+            if _row:
+                break
+        if not _row:
+            return ""
+        _budget = _row[0]
+        _used = int(_row[1] or 0)
+        _st = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "var", "state", "token_budget_warn.json")
+        _cur = 0
+        try:
+            if os.path.exists(_st):
+                with open(_st, encoding="utf-8") as _f:
+                    _d = json.load(_f)
+                if _d.get("session_id") == session_id:
+                    _cur = int(_d.get("goal_level", 0) or 0)
+        except Exception:
+            pass
+        _level = 0
+        _msg = ""
+        if _budget and _used >= int(_budget):
+            _level = 2
+            _msg = ("\n[TOKEN 预算] 目标模式已用 %s/%s token，预算耗尽——必须新开会话继续目标" % (_used, _budget))
+        elif _budget and _used >= int(_budget) * 0.8:
+            _level = 1
+            _msg = ("\n[TOKEN 预算] 目标模式已用 %s/%s token（80%%），接近预算——建议新开会话" % (_used, _budget))
+        elif not _budget and _used > 50000:
+            _level = 1
+            _msg = ("\n[TOKEN 预算] 目标模式未设 token_budget（已用 %s），请为新目标会话设置预算防失控" % _used)
+        if _level <= _cur:
+            return ""
+        try:
+            os.makedirs(os.path.dirname(_st), exist_ok=True)
+            with open(_st, "w", encoding="utf-8") as _f:
+                _d = {"session_id": session_id, "goal_level": _level,
+                      "goal_budget": _budget, "goal_used": _used,
+                      "ts": datetime.now().isoformat()}
+                if os.path.exists(_st):
+                    try:
+                        with open(_st, encoding="utf-8") as _f2:
+                            _old = json.load(_f2)
+                        _d = dict(_old)
+                        _d.update({"session_id": session_id, "goal_level": _level,
+                                   "goal_budget": _budget, "goal_used": _used,
+                                   "ts": datetime.now().isoformat()})
+                    except Exception:
+                        pass
+                json.dump(_d, _f, ensure_ascii=False)
+        except Exception:
+            pass
+        return _msg
+    except Exception:
+        return ""
+
+
+def _session_size_guard(session_id: str, warn_mb: float = 0.8, hard_mb: float = 1.5,
+                        hard_tokens: int = 150000) -> str:
+    """[TOKEN 治理] 会话转录预算哨兵：按 session_id 定位会话 JSONL 大小，
+    超阈值注入一次「建议新开会话」提示；仅升档注入，防缓存 churn。
+    [TOKEN 治理 2026-08-31] 新增单轮上下文 token 判定：最近一轮 input_tokens
+    >150K 强制提示新开会话（命中即 level 3，优先于 MB 档位）。"""
+    try:
+        if not session_id:
+            return ""
+        _home = os.environ.get("CODEX_HOME", "")
+        if not _home:
+            return ""
+        import glob as _glob
+        _cands = _glob.glob(os.path.join(_home, "sessions", "**", "*" + session_id + "*.jsonl"), recursive=True)
+        if not _cands:
+            return ""
+        _mb = max(os.path.getsize(_f) for _f in _cands) / (1024.0 * 1024.0)
+        _last_in = _session_last_input_tokens(session_id)
+        _st = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "var", "state", "token_budget_warn.json")
+        _cur = 0
+        try:
+            if os.path.exists(_st):
+                with open(_st, encoding="utf-8") as _f:
+                    _d = json.load(_f)
+                if _d.get("session_id") == session_id:
+                    _cur = int(_d.get("level", 0) or 0)
+        except Exception:
+            pass
+        # token 判定优先：单轮 >150K → level 3（强制）
+        if _last_in >= hard_tokens:
+            _new = 3
+        else:
+            _new = 2 if _mb >= hard_mb else (1 if _mb >= warn_mb else 0)
+        if _new <= _cur:
+            return ""
+        try:
+            os.makedirs(os.path.dirname(_st), exist_ok=True)
+            with open(_st, "w", encoding="utf-8") as _f:
+                _d = {}
+                if os.path.exists(_st):
+                    try:
+                        with open(_st, encoding="utf-8") as _f2:
+                            _d = json.load(_f2)
+                    except Exception:
+                        pass
+                _d.update({"session_id": session_id, "level": _new,
+                           "mb": round(_mb, 1), "last_input_tokens": _last_in,
+                           "ts": datetime.now().isoformat()})
+                json.dump(_d, _f, ensure_ascii=False)
+        except Exception:
+            pass
+        if _new == 3:
+            return ("\n[TOKEN 预算] 本会话单轮上下文 %s token（> %s），已逼近窗口上限——"
+                    "强制建议新开会话，勿在本会话继续大任务" % (_last_in, hard_tokens))
+        if _new == 2:
+            return "\n[TOKEN 预算] 本会话转录 %.1fMB（> %.1fMB），每轮成本极高——请新开会话，勿在本会话继续大任务" % (_mb, hard_mb)
+        return "\n[TOKEN 预算] 本会话转录 %.1fMB，接近窗口上限——建议新开会话继续" % _mb
+    except Exception:
+        return ""
+
+
 def _constancy_core_trio(task_id: str) -> list:
     """v3.9.2 快照裁剪：恢复注入仅保留核心三件套（intent/completion_criteria/pending_items），
     省 token 且不带 context/blocker 等重字段。失败返回空（不阻塞恢复流程）。"""
@@ -1640,6 +1844,7 @@ if __name__ == "__main__":
         input_data = json.loads(raw) if raw else {}
         prompt = input_data.get("prompt", input_data.get("text", ""))
         turn_id = input_data.get("turn_id", "")
+        session_id = input_data.get("session_id", "")
         blocked_error_type = input_data.get("blocked_error_type", "")
 
         # 引擎级导入（一次加载）
@@ -1893,6 +2098,20 @@ if __name__ == "__main__":
         if strike_context:
             strike_str = "\n" + strike_context
         output_text = marker_str + " PASS" + mindol_str + suggestions_text + strike_str
+        # [TOKEN 治理] 会话转录预算哨兵：超阈值注入一次「建议新开会话」（升档仅提示一次，防缓存 churn）
+        # [TOKEN 治理 2026-08-31] 单轮上下文 >150K 强制提示 + 目标模式 token_budget 护栏
+        try:
+            _budget = _session_size_guard(session_id)
+            if _budget:
+                output_text += _budget
+        except Exception:
+            pass
+        try:
+            _goal_budget = _goal_budget_guard(session_id)
+            if _goal_budget:
+                output_text += _goal_budget
+        except Exception:
+            pass
         # 恒常门·恢复/主动推进提示（用户可见；恢复前用户确认，摘要≤50字）
         constancy_recovery = check_result.get("constancy_recovery") or None
         proactive_proposal = check_result.get("proactive_proposal") or None
@@ -1915,6 +2134,15 @@ if __name__ == "__main__":
                     if _p:
                         _line += "\n      待办: %s" % " | ".join(_p)[:80]
                     _lines.append(_line)
+                    # v3.9.13 进度锚点：附带「上次进行到哪一步」，压缩/新会话后无需从头探测
+                    try:
+                        _anchor = _progress_anchor(session_id)
+                        if _anchor:
+                            _st_ok = "已完成" if _anchor.get("ok") else "未完成"
+                            _lines.append("      上次进度: 第%s步 · %s · 最后动作: %s" % (
+                                _anchor.get("step", "?"), _st_ok, _anchor.get("last_action", "")))
+                    except Exception:
+                        pass
                 _lines.append("如需继续请回复: 继续 <task_id>")
                 _constancy_hint = "\n".join(_lines)
             elif constancy_recovery and constancy_recovery.get("resumed"):
