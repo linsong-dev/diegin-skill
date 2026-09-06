@@ -101,15 +101,15 @@ def test_report_has_all_principles(tmp_path, monkeypatch):
 
 
 def test_mirror_archives_direction_signal(tmp_path, monkeypatch):
-    """自照归档：方向信号非空时写 direction_calibration Mindol 条目"""
+    """自照归档：方向信号非空时写 direction_calibration Shalou 条目"""
     import sys, types
     calls = []
-    _mod = types.ModuleType("mindol")
-    _di = types.ModuleType("mindol.diegin_integration")
+    _mod = types.ModuleType("shalou")
+    _di = types.ModuleType("shalou.diegin_integration")
     _di.memory_archive = lambda space, text, *a, **k: calls.append((space, text))
     _mod.diegin_integration = _di
-    sys.modules["mindol"] = _mod
-    sys.modules["mindol.diegin_integration"] = _di
+    sys.modules["shalou"] = _mod
+    sys.modules["shalou.diegin_integration"] = _di
     m = _make_mirror(tmp_path, monkeypatch)
     m._state["round"] = 10
     m.mirror()

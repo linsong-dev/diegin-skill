@@ -15,7 +15,7 @@ body:
         - 规则误伤（守三/攻七拦截异常）
         - 引擎错误（self_check / call_diegin 报错）
         - 钩子失效（PreTool / PreReply 未触发）
-        - 记忆库（Mindol 检索/写入异常）
+        - 记忆库（Shalou 检索/写入异常）
         - 其他
     validations:
       required: true

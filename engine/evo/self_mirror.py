@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """self_mirror.py - 自照镜·方向之镜（自我审视）
 回望所行 → 静照本心 → 拨云见路 → 辨繁识简 → 笃定前行
-职责：收集各原则执行轨迹生成自照报告、勇气信号（半衰期×0.6）、方向校准、归档 Mindol、
+职责：收集各原则执行轨迹生成自照报告、勇气信号（半衰期×0.6）、方向校准、归档 Shalou、
      通过 P6 语义记忆静默影响下一轮裁决（不凌驾 P0-P3）
 定稿依据：律令九章 第九章 自照镜·方向之镜（2026-08-12 最终定稿）
 """
@@ -108,9 +108,10 @@ class SelfMirror:
         self._save()
         return self.active_courage()
 
-    def confirm_courage(self, confirmed: bool) -> float:
-        """勇气信号外部确认（定稿第九章）：下一轮用户交互确认——未负面反馈且任务目标达成 → 生效；
-        否则自动归零，不进入 P6 调权。"""
+    def confirm_courage(self, confirmed: bool, reason: str = "") -> float:
+        """勇气信号外部确认（2026-09-05 定稿第九章修订）：
+        必须为显性、正面的语义反馈（如"做得好/可行/采纳"）方可生效；
+        单纯"未纠正/继续"视为未确认 → 自动归零，不进入 P6 调权。"""
         _pc = float(self._state.get("pending_courage", 0.0) or 0.0)
         if _pc > 0:
             if confirmed:
@@ -118,12 +119,12 @@ class SelfMirror:
                 self._state["courage"] = round(min(COURAGE_MAX, _c + _pc), 4)
                 self._state.setdefault("courage_log", []).append(
                     {"round": self._state.get("round", 0), "amount": _pc, "confirmed": True,
-                     "reason": "用户下一轮确认生效", "ts": datetime.datetime.now().isoformat()}
+                     "reason": reason or "用户显性正面确认生效", "ts": datetime.datetime.now().isoformat()}
                 )
             else:
                 self._state.setdefault("courage_log", []).append(
                     {"round": self._state.get("round", 0), "amount": _pc, "confirmed": False,
-                     "reason": "用户负面反馈/未确认，自动归零", "ts": datetime.datetime.now().isoformat()}
+                     "reason": reason or "未确认(无显性正面语义)，自动归零", "ts": datetime.datetime.now().isoformat()}
                 )
             self._state["pending_courage"] = 0.0
             self._state["pending_courage_round"] = 0
@@ -178,6 +179,26 @@ class SelfMirror:
                     "平均任务时长(h)": round(_dur_h / _completed, 2) if _completed else 0,
                     "阻塞上报次数": _block_reports,
                 }
+                try:
+                    _tw = list(self._state.get("trend_window", []) or [])
+                    _tw.append({"round": report.get("round", 0),
+                                "completion": float(report["持存"].get("完成率", 0) or 0),
+                                "interruption": float(report["持存"].get("中断率", 0) or 0)})
+                    _tw = _tw[-10:]
+                    self._state["trend_window"] = _tw
+                    if len(_tw) >= 3:
+                        _h = _tw[-1]
+                        _f = _tw[0]
+                        _span = max(1, len(_tw) - 1)
+                        report["持存趋势"] = {
+                            "窗口": len(_tw),
+                            "完成率趋势": round((_h["completion"] - _f["completion"]) / _span, 4),
+                            "中断率趋势": round((_h["interruption"] - _f["interruption"]) / _span, 4),
+                            "最近完成率": _h["completion"],
+                            "最近中断率": _h["interruption"],
+                        }
+                except Exception:
+                    pass
             except Exception:
                 pass
         except Exception:
@@ -249,7 +270,7 @@ class SelfMirror:
 
     def _build_direction_calibration(self, report: Dict[str, Any]) -> List[str]:
         """方向校准信号（定稿第九章步骤③）：冗余/偏离信号，仅建议不产生规则。
-        信号写 Mindol 供预策 P6 / 攻七 / 守三 / 举一反三检索参考；不直接调规则库。"""
+        信号写 Shalou 供预策 P6 / 攻七 / 守三 / 举一反三检索参考；不直接调规则库。"""
         _sig = []
         try:
             _gq = report.get("攻七") or {}
@@ -259,10 +280,16 @@ class SelfMirror:
         except Exception:
             pass
         try:
-            _cs = report.get("持存") or {}
-            _rate = float(_cs.get("中断率", 0) or 0)
-            if _rate > 0.5:
-                _sig.append("恒常门: 中断率 %.0f%%，任务易断，建议优先恢复未完成任务" % (_rate * 100))
+            _tr = report.get("持存趋势") or {}
+            if _tr:
+                _int_tr = float(_tr.get("中断率趋势", 0) or 0)
+                _cmp_tr = float(_tr.get("完成率趋势", 0) or 0)
+                if _int_tr > 0.01:
+                    _sig.append("恒常门: 中断率呈上升趋势(%+.3f/轮, 近%d轮)，建议优先恢复未完成任务"
+                                % (_int_tr, int(_tr.get("窗口", 0) or 0)))
+                if _cmp_tr < -0.01:
+                    _sig.append("恒常门: 完成率呈下降趋势(%+.3f/轮, 近%d轮)，建议检查任务执行链"
+                                % (_cmp_tr, int(_tr.get("窗口", 0) or 0)))
         except Exception:
             pass
         try:
@@ -335,7 +362,7 @@ class SelfMirror:
         return "none"
 
     def mirror(self, emergency: bool = False, light: bool = False) -> Dict[str, Any]:
-        """执行自照：生成报告 → 归档 Mindol → 更新轮次（静默跳过逻辑由调用方判断）
+        """执行自照：生成报告 → 归档 Shalou → 更新轮次（静默跳过逻辑由调用方判断）
         emergency=True（守三应急复盘触发）：仅记录照镜素材，不产出 P6 调权信号（定稿第九章约束）。
         同向熔断：连续两次对同一方向（下调/上调）干扰 → 本次静默，中断递归循环。"""
         report = self.generate_report()
@@ -360,7 +387,7 @@ class SelfMirror:
             if _silent:
                 self._state["same_dir_streak"] = 0
         try:
-            from mindol.diegin_integration import memory_archive
+            from shalou.diegin_integration import memory_archive
             _txt = "自照报告 r%d: %s" % (report.get("round", 0),
                                         json.dumps(report, ensure_ascii=False)[:800])
             memory_archive("self_mirror", _txt)

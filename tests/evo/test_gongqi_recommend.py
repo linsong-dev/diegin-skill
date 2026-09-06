@@ -5,7 +5,7 @@
 - test_cases: 固定种子模式 + 输入上下文 -> 期望推荐（硬断言，不随真实规则库漂移）
 
 防泄漏约束：每个用例注入独立临时规则目录的种子模式，只读调用
-build_gongqi_suggestions / retrieve_for_task，绝不触碰真实规则库与 Mindol；
+build_gongqi_suggestions / retrieve_for_task，绝不触碰真实规则库与 Shalou；
 测试用例不进入引擎学习路径（不 record_triggered / 不 auto_adopt / 不写回）。
 """
 import os

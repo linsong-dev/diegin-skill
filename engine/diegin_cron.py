@@ -134,6 +134,18 @@ def _job_deep_review(cfg):
     return {"ok": True, "reviewed": len(report)}
 
 
+def _job_lockdown_recovery(cfg):
+    """运维手册 2.12 P1熔断恢复诊断：静默锁止后每6小时只读环境诊断；连续2次通过自动解除锁止"""
+    sys.path.insert(0, os.path.join(BASE, "engine"))
+    sys.path.insert(0, os.path.join(BASE, "engine", "evo"))
+    from evo.tracker import BehaviorTracker
+    from evo.main import _get_engine
+    _bt = BehaviorTracker(_get_engine())
+    _res = _bt.check_silent_lockdown_recovery()
+    _append_audit("[CRON] lockdown_recovery 诊断: %s" % json.dumps(_res, ensure_ascii=False)[:200])
+    return {"ok": True, "diagnosis": _res}
+
+
 def _job_health_report(cfg):
     """健康刷新：cronFailureRate 由硬编码改为真实统计"""
     st = _load_state()
@@ -204,6 +216,9 @@ JOBS = {
     "health_report": {"interval_h": lambda c: c["health_interval_h"],
                       "window": lambda c: None,
                       "fn": _job_health_report},
+    "lockdown_recovery": {"interval_h": lambda c: 6,
+                          "window": lambda c: None,
+                          "fn": _job_lockdown_recovery},
 }
 
 

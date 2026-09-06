@@ -165,7 +165,7 @@ try {
     [System.IO.File]::WriteAllText($anchorFile, ($anchorObj | ConvertTo-Json -Compress), $script:utf8NoBOM)
 } catch { Add-NoBOMLog -Path $auditLog -Message "$time [ANCHOR] write_error=$($_.Exception.Message)" }
 
-# [PERF-B 2026-08-19] health/feedback_adopt/record_success/closure/mindol/evidence
+# [PERF-B 2026-08-19] health/feedback_adopt/record_success/closure/shalou/evidence
 # → 全部并入 post_tool_batch 单次 Python 进程调用（下方 batch 段），消除 5 次独立进程启动 + contract.py 双层 subprocess
 # DGEN 标志状态升级（allowed -> verified）移至 batch 调用之后，复用其返回的 active_rules
 $markerFile = Join-Path $stateDir "dgen_marker_pending.json"
@@ -329,8 +329,8 @@ try {
 
 # ============================================================
 # [PERF-B 2026-08-19] post_tool_batch：单进程合并 6 动作
-#   health + feedback_adopt(条件) + record_success(条件) + closure_close + mindol×2 + record_evidence
-#   替代原 5 次独立 Python 进程启动（contract→health 双层 subprocess / feedback_adopt / record_success / closure_close / mindol+evidence）
+#   health + feedback_adopt(条件) + record_success(条件) + closure_close + shalou×2 + record_evidence
+#   替代原 5 次独立 Python 进程启动（contract→health 双层 subprocess / feedback_adopt / record_success / closure_close / shalou+evidence）
 # ============================================================
 $batchCtx = @{}
 $learnings = @()
@@ -419,12 +419,12 @@ try {
         }
     }
 
-    # 4) Mindol 语义记忆写入 + 去伪存真证据裁决（并入 batch；引擎内 save_chat 同步 codex/raw_chat 双空间）
-    $batchCtx.mindol_post_text = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
-    if ($batchCtx.mindol_post_text.Length -gt 500) { $batchCtx.mindol_post_text = $batchCtx.mindol_post_text.Substring(0, 500) }
+    # 4) Shalou 语义记忆写入 + 去伪存真证据裁决（并入 batch；引擎内 save_chat 同步 codex/raw_chat 双空间）
+    $batchCtx.shalou_post_text = "tool=$toolName decision=$decision matched=$matched snippet=$cmdSnippet"
+    if ($batchCtx.shalou_post_text.Length -gt 500) { $batchCtx.shalou_post_text = $batchCtx.shalou_post_text.Substring(0, 500) }
     $chatText = "tool=$toolName cmd=$toolCmd exit=$toolExitCode"
     if ($chatText.Length -gt 450) { $chatText = $chatText.Substring(0, 450) }
-    $batchCtx.mindol_raw_chat_text = $chatText
+    $batchCtx.shalou_raw_chat_text = $chatText
     $batchCtx.evidence = @{
         rule_id = if ($toolName) { $toolName } else { "unknown" }
         verdict = if ($toolExitCode -eq 0 -or $toolExitCode -eq $null) { "pass" } else { "fail" }
@@ -529,6 +529,6 @@ try {
     Add-NoBOMLog -Path $auditLog -Message "$time v3.6 post_review error=$($_.Exception.Message)"
 }
 
-# Mindol 语义记忆写入与证据裁决已并入 post_tool_batch（见上方 batch 段）
+# Shalou 语义记忆写入与证据裁决已并入 post_tool_batch（见上方 batch 段）
 
 exit 0

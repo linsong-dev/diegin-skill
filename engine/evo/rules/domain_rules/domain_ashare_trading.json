@@ -206,7 +206,7 @@
   {
     "id": "domain_ashare_knowledge_archival",
     "name": "交易经验入库",
-    "description": "每笔盈亏交易的关键决策依据归档到 Mindol 记忆，供后续同类场景检索复用",
+    "description": "每笔盈亏交易的关键决策依据归档到 Shalou 记忆，供后续同类场景检索复用",
     "severity": "low",
     "scope": "post_tool_use",
     "trigger_condition": "('平仓' in context or '清仓' in context or '经验沉淀' in context)",
@@ -214,7 +214,7 @@
     "tags": [
       "domain_ashare_trading",
       "memory",
-      "Mindol"
+      "Shalou"
     ],
     "auto_fix": true,
     "logic": {

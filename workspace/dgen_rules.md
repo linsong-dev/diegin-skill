@@ -2,7 +2,7 @@
 
 > 生成时间：2026-08-06 08:50:28
 > 生成方式：扫描引擎规则库自动生成（读取 `engine/evo/rules/interception_rules.json`）
-> 权威源：`engine/evo/rules/interception_rules.json`（运行时同步 Mindol 语义记忆）。
+> 权威源：`engine/evo/rules/interception_rules.json`（运行时同步 Shalou 语义记忆）。
 > 本文件是规则库的可读索引/文档，供人工审阅与 SKILL 引用；规则的增删改以引擎维护流程（`run_maintenance` / 各原则模块）为准，不要直接编辑本文件。
 
 ## 总览

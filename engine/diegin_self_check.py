@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """迭进引擎自检脚本（防复发机制 P0）
-检查: 1) Mindol 可加载  2) 双存储一致性  3) 无恒真规则  4) 关键规则存在  5) 会话无图片残留
+检查: 1) Shalou 可加载  2) 双存储一致性  3) 无恒真规则  4) 关键规则存在  5) 会话无图片残留
 输出: JSON 结果 + 追加审计日志。异常写 WARN/ERROR 标记（不再静默）。
 """
 import io, sys, json, os, re, datetime, glob, traceback
@@ -37,23 +37,23 @@ def main():
         "status": "ok",
         "issues": [],
     }
-    # 1) Mindol 可加载
+    # 1) Shalou 可加载
     try:
         from evo.rule_engine import RuleEngine
         engine = RuleEngine()
-        m = engine._mindol
-        mindol_ok = m is not None
-        result["checks"]["mindol_loadable"] = mindol_ok
-        if not mindol_ok:
-            result["issues"].append("Mindol 不可加载（_mindol is None）")
+        m = engine._shalou
+        shalou_ok = m is not None
+        result["checks"]["shalou_loadable"] = shalou_ok
+        if not shalou_ok:
+            result["issues"].append("Shalou 不可加载（_shalou is None）")
         else:
             space = m.get_space(m.SPACE_RULE)
             mid_count = len(space.memory_units)
-            result["mindol_rule_units"] = mid_count
+            result["shalou_rule_units"] = mid_count
     except Exception as e:
-        result["checks"]["mindol_loadable"] = False
-        result["issues"].append(f"Mindol 加载异常: {e}")
-        mindol_ok = False
+        result["checks"]["shalou_loadable"] = False
+        result["issues"].append(f"Shalou 加载异常: {e}")
+        shalou_ok = False
         mid_count = 0
         engine = None
 
@@ -68,8 +68,8 @@ def main():
                 jrules = jrules + json.load(f)
         jid_set = {r.get("id") for r in jrules}
         mids = set()
-        if engine is not None and engine._mindol is not None:
-            for u in engine._mindol.get_space(engine._mindol.SPACE_RULE).memory_units:
+        if engine is not None and engine._shalou is not None:
+            for u in engine._shalou.get_space(engine._shalou.SPACE_RULE).memory_units:
                 try:
                     d = json.loads(u.text)
                     mids.add(d.get("id"))
@@ -78,9 +78,9 @@ def main():
         consistent = (jid_set == mids) and len(jid_set) > 0
         result["checks"]["dual_store_consistent"] = consistent
         result["json_rules"] = len(jid_set)
-        result["mindol_rules"] = len(mids)
+        result["shalou_rules"] = len(mids)
         if not consistent:
-            result["issues"].append(f"双存储不一致: JSON={len(jid_set)} Mindol={len(mids)} onlyJSON={len(jid_set-mids)} onlyMindol={len(mids-jid_set)}")
+            result["issues"].append(f"双存储不一致: JSON={len(jid_set)} Shalou={len(mids)} onlyJSON={len(jid_set-mids)} onlyShalou={len(mids-jid_set)}")
     except Exception as e:
         result["checks"]["dual_store_consistent"] = False
         result["issues"].append(f"双存储检查异常: {e}")
@@ -273,7 +273,7 @@ def main():
         with io.open(spj, "r", encoding="utf-8") as f:
             spatterns = json.load(f)
         hollow = []
-        hollow_words = ("成功完成exit=0", "completedexit=0", "工具成功完成", "unknown")
+        hollow_words = ("成功完成exit=0", "completedexit=0", "工具成功完成")  # 8-27: 移除 unknown/unknownmodel 宽泛词，避免把含 Unknown model 领域术语的实质模式误判空壳
         for _p in spatterns:
             if _p.get("lifecycle_status") == "archived":
                 continue

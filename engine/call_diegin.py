@@ -17,12 +17,12 @@ if __name__ == "__main__":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from pathlib import Path
-from mindol.diegin_integration import memory_format_context, memory_archive
+from shalou.diegin_integration import memory_format_context, memory_archive
 
 
 
 sys.path.insert(0, str(Path(__file__).parent))
-from mindol.diegin_integration import memory_format_context, memory_archive
+from shalou.diegin_integration import memory_format_context, memory_archive
 
 from evo.rule_engine import build_gongqi_suggestions
 
@@ -1020,11 +1020,11 @@ def pre_check(context: dict) -> dict:
     if not isinstance(context, dict):
         context = {}
 
-    # ========== P0: raw_chat 写入 Mindol ==========
+    # ========== P0: raw_chat 写入 Shalou ==========
     try:
         _chat_text = context.get("context", context.get("task", context.get("message", context.get("cmd", ""))))
         if _chat_text and len(str(_chat_text)) > 5:
-            from mindol.diegin_integration import save_chat
+            from shalou.diegin_integration import save_chat
             import threading
             _ = threading.Thread(target=save_chat, args=(str(_chat_text)[:2000],), daemon=True).start()
     except Exception:
@@ -1068,13 +1068,21 @@ def pre_check(context: dict) -> dict:
                     "tasks": [{
                         "task_id": t.get("task_id", ""),
                         "status": t.get("status", "paused"),
-                        "summary": str(t.get("intent_summary", ""))[:50],
+                        "summary": (str(t.get("intent_summary", ""))[:50] +
+                                    ("（含子任务 %d 条）" % int(t.get("goal_child_count", 0))
+                                     if int(t.get("goal_child_count", 0)) > 0 else ""))[:60],
                         "updated_at": t.get("updated_at", ""),
                         "cold_stored": bool(t.get("cold_stored", False)),
                         "bulk_hint": str(t.get("bulk_hint", "")) if t.get("cold_stored") else "",
                         # v3.9.3 入口常驻恢复提示附带三件套，助手无需翻文件重建上下文
                         "completion_criteria": str(t.get("completion_criteria", ""))[:120],
-                        "pending_items": [str(x)[:60] for x in (t.get("pending_items") or [])][:3]
+                        "pending_items": [str(x)[:60] for x in (t.get("pending_items") or [])][:3],
+                        # v3.9.4 goal 聚合：目标条目携带可恢复子任务清单
+                        "goal_child_count": int(t.get("goal_child_count", 0)),
+                        "goal_children": [{
+                            "task_id": c.get("task_id", ""),
+                            "summary": str(c.get("intent_summary", ""))[:40]
+                        } for c in (t.get("goal_children") or [])]
                     } for t in _rec[:5]]
                 }
     except Exception:
@@ -1145,39 +1153,39 @@ def pre_check(context: dict) -> dict:
             if getattr(r, "lifecycle_status", "") == "active":
                 pass  # 基础规则仍有效
 
-    # ========== 去伪存真·Mindol语义上下文注入 ==========
+    # ========== 去伪存真·Shalou语义上下文注入 ==========
     # v3.6: 单次检索复用（format + hits），带超时熔断，不再重复检索
-    mindol_context = ""
-    mindol_hits = []
+    shalou_context = ""
+    shalou_hits = []
     try:
-        from mindol.diegin_integration import memory_search, memory_format_context
+        from shalou.diegin_integration import memory_search, memory_format_context
         ctx_str = json.dumps(context, ensure_ascii=False)[:300]
-        mindol_hits = memory_search(ctx_str, max_results=3) or []
-        mindol_context = memory_format_context(query=ctx_str, top_k=3)
+        shalou_hits = memory_search(ctx_str, max_results=5) or []
+        shalou_context = memory_format_context(query=ctx_str, top_k=5)
     except Exception:
         pass
     # 自述护栏（2026-08-24）：检索命中旧版自述（八元框架/缓急律）一律剔除，自述类查询以权威九章覆盖，防止迭进"自述错误"
-        if mindol_hits:
+        if shalou_hits:
             _q = json.dumps(context, ensure_ascii=False)
             _is_self_q = any(_k in _q for _k in DGEN_SELF_QUERY_HINTS)
             _clean = []
-            for _h in mindol_hits:
+            for _h in shalou_hits:
                 _ht = str(_h.get("text", ""))[:300]
                 if any(_w in _ht for _w in DGEN_STALE_SELF_WORDS):
                     continue  # 旧自述轨迹不入注入、不入裁决
                 _clean.append(_h)
             if _clean:
-                mindol_hits = _clean
-                mindol_context = memory_format_context(query=ctx_str, top_k=3)  # 复用缓存重新格式化
+                shalou_hits = _clean
+                shalou_context = memory_format_context(query=ctx_str, top_k=5)  # 复用缓存重新格式化
             if _is_self_q:
-                mindol_context = DGEN_AUTHORITY_SELF_DESC
+                shalou_context = DGEN_AUTHORITY_SELF_DESC
     except Exception:
         pass
     # 自照镜·勇气信号 → P6 语义记忆静默影响（定稿第九章；受 P6 调权±0.3/单轮±0.1 约束）
         from evo.main import mirror_status
         _courage = float(mirror_status().get("courage", 0.0) or 0.0)
         if _courage > 0:
-            mindol_hits = list(mindol_hits or []) + [{
+            shalou_hits = list(shalou_hits or []) + [{
                 "text": "主动冒险获得超额收益 放行 allow pass 继续推进",
                 "score": min(0.8, _courage),
                 "space": "codex",
@@ -1196,7 +1204,7 @@ def pre_check(context: dict) -> dict:
         pass
     import time as _arb_t
     _arb_start = _arb_t.time()
-    result = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
+    result = arbitrate(rules["interceptions"], rules["patterns"], shalou_hits=shalou_hits,
                        closure_state=closure_state, pace_channel=pace_result, context=context,
                        constancy_state=constancy_recovery)
     _arb_elapsed = _arb_t.time() - _arb_start
@@ -1206,7 +1214,7 @@ def pre_check(context: dict) -> dict:
         decision_timeout = True
         _append_audit("[DECISION-TIMEOUT] 衡耗时 %.1fs > 2s，强制降级 P0-P3 快速通道" % _arb_elapsed)
         try:
-            _fast = arbitrate(rules["interceptions"], rules["patterns"], mindol_hits=mindol_hits,
+            _fast = arbitrate(rules["interceptions"], rules["patterns"], shalou_hits=shalou_hits,
                               closure_state=closure_state, pace_channel=pace_result, context=context,
                               constancy_state=constancy_recovery, fast_path=True)
             _fast["timeout_fast_path"] = True
@@ -1407,6 +1415,81 @@ def pre_check(context: dict) -> dict:
         except Exception:
             pass
 
+    # ========== C4 L0/L1/L2 路由建议（迭进=分级/注入/建议路由；模型路由=平台职责） ==========
+    # 结论 v1：迭进仅输出路由键+理由供上层/用户消费；涉资金/发布永不降级（与路由键通则 1 一致）
+    routing_suggestion = {}
+    try:
+        _rt_text = str(context.get("text", context.get("prompt", context.get("command", context.get("task", "")))))
+        _rt_tt = context.get("task_type", "")
+        _rt_key = _rt_reason = _rt_action = ""
+        _money_words = ("买", "卖", "建仓", "加仓", "减仓", "清仓", "平仓", "仓位", "满仓", "重仓",
+                        "梭哈", "押注", "涨停", "跌停", "追涨", "追高", "打板", "低吸", "回踩", "炸板",
+                        "连板", "止损", "止盈", "死扛", "被套", "摊平", "补仓", "回撤", "爆亏", "连亏",
+                        "破位", "跌破", "股票", "股价", "个股", "模拟盘", "交易", "下单", "委托")
+        _publish_words = ("发布", "对外", "正式报告", "发送给", "群发", "公众号", "推送用户", "公布")
+        _arbitrate_words = ("规则冲突", "仲裁", "评审", "拍板", "宪法解释", "裁决")
+        _novel_words = ("该不该", "能不能", "是否值得", "值不值得", "无先例", "首次遇到", "首次无先例", "深度分析", "深度研究")
+        _routine_words = ("汇总", "查询", "查一下", "归档", "台账", "晨核", "定时", "复盘", "纪要", "草稿",
+                          "初稿", "报表", "统计", "周检", "清单", "列表")
+        _resume_hint = bool(context.get("resume_task_id")) or ("resume_task_id" in _rt_text) or ("继续 task_" in _rt_text)
+        if _rt_tt == "pre_tool":
+            _rt_key, _rt_reason, _rt_action = "L0-policy", "迭进规则预检/裁决(PreToolUse)", "自动执行"
+        elif _resume_hint:
+            _rt_key, _rt_reason, _rt_action = "L1-resume", "识别到任务续接意图", "按恒常门三件套续接(恢复前用户确认)"
+        elif any(w in _rt_text for w in _publish_words):
+            _rt_key, _rt_reason, _rt_action = "L2-publish", "涉发布/对外输出", "人工确认后执行"
+        elif any(w in _rt_text for w in _money_words):
+            _rt_key, _rt_reason, _rt_action = "L2-money", "涉资金/交易/仓位", "人工确认后执行(禁止静默降级)"
+        elif any(w in _rt_text for w in _arbitrate_words):
+            _rt_key, _rt_reason, _rt_action = "L2-arbitrate", "规则冲突/裁决/评审", "人工确认"
+        elif any(w in _rt_text for w in _novel_words):
+            _rt_key, _rt_reason, _rt_action = "L2-novel", "无先例/需判断的新任务", "人工确认或先小样本验证"
+        elif any(w in _rt_text for w in _routine_words):
+            _rt_key, _rt_reason, _rt_action = "L1-query", "例行查询/汇总/归档", "可走本地/免费模型, 关键数字抽检"
+        if _rt_key:
+            routing_suggestion = {"key": _rt_key, "reason": _rt_reason, "action": _rt_action}
+    except Exception:
+        pass
+
+    # ========== 第十章 持行章入口（2026-09-05）：信号注入 pre_check，只读不自动改规则 ==========
+    ch10 = {}
+    try:
+        from evo.holder import ch10_entry
+        _ch10_matched = [getattr(_r, "id", "") for _r in rules["interceptions"]]
+        ch10 = ch10_entry(context, result, matched_ids=_ch10_matched,
+                          deep_review_required=bool(deep_review_required),
+                          deep_review_report=deep_review_report)
+        # 第十章 P0 闭环·提示性消费：阻断盲区/强制激活/规则沉积仅附提示(display_line)，不自动改规则
+        if ch10:
+            _sig = ch10.get("signals") or {}
+            _hints = []
+            _fa = _sig.get("force_activate") or []
+            _bz = _sig.get("blind_zone") or []
+            _dep = _sig.get("deposition") or {}
+            if _fa:
+                _hints.append("强制激活候选%d条" % len(_fa))
+            if _bz:
+                _hints.append("阻断盲区候选%d条" % len(_bz))
+            if isinstance(_dep, dict) and _dep.get("warning"):
+                _hints.append("规则沉积(激活率<20%%)")
+            if _hints and "持行章提示" not in _display_line:
+                _display_line = (_display_line + " | 🕐 持行章提示: " + "; ".join(_hints)[:160]).strip()
+                ch10["hint"] = "; ".join(_hints)
+            # 沙漏翻转/停驻动作提示（L1：user_flip / 自动翻转仅提示，方向状态已落盘）
+            _uf = ch10.get("user_flip") or {}
+            if _uf.get("ok") and "沙漏翻转" not in _display_line:
+                _act = _uf.get("action", "")
+                _line = _uf.get("result") or {}
+                _txt = ("沙漏" + str(_act) + "→" + str(_line.get("to_angle", "")) + "度" if "to_angle" in _line
+                        else "沙漏" + str(_act))
+                _display_line = (_display_line + " | 🔄 " + _txt[:120]).strip()
+            _fla = ch10.get("flip_auto") or {}
+            if _fla.get("ok") and "沙漏翻转" not in _display_line:
+                _ev = _fla.get("event") or {}
+                _display_line = (_display_line + " | 🔄 沙漏自动" + str(_ev.get("type", "")) + "翻转→" + str(_ev.get("to_angle", "")) + "度").strip()
+    except Exception:
+        pass
+
     return {
         "matched_interceptions": len(rules["interceptions"]),
         "matched_patterns": len(rules["patterns"]),
@@ -1415,8 +1498,9 @@ def pre_check(context: dict) -> dict:
         "reason": result["reason"],
         "winning_rule_id": result.get("winning_rule_id"),
         "pace_result": pace_result,
-        "mindol_context": mindol_context if mindol_context else "",
-        "mindol_hits": len(mindol_hits),
+        "routing_suggestion": routing_suggestion,
+        "shalou_context": shalou_context if shalou_context else "",
+        "shalou_hits": len(shalou_hits),
         "suggestions": _suggestions,
         "strike_context": strike_context,
         "constancy_recovery": constancy_recovery,
@@ -1428,6 +1512,7 @@ def pre_check(context: dict) -> dict:
         "decision_timeout": decision_timeout,
         "decision_elapsed_ms": decision_elapsed_ms,
         "mirror_report": mirror_report,
+        "ch10": ch10,
     }
 
 def post_review(task_context: dict, task_result: dict) -> dict:
@@ -1436,7 +1521,7 @@ def post_review(task_context: dict, task_result: dict) -> dict:
 
     result = full_review(task_context, task_result)
 
-    # ========== Mindol 语义归档 ==========
+    # ========== Shalou 语义归档 ==========
     try:
         ctx_str = json.dumps(task_context, ensure_ascii=False)[:200]
         res_str = json.dumps(task_result, ensure_ascii=False)[:200]
@@ -1455,6 +1540,11 @@ def post_review(task_context: dict, task_result: dict) -> dict:
         for _sig in _neg:
             for _rid in (getattr(_sig, "linked_rules", []) or []):
                 adjust_rule_confidence(_rid, -0.2, reason=str(getattr(_sig, "description", ""))[:60], source="post_review_negative")
+                try:
+                    from evo.shousan_guard import record as _sguard_record
+                    _sguard_record(_rid, 0.2, reason="post_review_negative: " + str(getattr(_sig, "description", ""))[:60])
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -1827,7 +1917,7 @@ if __name__ == "__main__":
     elif mode == "pre_reply":
         """UserPromptSubmit 聚合模式：一次引擎加载完成所有预检工作
         用法: echo '<prompt_json>' | python call_diegin.py pre_reply
-        合并 check + health + suggest + arbitrate_detail + verify + mindol record
+        合并 check + health + suggest + arbitrate_detail + verify + shalou record
         输出: JSON (含完整结果)
         退出码: 1=block, 0=allow
         """
@@ -1852,7 +1942,7 @@ if __name__ == "__main__":
             _get_engine, _get_arbiter, get_rules_for_task, arbitrate,
             health_check as _health_check, get_vault, run_maintenance
         )
-        from mindol.diegin_integration import memory_format_context, memory_archive as dgen_archive
+        from shalou.diegin_integration import memory_format_context, memory_archive as dgen_archive
         from evo.evidence_vault import EvidenceVault
 
         # 构建上下文
@@ -1865,30 +1955,34 @@ if __name__ == "__main__":
         if blocked_error_type:
             ctx["blocked_error_type"] = blocked_error_type
 
-        # 0. raw_chat 写入 Mindol（异步）
+        # 0. raw_chat 写入 Shalou（异步）
         try:
             if prompt and len(prompt) > 5:
-                from mindol.diegin_integration import save_chat
+                from shalou.diegin_integration import save_chat
                 import threading
                 _ = threading.Thread(target=save_chat, args=(prompt[:2000],), daemon=True).start()
         except Exception:
             pass
 
         pass
-        # 自照镜·勇气信号下一轮用户交互确认（定稿第九章）：负面反馈 → 归零；否则生效
-        _user_negative = None
+        # 自照镜·勇气信号下一轮用户交互确认（2026-09-05 定稿第九章修订）
+        # 必须为显性、正面的语义反馈（做得好/可行/采纳/正确…）方可生效；单纯"未纠正/继续"视为"未确认"→ 自动归零
         try:
             from evo.main import mirror_confirm_courage
-            _neg_words = ("不满意", "不对", "错了", "不是这样", "失败", "不行", "停止", "取消", "别", "不要", "拒绝", "有问题", "bug", "回退")
-            _user_negative = bool(any(_w in (prompt or "") for _w in _neg_words))
-            mirror_confirm_courage(confirmed=not _user_negative)
+            _txt = str(prompt or "")
+            _pos_words = ("做得好", "很好", "不错", "可行", "采纳", "正确", "成功", "满意", "有效", "优秀", "对了", "完美", "太好了", "有用", "合理", "很棒")
+            _neg_words = ("不满意", "不对", "错了", "不是这样", "失败", "不行", "停止", "取消", "别", "不要", "拒绝", "有问题", "bug", "回退", "错误")
+            _confirmed = bool(any(_w in _txt for _w in _pos_words)) and not bool(any(_w in _txt for _w in _neg_words))
+            _reason = "用户显性正面确认" if _confirmed else (
+                "用户负面反馈" if any(_w in _txt for _w in _neg_words) else "未确认(无显性正面语义,自动归零)")
+            mirror_confirm_courage(confirmed=_confirmed, reason=_reason)
         except Exception:
             pass
 
-        # [PERF-D 2026-08-20] 情绪调制：自照镜 courage → Mindol mood（检索空间权重调制）
+        # [PERF-D 2026-08-20] 情绪调制：自照镜 courage → Shalou mood（检索空间权重调制）
         try:
             from evo.main import mirror_status
-            from mindol.diegin_integration import memory_set_mood
+            from shalou.diegin_integration import memory_set_mood
             _mood_v = float(mirror_status().get("courage", 0.0) or 0.0)
             memory_set_mood(_mood_v * 2.0 - 1.0, source="self_mirror_courage")
         except Exception:
@@ -1909,11 +2003,11 @@ if __name__ == "__main__":
                     _cand = _m.group(1)
                 else:
                     # v3.9.1 模糊恢复：无 task_id 但含恢复/继续意图 → 按意图检索可恢复任务
-                    # v3.9.2：空壳降权 + Mindol 兜底（kind=memory 片段仅提示，永不自动恢复）
+                    # v3.9.2：空壳降权 + Shalou 兜底（kind=memory 片段仅提示，永不自动恢复）
                     _p = (prompt or "").strip()
                     if _re.search(r"(?:恢复|继续)", _p):
                         try:
-                            _fuzzy = constancy_find_by_intent(_p, top_k=3) or []
+                            _fuzzy = constancy_find_by_intent(_p, top_k=5) or []
                             if _fuzzy:
                                 _best = _fuzzy[0]
                                 _second = _fuzzy[1] if len(_fuzzy) > 1 else None
@@ -1963,24 +2057,24 @@ if __name__ == "__main__":
         winning_rule_id = check_result.get("winning_rule_id")
         reason = check_result.get("reason", "")
         display_line = check_result.get("display_line", "")
-        mindol_ctx = check_result.get("mindol_context", "")
+        shalou_ctx = check_result.get("shalou_context", "")
         strike_context = check_result.get("strike_context", "")
 
         # [PERF-D] 跨空间联想并入注入（创造性：trade×pattern×abstract 重组候选）
         try:
-            from mindol.diegin_integration import memory_associate
-            _assoc = memory_associate(prompt or "", top_k=2)
+            from shalou.diegin_integration import memory_associate
+            _assoc = memory_associate(prompt or "", top_k=5)
             if _assoc:
                 _al = " | ".join(str(a.get("text", ""))[:150] for a in _assoc)
-                mindol_ctx = ("[联想] " + _al + " | " + mindol_ctx) if mindol_ctx else ("[联想] " + _al)
+                shalou_ctx = ("[联想] " + _al + " | " + shalou_ctx) if shalou_ctx else ("[联想] " + _al)
         except Exception:
             pass
 
         if decision in ("block", "iron_wall_block"):
             # block 路径：输出阻断信息，退出 1
             enhanced = display_line
-            if mindol_ctx:
-                short_ctx = mindol_ctx.replace("\n", " ").replace("\r", "")
+            if shalou_ctx:
+                short_ctx = shalou_ctx.replace("\n", " ").replace("\r", "")
                 if len(short_ctx) > 200:
                     short_ctx = short_ctx[:200] + "..."
                 enhanced += " | mem:" + short_ctx
@@ -2080,7 +2174,7 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # 7. 写入 Mindol 记忆（pre_reply 空间）
+        # 7. 写入 Shalou 记忆（pre_reply 空间）
         try:
             dgen_archive("pre_reply", f"decision={decision} matched={matched_count} status=allow", {})
         except Exception:
@@ -2088,16 +2182,16 @@ if __name__ == "__main__":
 
         # 8. 构建输出文本
         marker_str = "[DGEN]"
-        mindol_str = ""
-        if mindol_ctx:
-            short_ctx = mindol_ctx.replace("\n", " ").replace("\r", "")
+        shalou_str = ""
+        if shalou_ctx:
+            short_ctx = shalou_ctx.replace("\n", " ").replace("\r", "")
             if len(short_ctx) > 150:
                 short_ctx = short_ctx[:150] + "..."
-            mindol_str = " mem:" + short_ctx
+            shalou_str = " mem:" + short_ctx
         strike_str = ""
         if strike_context:
             strike_str = "\n" + strike_context
-        output_text = marker_str + " PASS" + mindol_str + suggestions_text + strike_str
+        output_text = marker_str + " PASS" + shalou_str + suggestions_text + strike_str
         # [TOKEN 治理] 会话转录预算哨兵：超阈值注入一次「建议新开会话」（升档仅提示一次，防缓存 churn）
         # [TOKEN 治理 2026-08-31] 单轮上下文 >150K 强制提示 + 目标模式 token_budget 护栏
         try:
@@ -2178,7 +2272,7 @@ if __name__ == "__main__":
                         _lines.append(_line)
                     _lines.append("回复: 继续 <task_id> 以确认")
                 if _mem_cands:
-                    _lines.append("\n[恒常门] 未匹配到明确任务，Mindol 记忆相关片段（供定位意图，不自动恢复）:")
+                    _lines.append("\n[恒常门] 未匹配到明确任务，Shalou 记忆相关片段（供定位意图，不自动恢复）:")
                     for _m in _mem_cands[:3]:
                         _lines.append("  - [%s %.0f%%] %s" % (
                             _m.get("space", "codex"), (_m.get("score", 0) or 0) * 100,
@@ -2205,6 +2299,16 @@ if __name__ == "__main__":
                     output_text += "\n[一二不过三] 升级事件需人工介入:\n" + "\n".join(_esc_lines)
             except Exception:
                 pass
+        except Exception:
+            pass
+        # C4 路由建议可见性：仅 L2(拍板)与 L0(直判) 提示，L1 例行不注入（防 token 膨胀）
+        try:
+            _rt = check_result.get("routing_suggestion") or {}
+            if _rt.get("key") and (_rt["key"].startswith("L2") or _rt["key"].startswith("L0")):
+                _rt_line = "[迭进路由] 建议 %s | %s | %s" % (
+                    _rt["key"], str(_rt.get("action", ""))[:40], str(_rt.get("reason", ""))[:60])
+                if _rt_line not in output_text:
+                    output_text += "\n" + _rt_line
         except Exception:
             pass
         output_text += "\n\n=== PROTOCOL ==="
@@ -2237,7 +2341,7 @@ if __name__ == "__main__":
             "arbitrate_detail": detail,
             "verify": verify_result,
             "display_text": output_text,
-            "mindol_context": mindol_ctx,
+            "shalou_context": shalou_ctx,
             "strike_context": strike_context,
             "constancy_recovery": constancy_recovery,
             "constancy_task_id": constancy_current_task_id,
@@ -2250,7 +2354,7 @@ if __name__ == "__main__":
         """PostToolUse 聚合模式（PERF）：一次引擎加载完成常规路径所有动作
         用法: echo '<big_json>' | python call_diegin.py post_tool_batch
         合并: health + feedback_adopt(条件) + record_success(条件) + closure_close
-              + mindol record post_tool + record_evidence + mindol record raw_chat
+              + shalou record post_tool + record_evidence + shalou record raw_chat
         输出: JSON 汇总
         """
         try:
@@ -2376,11 +2480,11 @@ if __name__ == "__main__":
         except Exception as _e:
             _out["closure"] = {"error": str(_e)[:100]}
 
-        # 5. mindol record（每次；[PERF-C] 合并为单条 save_chat——原 post_tool 与 raw_chat 两次写入，retrieve 全空间覆盖，一次即够）
+        # 5. shalou record（每次；[PERF-C] 合并为单条 save_chat——原 post_tool 与 raw_chat 两次写入，retrieve 全空间覆盖，一次即够）
         try:
-            from mindol.diegin_integration import save_chat
-            _mt = _d.get("mindol_post_text", "") or ""
-            _rt = _d.get("mindol_raw_chat_text", "") or ""
+            from shalou.diegin_integration import save_chat
+            _mt = _d.get("shalou_post_text", "") or ""
+            _rt = _d.get("shalou_raw_chat_text", "") or ""
             _mc = ""
             if _mt: _mc += "post_tool: " + _mt[:450]
             if _rt:
@@ -2388,9 +2492,9 @@ if __name__ == "__main__":
                 _mc += _rt[:450] + " (raw_chat)"
             if _mc:
                 save_chat(_mc, source="post_tool")
-            _out["mindol"] = {"ok": True}
+            _out["shalou"] = {"ok": True}
         except Exception as _e:
-            _out["mindol"] = {"error": str(_e)[:100]}
+            _out["shalou"] = {"error": str(_e)[:100]}
 
         # 6. record_evidence（每次）
         try:
@@ -3355,6 +3459,43 @@ if __name__ == "__main__":
             result["next_step"] = "修复失败，请检查 fix_instruction 后重试，或进入第2次阻断流程"
 
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    elif mode == "shalou_flip_status":
+        """沙漏流动模型状态（L1：翻转/360停驻/读写平衡健康报告）"""
+        try:
+            from shalou import flip as _sflip
+            import os as _os
+            _sd = _os.path.abspath(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "..", "shalou"))
+            if not _os.path.isdir(_sd):
+                _sd = _sflip.default_dir()
+            print(json.dumps(_sflip.health(_sd), ensure_ascii=False, indent=2, default=str))
+        except Exception as _fe:
+            print(json.dumps({"error": str(_fe)[:200]}, ensure_ascii=False, indent=2))
+
+    elif mode == "shalou_flip_set":
+        """沙漏翻转/停驻设置：python call_diegin.py shalou_flip_set <natural|reverse|direction|accumulate|side|upright|角度数值>"""
+        import os as _os2
+        _arg = sys.argv[2] if len(sys.argv) > 2 else "natural"
+        try:
+            from shalou import flip as _sflip
+            _sd = _os2.path.abspath(_os2.path.join(_os2.path.dirname(_os2.path.dirname(_os2.path.abspath(__file__))), "..", "shalou"))
+            if not _os2.path.isdir(_sd):
+                _sd = _sflip.default_dir()
+            _spec = {"natural": None, "reverse": None, "direction": None, "accumulate": None}
+            if _arg in _spec:
+                _res = _sflip.execute_flip(_arg, storage_dir=_sd, source="cli", reason="运维 CLI 手动触发")
+            elif _arg in ("side", "90"):
+                _res = _sflip.set_angle(90.0, _sd, source="cli", reason="运维 CLI：侧放停驻")
+            elif _arg in ("upright", "0"):
+                _res = _sflip.set_angle(0.0, _sd, source="cli", reason="运维 CLI：正放恢复")
+            else:
+                try:
+                    _res = _sflip.set_angle(float(_arg), _sd, source="cli", reason="运维 CLI：任意角度停驻")
+                except Exception:
+                    _res = {"ok": False, "error": "参数需为 natural/reverse/direction/accumulate/side/upright 或角度数值"}
+            print(json.dumps(_res, ensure_ascii=False, indent=2, default=str))
+        except Exception as _fe:
+            print(json.dumps({"error": str(_fe)[:200]}, ensure_ascii=False, indent=2))
+
     elif mode == "deep_review":
         """守三·深度复盘：系统性回顾 strike 日志并生成改进建议（只读报告，不写规则库）"""
         print(json.dumps(_build_deep_review_report(), ensure_ascii=False, indent=2, default=str))
@@ -3541,16 +3682,16 @@ if __name__ == "__main__":
                 _icon = chr(0x2705) if _st == "passed" or _st == "completed" else chr(0x26A0) if "block" in str(_st) else chr(0x1F7E1)
                 print(f"    {_icon} {_pn}: {_st} ({_ts})")
 
-        # ── 10. Mindol 记忆 ──
-        _mdb = _oa.path.join(_oa.environ.get("CODEX_HOME", _oa.path.expanduser("~/.codex")), "mindol", "memory.db")
-        print(f"\n--- Mindol 语义记忆 ---")
+        # ── 10. Shalou 记忆 ──
+        _mdb = _oa.path.join(_oa.environ.get("CODEX_HOME", _oa.path.expanduser("~/.codex")), "shalou", "memory.db")
+        print(f"\n--- Shalou 语义记忆 ---")
         if _oa.path.exists(_mdb):
             _mb = _oa.path.getsize(_mdb)
             print(f"    记忆库: {_mb / 1024:.0f} KB")
         else:
             print(f"    未找到记忆库")
         try:
-            _mp = _oa.path.join(_base, "engine", "mindol_bridge.py")
+            _mp = _oa.path.join(_base, "engine", "shalou_bridge.py")
             if _oa.path.exists(_mp):
                 import subprocess as _sb
                 _mr = _sb.run([sys.executable, _mp, "stats"], capture_output=True, text=True, timeout=5)

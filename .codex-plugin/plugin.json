@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "迭进·DGEN",
     "shortDescription": "AI 全域常驻自我迭代进化系统",
-    "longDescription": "基于律令九章原则网络（四律三门一锁一镜：行知·攻七 / 省知·守三 / 裁决律·预策 / 完形·止观；通变·举一反三 / 真伪·去伪存真 / 恒常·持存；三错锁·一二不过三；自照镜），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
+    "longDescription": "基于迭进+沙漏(Shalou)统一体系（律令九章+第十章持行：四律三门一锁一镜+持行。行知·攻七 / 省知·守三 / 裁决律·预策 / 完形·止观；通变·举一反三 / 真伪·去伪存真 / 恒常·持存；三错锁·一二不过三；自照镜；持行·律令章），使 AI 具备自主纠错、自主强化、自主记忆、自主进化的能力。",
     "developerName": "linsong-dev",
     "category": "Productivity",
     "capabilities": [

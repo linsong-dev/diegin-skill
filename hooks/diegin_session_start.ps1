@@ -126,7 +126,7 @@ try {
 }
 
 
-# 迭进引擎自检（防复发 P4）：每次会话启动验证 Mindol 可加载/双存储一致/无恒真规则/关键规则/无图片残留
+# 迭进引擎自检（防复发 P4）：每次会话启动验证 Shalou 可加载/双存储一致/无恒真规则/关键规则/无图片残留
 try {
     $selfCheck = Join-Path $g_pr "engine\diegin_self_check.py"
     if (Test-Path $selfCheck) {

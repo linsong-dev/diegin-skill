@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 claim_checker.py - 去伪存真·实质验证（v3.5）
-输出自洽性检验：提取输出中的可验证声明，与 Mindol 已知记忆交叉核对
+输出自洽性检验：提取输出中的可验证声明，与 Shalou 已知记忆交叉核对
 言必有证 → 证必可验 → 验证为真（语义级验证，超越格式标记验证）
 """
 import io, sys, os, re, json
@@ -12,7 +12,7 @@ from typing import List, Dict, Optional, Tuple
 class ClaimChecker:
     """去伪存真·输出声明验证器"""
 
-    def __init__(self, top_k: int = 3, threshold: float = 0.75):
+    def __init__(self, top_k: int = 5, threshold: float = 0.75):
         self.top_k = top_k
         self.threshold = threshold
         # 声明提取规则：包含明确断言动词/数字/路径/文件名的句子
@@ -74,9 +74,9 @@ class ClaimChecker:
         claims = self._extract_claims(output_text)
         result["total_claims"] = len(claims)
 
-        # Mindol 检索
+        # Shalou 检索
         try:
-            from mindol.diegin_integration import memory_search
+            from shalou.diegin_integration import memory_search
         except Exception:
             memory_search = None
 
@@ -84,7 +84,7 @@ class ClaimChecker:
             entry = {"claim": claim, "status": "unverifiable", "evidence": []}
             if memory_search is None:
                 result["unverifiable"] += 1
-                entry["reason"] = "Mindol 不可用"
+                entry["reason"] = "Shalou 不可用"
                 result["details"].append(entry)
                 continue
             try:

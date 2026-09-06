@@ -1,7 +1,7 @@
-"""Pytest 共享配置：隔离 CODEX_HOME，防止测试污染真实 Mindol 记忆库。
-引擎 v3.6+ 以 Mindol 为权威存储（RuleEngine.__init__ → _init_mindol 读取
-CODEX_HOME/mindol/memory.db）。若会话内共享同一 CODEX_HOME，测试间会通过
-Mindol 数据泄漏（JSON 从 Mindol 重建），因此每个测试使用独立临时目录，结束即清理。
+"""Pytest 共享配置：隔离 CODEX_HOME，防止测试污染真实 Shalou 记忆库。
+引擎 v3.6+ 以 Shalou 为权威存储（RuleEngine.__init__ → _init_shalou 读取
+CODEX_HOME/shalou/memory.db）。若会话内共享同一 CODEX_HOME，测试间会通过
+Shalou 数据泄漏（JSON 从 Shalou 重建），因此每个测试使用独立临时目录，结束即清理。
 同时豁免生产级写保护（MIN_RULES 最小条数门槛），测试小数据集可正常写入。
 
 注意：测试文件混用 `from rule_engine import` 与 `from evo.rule_engine import`

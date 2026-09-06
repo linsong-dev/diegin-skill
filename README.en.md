@@ -61,7 +61,7 @@ User action → [Constancy Gate · Persistence] entry resume check (user confirm
 | engine/evo/constancy.py | Constancy Gate · Persistence (task_id lifecycle / nesting≤3 / 30-day snapshots) |
 | engine/evo/self_mirror.py | Self-Mirror · Direction (courage signal ×0.6 / P6 silent influence) |
 | engine/evo/dashboard.py | Health dashboard |
-| engine/mindol/ | Mindol semantic memory engine |
+| engine/shalou/ | Shalou semantic memory engine |
 
 ## The Nine Chapters (Four Laws · Three Gates · One Lock · One Mirror)
 
@@ -89,7 +89,7 @@ User action → [Constancy Gate · Persistence] entry resume check (user confirm
 | P3 resume | Constancy Gate (resume signals unified in the weigh phase; user confirmation before resume) |
 | P4 confidence | Gong-qi / Shou-san (higher confidence wins; vigilance −0.2 on related patterns) |
 | P5 staging | Generalization (activate only after Truth Gate verification) |
-| P6 memory | Mindol (weight ±0.3 / ±0.1 per round; includes Self-Mirror courage signal) |
+| P6 memory | Shalou (weight ±0.3 / ±0.1 per round; includes Self-Mirror courage signal) |
 
 > **Cognitive order is for learning and narrative; runtime control is decided by the Pre-strategy Law P0–P6. The two dimensions do not conflict.**
 > **Pacemaker was removed from the Nine Chapters; it remains as a downtime/cron rhythm tool (no longer at P3).**
@@ -177,7 +177,7 @@ diegin/
 │   ├── call_diegin.py    CLI entry
 │   ├── test_all.py       32 end-to-end tests
 │   ├── evo/              nine-chapter engine (incl. constancy / self-mirror)-principle engine
-│   └── mindol/           Mindol semantic memory engine
+│   └── shalou/           Shalou semantic memory engine
 ├── hooks/             PowerShell hooks (always-on)
 ├── config/            Routing config
 ├── assets/            Logo and assets

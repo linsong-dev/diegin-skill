@@ -22,7 +22,7 @@
 - 意图：engine/evo（16 文件、churn 最高）获得就近可检索的权威边界，消除「约束依赖散落规则」。
 - 验收标准：`engine/evo/AGENTS.md` 存在；better-harness agents-md-review nestedInstructionCount=1、documents 含 engine/evo/AGENTS.md；与根 AGENTS.md 无规则冲突（warning 仅多入口提示）。
 - 非目标：不新增/修改 engine/evo 源码行为；不改根 AGENTS.md。
-- 实现任务：撰写模块专属指令（规则库/Mindol 一致性、op_contains 白名单+NOT 标准化、_force_reopen 审计留痕、归档护栏、变更流程）。
+- 实现任务：撰写模块专属指令（规则库/Shalou 一致性、op_contains 白名单+NOT 标准化、_force_reopen 审计留痕、归档护栏、变更流程）。
 - 验证证据：lint 复现 nestedInstructionCount 0→1；docs 列表含 engine/evo/AGENTS.md；multi-entrypoint 为可接受提示（非重复/冲突）。
 
 ### ACC-QRY-003 — 规划/验收编号化（2026-08-06 open）
@@ -45,7 +45,7 @@
 - 验收标准：`_noise_reason` 质量门拒绝：乱码路径 ??/U+FFFD、疑似测试样本（x.txt/test/_p0_/_b1_/tmp 等）、只读查询命令（Get-Content/git status 等）；真实部署/构建命令通过。
 - 非目标：不禁止自动提取本身（攻七正向强化保留）；不改人工评审路径。
 - 实现任务：rule_engine.py 新增 `_noise_reason`（共享质量门）并接入 3 处：auto_sandwich 建模式、generalize_from_patterns 派生规则、promote_pattern 提升；归档 2 条已入库噪音（pat_auto_tool_shell_command_1 模式 + pat_rule_pat_auto_tool_shell_command_1 规则）。
-- 验证证据：质量门 11/11 正反向测试通过；噪音模式/规则已归档（lifecycle_status=archived，Mindol 同步）；规则库 265 条（含归档）。
+- 验证证据：质量门 11/11 正反向测试通过；噪音模式/规则已归档（lifecycle_status=archived，Shalou 同步）；规则库 265 条（含归档）。
 - 边界与人工复核路径（去伪存真·个案复核）：黑名单为启发式，若真实成功经验被误伤（如真实部署脚本恰含 `x.txt`/`test`），按「人工复核」流程处理——人工确认后显式降级该模式/规则为人工来源（source=manual / lifecycle_status=active），并更新 `_noise_reason` 白名单或精确化判定；不静默放行，不静默归档。
 
 ### ACC-QRY-006 — 发布门禁联动（2026-08-06 done）

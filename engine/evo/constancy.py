@@ -222,9 +222,10 @@ class TaskRegistry:
         }
 
     def find_recoverable(self) -> List[Dict[str, Any]]:
-        """续而接：检索未完成且未超时的 task_id"""
+        """续而接：检索未完成且未超时的 task_id（v3.9.4 按 goal 聚合：
+        goal 条目展示为「目标 + N 条子任务」，交易主线/子任务不再散落多条）"""
         now = datetime.datetime.now()
-        out = []
+        raw = []
         for tid, t in self._tasks.items():
             if t.get("status") not in _RECOVERABLE_STATUSES:
                 continue
@@ -236,10 +237,38 @@ class TaskRegistry:
             if age > SNAPSHOT_RETENTION_DAYS:
                 continue
             t_copy = dict(t)
+            # goal 条目键本身即 task_id（历史 goal 快照未冗余该字段），补全防展示空 id
+            if not t_copy.get("task_id"):
+                t_copy["task_id"] = tid
             # 定稿第七章：活跃恢复快照 Token 上限 → 超限自动转为冷存储指针（仅加载摘要）
             if self.snapshot_token_count(tid) > SNAPSHOT_TOKEN_LIMIT:
                 t_copy = self._cold_pointer(t_copy)
-            out.append(t_copy)
+                if not t_copy.get("task_id"):
+                    t_copy["task_id"] = tid
+            raw.append(t_copy)
+        raw.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+        return self._aggregate_by_goal(raw)
+
+    def _aggregate_by_goal(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """v3.9.4：按 goal_id 聚合可恢复任务。goal 条目携带 goal_children /
+        goal_child_count，入口展示为「目标 + 子任务数」，其余任务保持原样。"""
+        goals, children, standalone = {}, [], []
+        for t in tasks:
+            gid = t.get("goal_id") or ""
+            if gid and t.get("task_id") == gid:
+                goals[gid] = t
+            elif gid:
+                children.append(t)
+            else:
+                standalone.append(t)
+        out = []
+        for gid, g in goals.items():
+            g2 = dict(g)
+            g_c = [c for c in children if c.get("goal_id") == gid]
+            g2["goal_children"] = g_c
+            g2["goal_child_count"] = len(g_c)
+            out.append(g2)
+        out.extend(standalone)
         out.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
         return out
 
@@ -282,13 +311,13 @@ class TaskRegistry:
         seq = difflib.SequenceMatcher(None, q, t).ratio()
         return round(0.75 * cov + 0.25 * seq, 3)
 
-    def find_by_intent(self, text: str, top_k: int = 3,
-                       mindol_fallback: bool = True) -> List[Dict[str, Any]]:
+    def find_by_intent(self, text: str, top_k: int = 5,
+                       shalou_fallback: bool = True) -> List[Dict[str, Any]]:
         """续而接·模糊查找：按意图关键词/相似度检索可恢复任务（paused/blocked 未超时）。
 
         用于自然语言恢复（无 task_id 时）：用户说「恢复 A股模拟盘任务」，
         依 intent_summary 打分返回 top 候选；是否真正恢复由调用方按置信度+用户确认裁决。
-        v3.9.2：空壳任务（自动立项目快照）降权 ×0.5；无高置信候选时降级 Mindol
+        v3.9.2：空壳任务（自动立项目快照）降权 ×0.5；无高置信候选时降级 Shalou
         语义检索（kind=memory 片段候选，仅供定位意图，不自动恢复）。
         """
         if not text or not text.strip():
@@ -322,26 +351,26 @@ class TaskRegistry:
                            "completion_criteria": criteria[:120],
                            "pending_items": [str(x)[:60] for x in (t.get("pending_items") or [])][:3]})
         scored.sort(key=lambda x: (-x["score"], x["task_id"]))
-        # v3.9.2 Mindol 兜底：无高置信候选时降级语义检索（raw_chat/codex 空间）
-        if mindol_fallback:
+        # v3.9.2 Shalou 兜底：无高置信候选时降级语义检索（raw_chat/codex 空间）
+        if shalou_fallback:
             _high_conf = False
             if scored:
                 _best = scored[0]
                 _high_conf = (_best["score"] >= 0.30 and
                               (len(scored) < 2 or _best["score"] - scored[1]["score"] >= 0.15))
             if not _high_conf:
-                scored.extend(self._mindol_fallback(text, top_k))
+                scored.extend(self._shalou_fallback(text, top_k))
                 scored.sort(key=lambda x: (-x["score"], x.get("task_id", "")))
         return scored[:top_k]
 
     @staticmethod
-    def _mindol_fallback(text: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        """Mindol 语义检索兜底（v3.9.2）：模糊匹配无高置信任务候选时，检索
+    def _shalou_fallback(text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Shalou 语义检索兜底（v3.9.2）：模糊匹配无高置信任务候选时，检索
         raw_chat/codex 空间命中片段作为候选上下文提示（kind=memory、无 task_id，
         调用方只可提示、不可自动恢复）。失败/超时返回空，不阻塞主流程。
         """
         try:
-            from mindol.diegin_integration import memory_search
+            from shalou.diegin_integration import memory_search
             hits = memory_search(text, max_results=top_k) or []
         except Exception:
             return []

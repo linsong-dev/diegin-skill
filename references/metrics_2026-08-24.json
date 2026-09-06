@@ -9,7 +9,7 @@
   "patterns": 21,
   "self_check": "16/16",
   "test_all": "33/33",
-  "mindol_units": 530,
+  "shalou_units": 530,
   "audit_lines": 81888,
   "closure_archived": 784,
   "evidence_verdicts": 500

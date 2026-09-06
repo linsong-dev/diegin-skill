@@ -177,7 +177,7 @@ class Precedent:
 def build_gongqi_suggestions(patterns: list, top_n: int = 5, context: dict = None) -> list:
     """攻七推荐纯函数（v3.x 提取自 pre_check 内联逻辑，便于独立回归测试）
 
-    训练/测试分离：本函数只做只读计算，不写规则库、不写 Mindol、不触发学习，
+    训练/测试分离：本函数只做只读计算，不写规则库、不写 Shalou、不触发学习，
     回归测试可注入固定种子模式验证推荐行为，防"测试集泄漏进训练集"。
     规则：
       - 工具名级噪音（trigger 仅为 tool_name=='X'，任何工具调用都触发）→ 整体剔除
@@ -313,24 +313,24 @@ class RuleEngine:
 
         self._dirty: set = set()                     # 脏文件跟踪（延迟批量写）
         self.MIN_RULES: dict = {"interception_rules.json": 10, "success_patterns.json": 1}  # 最小规则数阈值（写保护）
-        self._mindol = None                          # Mindol 语义记忆引擎（权威存储）
+        self._shalou = None                          # Shalou 语义记忆引擎（权威存储）
 
-        self._init_mindol()                          # 优先初始化 Mindol
-        self._load_all()                             # 加载数据（Mindol优先）
-
-
-    # ─── Mindol 语义记忆引擎集成（全局全域） ───
+        self._init_shalou()                          # 优先初始化 Shalou
+        self._load_all()                             # 加载数据（Shalou优先）
 
 
-    def _mindol_warn(self, ctx: str, exc: Exception):
-        """记录 Mindol 同步失败（消除静默失败，防复发：失败必须可见）"""
+    # ─── Shalou 语义记忆引擎集成（全局全域） ───
+
+
+    def _shalou_warn(self, ctx: str, exc: Exception):
+        """记录 Shalou 同步失败（消除静默失败，防复发：失败必须可见）"""
         try:
             # 不再向 stderr 输出：PowerShell 钩子 2>&1 合并会污染引擎 JSON 输出
             try:
                 _logp = os.path.join(os.path.dirname(__file__), "..", "..", "var", "logs", "diegin_audit.log")
                 _logp = os.path.abspath(_logp)
                 if os.path.isdir(os.path.dirname(_logp)):
-                    _line = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + f" [RULE_ENGINE][WARN] Mindol {ctx} failed: {exc}\n"
+                    _line = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + f" [RULE_ENGINE][WARN] Shalou {ctx} failed: {exc}\n"
                     _old = ""
                     try:
                         with io.open(_logp, "r", encoding="utf-8", errors="replace") as _f:
@@ -473,7 +473,7 @@ class RuleEngine:
         for f in sorted(unknown):
             issues.append(f"[P0] trigger 引用上下文不存在的字段 '{f}'（钩子真实字段: task_type/tool_name/command/text/prompt/hook_event_name/marker_missing/blocked_error_type），该规则永远无法命中")
         if "domain" in names:
-            issues.append("[P1] trigger 引用 'domain' 字段（钩子上下文无此字段，仅能靠 Mindol 语义检索召回，表达式匹配永不命中）")
+            issues.append("[P1] trigger 引用 'domain' 字段（钩子上下文无此字段，仅能靠 Shalou 语义检索召回，表达式匹配永不命中）")
         if not any(i.startswith("[P0]") for i in issues) and "context" not in names:
             hit_any = False
             for tpl in self.HOOK_CONTEXT_TEMPLATES:
@@ -498,26 +498,26 @@ class RuleEngine:
                 print("[RULE-GUARD] %s %s: %s" % (kind, rule_id, i))
         return issues
 
-    def _init_mindol(self):
-        """懒加载 Mindol 实例"""
-        if self._mindol is None:
+    def _init_shalou(self):
+        """懒加载 Shalou 实例"""
+        if self._shalou is None:
             try:
-                from mindol import core as _mindol_core
-                storage = str(Path(os.environ.get("CODEX_HOME", str(Path(__file__).parent.parent.parent)), "mindol"))
-                self._mindol = _mindol_core.Mindol(storage_path=storage, persist=True)
+                from shalou import core as _shalou_core
+                storage = str(Path(os.environ.get("CODEX_HOME", str(Path(__file__).parent.parent.parent)), "shalou"))
+                self._shalou = _shalou_core.Shalou(storage_path=storage, persist=True)
             except Exception as _e:
-                self._mindol = None
+                self._shalou = None
 
-    def _mindol_sync_all(self, force_status: bool = False):
-        """将所有迭进数据同步到 Mindol 语义记忆引擎"""
-        if self._mindol is None:
-            self._init_mindol()
-        if self._mindol is None:
+    def _shalou_sync_all(self, force_status: bool = False):
+        """将所有迭进数据同步到 Shalou 语义记忆引擎"""
+        if self._shalou is None:
+            self._init_shalou()
+        if self._shalou is None:
             return
         import json, datetime
         now = datetime.datetime.now().isoformat()
-        m = self._mindol
-        # [L4-防再生] 权威状态快照：全量同步不得用内存陈旧状态覆盖 Mindol 权威 archived（旧进程覆盖防护）
+        m = self._shalou
+        # [L4-防再生] 权威状态快照：全量同步不得用内存陈旧状态覆盖 Shalou 权威 archived（旧进程覆盖防护）
         _auth_status = {}
         if not force_status:
             try:
@@ -570,7 +570,7 @@ class RuleEngine:
             m.add_unit(text=text, source="diegin_pattern", uid=uid, space=m.SPACE_PATTERN)
 
 
-        # [JSON 权威] 孤儿清理：Mindol 中已不在 JSON 的规则/模式单元删除（防删除项复活）
+        # [JSON 权威] 孤儿清理：Shalou 中已不在 JSON 的规则/模式单元删除（防删除项复活）
         if force_status:
             try:
                 _rule_uids = {f"rule_{r.id}" for r in self._interceptions}
@@ -583,7 +583,7 @@ class RuleEngine:
                         if _u.uid not in _valid:
                             m.remove_unit(_u.uid)
             except Exception as _e:
-                self._mindol_warn("mindol-orphan-cleanup", _e)
+                self._shalou_warn("shalou-orphan-cleanup", _e)
 
         # 3. 元经验 → SPACE_ABSTRACT
         for meta in self._metas:
@@ -597,7 +597,7 @@ class RuleEngine:
             if os.path.exists(_sp):
                     with open(_sp, "r", encoding="utf-8") as _sf:
                         _sd = json.load(_sf)
-                    self._mindol_sync_strikes(_sd)
+                    self._shalou_sync_strikes(_sd)
         except Exception:
             pass
 
@@ -609,22 +609,22 @@ class RuleEngine:
                 "staging_rules": sum(1 for r in self._interceptions if r.lifecycle_status == "staging"),
                 "last_sync": now
             }
-            self._mindol_sync_state(_sd)
+            self._shalou_sync_state(_sd)
         except Exception:
             pass
 
         m.save()
 
-    def _mindol_sync_strikes(self, strikes_data: dict = None):
+    def _shalou_sync_strikes(self, strikes_data: dict = None):
         """同步 strike/override 记录到 SPACE_TRADE"""
-        if self._mindol is None:
-            self._init_mindol()
-        if self._mindol is None:
+        if self._shalou is None:
+            self._init_shalou()
+        if self._shalou is None:
             return
         if not strikes_data:
             return
         import json
-        m = self._mindol
+        m = self._shalou
         for error_type, info in strikes_data.items():
             uid = f"strike_{error_type}"
             text = json.dumps(info, ensure_ascii=False)
@@ -643,14 +643,14 @@ class RuleEngine:
         else:
             m.save()
 
-    def _mindol_sync_state(self, state_data: dict):
+    def _shalou_sync_state(self, state_data: dict):
         """同步阶段状态到 SPACE_STATE"""
-        if self._mindol is None:
-            self._init_mindol()
-        if self._mindol is None:
+        if self._shalou is None:
+            self._init_shalou()
+        if self._shalou is None:
             return
         import json
-        m = self._mindol
+        m = self._shalou
         uid = "current_phase_state"
         m.add_unit(text=json.dumps(state_data, ensure_ascii=False),
                    source="diegin_state", uid=uid, space=m.SPACE_STATE)
@@ -660,12 +660,12 @@ class RuleEngine:
         else:
             m.save()
 
-    # ─── Mindol 权威：新增辅助方法 ───
+    # ─── Shalou 权威：新增辅助方法 ───
 
-    def _sync_one_rule_to_mindol(self, rule):
-        """同步单条规则到 Mindol"""
+    def _sync_one_rule_to_shalou(self, rule):
+        """同步单条规则到 Shalou"""
         import json as _j
-        if not self._mindol:
+        if not self._shalou:
             return
         uid = f"rule_{rule.id}"
         text = _j.dumps({
@@ -676,21 +676,21 @@ class RuleEngine:
             "tags": getattr(rule, "tags", []),
             "boundary_conditions": getattr(rule, "boundary_conditions", []) or []
         }, ensure_ascii=False)
-        self._mindol.add_unit(text=text, source="diegin_rule", uid=uid, space=self._mindol.SPACE_RULE)
-        # [统一存储] Mindol 为权威：写后立即 commit，防止进程退出丢数据（JSON 仅为单向镜像）
-        if hasattr(self._mindol, "flush"):
-            self._mindol.flush()
+        self._shalou.add_unit(text=text, source="diegin_rule", uid=uid, space=self._shalou.SPACE_RULE)
+        # [统一存储] Shalou 为权威：写后立即 commit，防止进程退出丢数据（JSON 仅为单向镜像）
+        if hasattr(self._shalou, "flush"):
+            self._shalou.flush()
         else:
-            self._mindol.save()
+            self._shalou.save()
 
-    def _load_from_mindol(self) -> bool:
-        """从 Mindol 权威源加载所有规则数据"""
-        if not self._mindol:
+    def _load_from_shalou(self) -> bool:
+        """从 Shalou 权威源加载所有规则数据"""
+        if not self._shalou:
             return False
         import json as _j
         try:
             # 1. 加载拦截规则
-            rule_space = self._mindol.get_space(self._mindol.SPACE_RULE)
+            rule_space = self._shalou.get_space(self._shalou.SPACE_RULE)
             if rule_space and rule_space.size > 0:
                 interceptions = []
                 for unit in rule_space.memory_units:
@@ -706,7 +706,7 @@ class RuleEngine:
                             logic_score=data.get("logic_score", 5.0),
                             outcome_score=data.get("outcome_score", 5.0),
                             lifecycle_status=data.get("status", "active"),
-                            source=data.get("source", "mindol"),
+                            source=data.get("source", "shalou"),
                             created_at=data.get("created", ""),
                             boundary_conditions=data.get("boundary_conditions", []) or []
                         )
@@ -719,7 +719,7 @@ class RuleEngine:
                 return False
 
             # 2. 加载成功模式
-            pat_space = self._mindol.get_space(self._mindol.SPACE_PATTERN)
+            pat_space = self._shalou.get_space(self._shalou.SPACE_PATTERN)
             if pat_space and pat_space.size > 0:
                 patterns = []
                 for unit in pat_space.memory_units:
@@ -731,7 +731,7 @@ class RuleEngine:
                             trigger_scenario=data.get("scene", ""),
                             confidence=data.get("confidence", 3.0),
                             lifecycle_status=data.get("status", "active"),
-                            source=data.get("source", "mindol"),
+                            source=data.get("source", "shalou"),
                             decision_logic=data.get("decision_logic", ""),
                             micro_template=data.get("micro_template", ""),
                             trigger_condition=data.get("trigger_condition", ""),
@@ -753,21 +753,21 @@ class RuleEngine:
         except Exception:
             return False
 
-    def _rebuild_json_from_mindol(self):
-        """废弃：JSON 为权威后不再从 Mindol 重建 JSON（保留仅为向后兼容，无调用点）"""
-        if not self._mindol or not self._interceptions:
+    def _rebuild_json_from_shalou(self):
+        """废弃：JSON 为权威后不再从 Shalou 重建 JSON（保留仅为向后兼容，无调用点）"""
+        if not self._shalou or not self._interceptions:
             return
         try:
             self._save_json("interception_rules.json", self._interceptions)
             self._save_json("success_patterns.json", self._patterns)
             self._save_json("meta_experiences.json", self._metas)
             self._save_json("precedents.json", self._precedents)
-            print("[MINDOL] JSON 副本已从 Mindol 重建")
+            print("[SHALOU] JSON 副本已从 Shalou 重建")
         except Exception as e:
-            print(f"[MINDOL] JSON 重建失败: {e}")
+            print(f"[SHALOU] JSON 重建失败: {e}")
 
     def _verify_json_consistency(self) -> bool:
-        """验证 JSON 副本是否与 Mindol 一致（仅检查规则数量）"""
+        """验证 JSON 副本是否与 Shalou 一致（仅检查规则数量）"""
         rule_file = self.rules_dir / "interception_rules.json"
         if not rule_file.exists():
             return False
@@ -780,12 +780,12 @@ class RuleEngine:
                 with open(_arch_path, "r", encoding="utf-8") as _af:
                     json_rules += _j.load(_af)
             json_ids = {it["id"] for it in json_rules}
-            mindol_ids = set()
-            if self._mindol:
-                _sp = self._mindol.get_space(self._mindol.SPACE_RULE)
+            shalou_ids = set()
+            if self._shalou:
+                _sp = self._shalou.get_space(self._shalou.SPACE_RULE)
                 if _sp:
-                    mindol_ids = {u.uid.removeprefix("rule_") for u in _sp.memory_units}
-            return json_ids == mindol_ids
+                    shalou_ids = {u.uid.removeprefix("rule_") for u in _sp.memory_units}
+            return json_ids == shalou_ids
         except Exception:
             return False
 
@@ -801,12 +801,12 @@ class RuleEngine:
         return list(_seen.values())
 
     def _load_all(self):
-        """加载所有规则数据 - JSON（完整权威）优先，Mindol 仅为检索镜像。
+        """加载所有规则数据 - JSON（完整权威）优先，Shalou 仅为检索镜像。
 
-        历史缺陷修复（v3.6.6→）：Mindol 单元只存字段子集（规则 10/22 字段），
-        以 Mindol 为权威加载后回写 JSON 会丢失 logic_score/outcome_score/
+        历史缺陷修复（v3.6.6→）：Shalou 单元只存字段子集（规则 10/22 字段），
+        以 Shalou 为权威加载后回写 JSON 会丢失 logic_score/outcome_score/
         valid_until/invalid_conditions/block_count 等 12 个字段（覆盖问题）。
-        现改为 JSON 优先加载；JSON 缺失/全空时回退 Mindol（旧环境升级路径）。"""
+        现改为 JSON 优先加载；JSON 缺失/全空时回退 Shalou（旧环境升级路径）。"""
         # [FIX v3.8.1] 主+archive 合并去重：同 id 以 archive（后加载）为准，
         # 防 archived 终态条目被主文件同 id active 副本复活
         self._interceptions = self._merge_dedup_by_id(
@@ -820,22 +820,22 @@ class RuleEngine:
         self._metas = self._load_json("meta_experiences.json", MetaExperience)
         self._precedents = self._load_json("precedents.json", Precedent)
 
-        if not self._mindol:
+        if not self._shalou:
             return
         # JSON 权威判定：核心规则文件存在且解析非空（规则库以 JSON 为唯一权威）
         _json_authoritative = (self.rules_dir / "interception_rules.json").exists() and bool(self._interceptions)
         if _json_authoritative:
             try:
                 if self._verify_json_consistency():
-                    # 增量：JSON 与 Mindol ID 集合一致 → 镜像无需重建（启动零写放大）
+                    # 增量：JSON 与 Shalou ID 集合一致 → 镜像无需重建（启动零写放大）
                     pass
                 else:
                     # ID 不一致 → 全量重建检索镜像（单向，含孤儿清理）
-                    self._mindol_sync_all(force_status=True)
+                    self._shalou_sync_all(force_status=True)
             except Exception as _e:
-                self._mindol_warn("load_all-sync-mindol", _e)
-        elif self._load_from_mindol():
-            # JSON 缺失/全空 → 从 Mindol 恢复（防误清空历史数据）
+                self._shalou_warn("load_all-sync-shalou", _e)
+        elif self._load_from_shalou():
+            # JSON 缺失/全空 → 从 Shalou 恢复（防误清空历史数据）
             pass
 
         # [治理] active 死规则自动归档（P0 字段审计：引用不存在字段=永不命中）
@@ -848,13 +848,13 @@ class RuleEngine:
                     _p0 = [i for i in self.validate_trigger_live(_r.trigger_condition) if i.startswith("[P0]")]
                     if _p0:
                         _r.lifecycle_status = "archived"
-                        self._sync_one_rule_to_mindol(_r)
+                        self._sync_one_rule_to_shalou(_r)
                         _archived_any = True
                         print("[RULE_ENGINE][GOVERN] 死规则自动归档 %s: %s" % (_r.id, "; ".join(_p0)[:120]))
                 if _archived_any:
                     self.save_all(force=True)
             except Exception as _e:
-                self._mindol_warn("dead-rule-governance", _e)
+                self._shalou_warn("dead-rule-governance", _e)
 
     def _load_json(self, filename: str, cls, retry: bool = False):
         """加载 JSON 文件（失败时自动从备份恢复）"""
@@ -905,8 +905,8 @@ class RuleEngine:
         import shutil, datetime as dt
         filepath = self.rules_dir / filename
 
-        # [L4-防再生] 计数保全：Mindol 权威单元不携带 triggered_count，
-        # 任何全量重写(save_all/_rebuild_from_mindol)前从现有 JSON 合并最大计数，防清零
+        # [L4-防再生] 计数保全：Shalou 权威单元不携带 triggered_count，
+        # 任何全量重写(save_all/_rebuild_from_shalou)前从现有 JSON 合并最大计数，防清零
         if filename == "interception_rules.json":
             try:
                 _existing = {}
@@ -976,13 +976,13 @@ class RuleEngine:
                 print(f"[RULE_ENGINE] X 写后验证失败({filename}仅{len(saved)}条, 阈值={min_rules}) 已回滚")
             raise RuntimeError(f"_save_json validation failed: {filename} only {len(saved)} rules (min={min_rules})")
 
-        # Step 5: 双存储一致性校验（防复发 P3）— JSON 镜像必须与 Mindol 权威一致
+        # Step 5: 双存储一致性校验（防复发 P3）— JSON 镜像必须与 Shalou 权威一致
         if filename == "interception_rules.json":
             try:
-                if self._mindol is None:
-                    self._init_mindol()
-                if self._mindol is not None:
-                    _space = self._mindol.get_space(self._mindol.SPACE_RULE)
+                if self._shalou is None:
+                    self._init_shalou()
+                if self._shalou is not None:
+                    _space = self._shalou.get_space(self._shalou.SPACE_RULE)
                     _mid_ids = set()
                     for _u in _space.memory_units:
                         try:
@@ -999,18 +999,18 @@ class RuleEngine:
                     if _mid_ids != _jid_ids and len(_mid_ids) > 0:
                         _only_j = _jid_ids - _mid_ids
                         _only_m = _mid_ids - _jid_ids
-                        self._mindol_warn(
+                        self._shalou_warn(
                             "dual-store-consistency",
-                            Exception(f"JSON 与 Mindol 不一致: onlyJSON={len(_only_j)} onlyMindol={len(_only_m)}")
+                            Exception(f"JSON 与 Shalou 不一致: onlyJSON={len(_only_j)} onlyShalou={len(_only_m)}")
                         )
             except Exception as _e:
-                self._mindol_warn("dual-store-check", _e)
+                self._shalou_warn("dual-store-check", _e)
 
         # Step 6: 清理旧备份
         self._clean_old_backups(filename, keep=5)
 
     def save_all(self, force: bool = False):
-        """保存所有规则 - Mindol（权威）先写，JSON（人类可读副本）后写"""
+        """保存所有规则 - Shalou（权威）先写，JSON（人类可读副本）后写"""
         filenames = {
             "interception_rules.json": self._interceptions,
             "success_patterns.json": self._patterns,
@@ -1022,17 +1022,17 @@ class RuleEngine:
         else:
             to_save = [f for f in self._dirty if f in filenames]
 
-        # Step 1: 同步到 Mindol（权威存储，ACID 事务保护）
+        # Step 1: 同步到 Shalou（权威存储，ACID 事务保护）
         # C1 防再生：脏标记增量写——规则/模式单元已由 CRUD 逐条维护，
         # 仅当数量不一致才全量同步；常规路径只同步 strikes/state（flush 轻量提交）。
         try:
-            self._init_mindol()
-            if self._mindol:
-                _rule_units = len(self._mindol.get_space(self._mindol.SPACE_RULE).memory_units)
+            self._init_shalou()
+            if self._shalou:
+                _rule_units = len(self._shalou.get_space(self._shalou.SPACE_RULE).memory_units)
                 if _rule_units != len(self._interceptions):
-                    print("[MINDOL] 规则数量不一致(memory=%d mindol=%d)，执行全量同步"
+                    print("[SHALOU] 规则数量不一致(memory=%d shalou=%d)，执行全量同步"
                           % (len(self._interceptions), _rule_units))
-                    self._mindol_sync_all()
+                    self._shalou_sync_all()
                 else:
                     import os as _os
                     _sp = str(Path(__file__).parent.parent.parent / "var" / "state" / "strikes_db.json")
@@ -1041,7 +1041,7 @@ class RuleEngine:
                             with open(_sp, "r", encoding="utf-8") as _sf:
                                 _sd = json.load(_sf)
                             if _sd:
-                                self._mindol_sync_strikes(_sd)
+                                self._shalou_sync_strikes(_sd)
                         except Exception:
                             pass
                     try:
@@ -1051,11 +1051,11 @@ class RuleEngine:
                             "staging_rules": sum(1 for r in self._interceptions if r.lifecycle_status == "staging"),
                             "last_sync": datetime.now().isoformat()
                         }
-                        self._mindol_sync_state(_sd)
+                        self._shalou_sync_state(_sd)
                     except Exception:
                         pass
         except Exception as _e:
-            print(f"[MINDOL] primary sync failed: {_e}")
+            print(f"[SHALOU] primary sync failed: {_e}")
 
         # Step 2: 写 JSON（人类可读同步副本）
         for fname in to_save:
@@ -1065,10 +1065,10 @@ class RuleEngine:
     # ─── 拦截规则 CRUD ───
 
     def add_interception(self, rule: InterceptionRule, auto_save: bool = False) -> str:
-        """添加拦截规则 - 同步写入 Mindol（权威）"""
+        """添加拦截规则 - 同步写入 Shalou（权威）"""
         _issues = self._validate_trigger(rule.trigger_condition)
         for _iss in _issues:
-            self._mindol_warn(f"add_interception trigger-check [{rule.id}]", Exception(_iss))
+            self._shalou_warn(f"add_interception trigger-check [{rule.id}]", Exception(_iss))
         # 触发验证门：P0 拒绝（引用不存在字段=确定性死规则），P1/P2 告警
         self._guard_trigger(rule.id, rule.trigger_condition, "interception")
         if not rule.id:
@@ -1077,13 +1077,13 @@ class RuleEngine:
             rule.created_at = datetime.now().isoformat()
         self._interceptions.append(rule)
         self._dirty.add("interception_rules.json")
-        # 同步到 Mindol（权威存储）
+        # 同步到 Shalou（权威存储）
         try:
-            self._init_mindol()
-            if self._mindol:
-                self._sync_one_rule_to_mindol(rule)
+            self._init_shalou()
+            if self._shalou:
+                self._sync_one_rule_to_shalou(rule)
         except Exception as _e:
-            self._mindol_warn("add_interception", _e)
+            self._shalou_warn("add_interception", _e)
         if auto_save:
             self._save_json("interception_rules.json", self._interceptions)
         return rule.id
@@ -1102,52 +1102,52 @@ class RuleEngine:
         return None
 
     def update_interception(self, rule_id: str, **kwargs) -> bool:
-        """更新拦截规则 - 同步到 Mindol（权威）"""
+        """更新拦截规则 - 同步到 Shalou（权威）"""
         rule = self.get_interception_by_id(rule_id)
         if not rule:
             return False
         if "trigger_condition" in kwargs:
             _issues = self._validate_trigger(kwargs["trigger_condition"])
             for _iss in _issues:
-                self._mindol_warn(f"update_interception trigger-check [{rule_id}]", Exception(_iss))
+                self._shalou_warn(f"update_interception trigger-check [{rule_id}]", Exception(_iss))
             self._guard_trigger(rule_id, kwargs["trigger_condition"], "interception")
         for key, value in kwargs.items():
             if hasattr(rule, key):
                 setattr(rule, key, value)
         self._dirty.add("interception_rules.json")
-        # 同步到 Mindol
+        # 同步到 Shalou
         try:
-            if self._mindol:
-                self._sync_one_rule_to_mindol(rule)
+            if self._shalou:
+                self._sync_one_rule_to_shalou(rule)
         except Exception as _e:
-            self._mindol_warn("update_interception", _e)
+            self._shalou_warn("update_interception", _e)
         return True
 
     def delete_interception(self, rule_id: str) -> bool:
-        """删除拦截规则 - 从 Mindol（权威）同步删除（v3.6.3 补懒加载）"""
+        """删除拦截规则 - 从 Shalou（权威）同步删除（v3.6.3 补懒加载）"""
         for i, r in enumerate(self._interceptions):
             if r.id == rule_id:
                 del self._interceptions[i]
                 self._dirty.add("interception_rules.json")
-                # 从 Mindol 删除
+                # 从 Shalou 删除
                 try:
-                    if self._mindol is None:
-                        self._init_mindol()
-                    if self._mindol:
-                        self._mindol.remove_unit(f"rule_{rule_id}")
-                        if hasattr(self._mindol, "flush"):
-                            self._mindol.flush()
+                    if self._shalou is None:
+                        self._init_shalou()
+                    if self._shalou:
+                        self._shalou.remove_unit(f"rule_{rule_id}")
+                        if hasattr(self._shalou, "flush"):
+                            self._shalou.flush()
                         else:
-                            self._mindol.save()
+                            self._shalou.save()
                 except Exception as _e:
-                    self._mindol_warn("delete_interception", _e)
+                    self._shalou_warn("delete_interception", _e)
                 return True
         return False
 
     # ─── 成功模式 CRUD ───
 
     def add_pattern(self, pattern: SuccessPattern) -> str:
-        """添加成功模式（同步写 Mindol 权威源，与 update_pattern 一致）"""
+        """添加成功模式（同步写 Shalou 权威源，与 update_pattern 一致）"""
         if getattr(pattern, "trigger_condition", ""):
             self._guard_trigger(pattern.id, pattern.trigger_condition, "pattern")
         if not pattern.id:
@@ -1155,7 +1155,7 @@ class RuleEngine:
         # [L4-防再生] 幂等去重：同 id 已存在 → 不重复入库，返回现有 id（防重复模式堆积）
         _dup = self.get_pattern_by_id(pattern.id)
         if _dup is not None:
-            self._mindol_warn(
+            self._shalou_warn(
                 "add_pattern-dup-guard",
                 Exception(f"模式 {pattern.id} 已存在，跳过重复添加（保留现有状态={_dup.lifecycle_status}）")
             )
@@ -1166,13 +1166,13 @@ class RuleEngine:
             pattern.last_triggered = datetime.now().isoformat()
         self._patterns.append(pattern)
         self._save_json("success_patterns.json", self._patterns)
-        # 同步 Mindol 权威单元（幂等 uid；失败必须可见，防再生）
+        # 同步 Shalou 权威单元（幂等 uid；失败必须可见，防再生）
         try:
-            if self._mindol is None:
-                self._init_mindol()
-            if self._mindol:
+            if self._shalou is None:
+                self._init_shalou()
+            if self._shalou:
                 import json as _j
-                _m = self._mindol
+                _m = self._shalou
                 _uid = f"pat_{pattern.id}"
                 _text = _j.dumps({
                     "id": pattern.id, "name": pattern.pattern_name, "scene": pattern.trigger_scenario,
@@ -1187,13 +1187,13 @@ class RuleEngine:
                     "valid_until": pattern.valid_until or ""
                 }, ensure_ascii=False)
                 _m.add_unit(text=_text, source="diegin_pattern", uid=_uid, space=_m.SPACE_PATTERN)
-                # 写后立即 commit，防止进程退出丢数据（与 _sync_one_rule_to_mindol 一致）
+                # 写后立即 commit，防止进程退出丢数据（与 _sync_one_rule_to_shalou 一致）
                 if hasattr(_m, "flush"):
                     _m.flush()
                 else:
                     _m.save()
         except Exception as _e:
-            self._mindol_warn("add_pattern", _e)
+            self._shalou_warn("add_pattern", _e)
         return pattern.id
     def get_patterns(self, active_only: bool = True) -> List[SuccessPattern]:
         """获取成功模式列表"""
@@ -1209,7 +1209,7 @@ class RuleEngine:
         return None
 
     def update_pattern(self, pattern_id: str, **kwargs) -> bool:
-        """更新成功模式（v3.6.1 同步写 Mindol 权威源）"""
+        """更新成功模式（v3.6.1 同步写 Shalou 权威源）"""
         if kwargs.get("trigger_condition"):
             self._guard_trigger(pattern_id, kwargs["trigger_condition"], "pattern")
         pattern = self.get_pattern_by_id(pattern_id)
@@ -1221,21 +1221,21 @@ class RuleEngine:
         if _new_status and _new_status in ("active", "staging") and _cur_status == "archived":
             _force = kwargs.pop("_force_reopen", False)
             if not _force:
-                self._mindol_warn(
+                self._shalou_warn(
                     "update_pattern-reopen-guard",
                     Exception(f"拒绝复活 archived 模式 {pattern_id} -> {_new_status}（需显式 _force_reopen=True）")
                 )
                 return False
             self._audit_reopen(pattern_id, _cur_status, _new_status)
         # [L4-防再生] 旧进程内存覆盖防护：kwargs 未显式改状态时，
-        # 以 Mindol(SQLite) 权威状态纠正内存陈旧值，防止 active 旧缓存写回 JSON/Mindol
+        # 以 Shalou(SQLite) 权威状态纠正内存陈旧值，防止 active 旧缓存写回 JSON/Shalou
         if not kwargs.get("lifecycle_status"):
             _auth_status = None
             try:
-                if self._mindol is None:
-                    self._init_mindol()
-                if self._mindol is not None:
-                    _db = getattr(self._mindol, "_db", None)
+                if self._shalou is None:
+                    self._init_shalou()
+                if self._shalou is not None:
+                    _db = getattr(self._shalou, "_db", None)
                     if _db is not None:
                         _uid = f"pat_{pattern_id}"
                         _row = _db.execute("SELECT text FROM memory_units WHERE uid=?", (_uid,)).fetchone()
@@ -1251,17 +1251,17 @@ class RuleEngine:
             if hasattr(pattern, key):
                 setattr(pattern, key, value)
         self._save_json("success_patterns.json", self._patterns)
-        # 同步 Mindol 权威单元（幂等 uid）
+        # 同步 Shalou 权威单元（幂等 uid）
         try:
-            if self._mindol is None:
-                self._init_mindol()
-            if self._mindol:
+            if self._shalou is None:
+                self._init_shalou()
+            if self._shalou:
                 import json as _j
-                _m = self._mindol
+                _m = self._shalou
                 _uid = f"pat_{pattern.id}"
                 _status_out = kwargs.get("lifecycle_status")
                 if not _status_out:
-                    # 权威状态保护：未显式改状态 → 保留 Mindol 现有权威状态（防旧进程内存覆盖）
+                    # 权威状态保护：未显式改状态 → 保留 Shalou 现有权威状态（防旧进程内存覆盖）
                     try:
                         _db = getattr(_m, "_db", None)
                         if _db is not None:
@@ -1293,16 +1293,16 @@ class RuleEngine:
         return True
 
     def delete_pattern(self, pattern_id: str) -> bool:
-        """删除成功模式（v3.6.1 同步删除 Mindol 权威单元）"""
+        """删除成功模式（v3.6.1 同步删除 Shalou 权威单元）"""
         for i, p in enumerate(self._patterns):
             if p.id == pattern_id:
                 del self._patterns[i]
                 self._save_json("success_patterns.json", self._patterns)
                 try:
-                    if self._mindol is None:
-                        self._init_mindol()
-                    if self._mindol:
-                        self._mindol.remove_unit(f"pat_{pattern_id}")
+                    if self._shalou is None:
+                        self._init_shalou()
+                    if self._shalou:
+                        self._shalou.remove_unit(f"pat_{pattern_id}")
                 except Exception:
                     pass
                 return True
@@ -1342,9 +1342,102 @@ class RuleEngine:
 
     # ─── 检索与匹配 ───
 
+    # [C1 域分层 2026-09-04] 6 桶域 tag（域映射表 v2，随 C1 批写入引擎）
+    # 常驻(core)与资金安全(trade/risk_compliance)桶永不按域裁剪：正确率优先于省 token
+    C1_DOMAIN_TAGS = frozenset("domain_" + b for b in
+                               ("core", "dev_data", "risk_compliance", "trade", "writing", "cost_ops"))
+    C1_DOMAIN_ALWAYS_TAGS = frozenset("domain_" + b for b in ("core", "trade", "risk_compliance"))
+    C1_ALWAYS_BUCKETS = frozenset(t[len("domain_"):] for t in C1_DOMAIN_ALWAYS_TAGS)
+    C1_DOMAIN_CAP = 15
+    # 资金/交易强词：命中即视为"无法安全判定任务域" → 不裁剪（fail-open 防漏拦）
+    C1_MONEY_HINTS = ("涨停", "追涨", "扫板", "打板", "连板", "炸板", "回踩", "低吸", "满仓", "重仓",
+                      "仓位", "梭哈", "押注", "死扛", "摊平", "补仓", "被套", "止损", "回撤", "熔断",
+                      "爆亏", "跌破", "破位", "跌停", "龙虎榜", "净买入", "资金流入", "复盘", "收盘",
+                      "清仓", "平仓", "建仓", "加仓", "减仓", "连亏", "亏麻", "追高", "股票", "股价",
+                      "交易", "模拟盘", "账户", "涨停板", "股票池")
+    # 保守分类：仅对"非资金"文本做 dev_data/writing/cost_ops 判定（高置信词命中才生效）
+    C1_DOMAIN_HINTS = {
+        "dev_data": ("bom", "encoding", "json", "set-content", "writealltext", "out-file",
+                     "乱码", "编码", "文件", "测试", "脚本", "幂等", "接口", "数据库", "日志",
+                     "audit_log", "evidence_trail", "strikes", "rule_engine", "trigger_condition",
+                     "deploy", "sync-all", "remove-item", "clean", "purge", "seed", "初始化"),
+        "writing": ("报告", "文章", "文案", "纪要", "文档", "写作", "标题", "发布", "docx", "markdown"),
+        "cost_ops": ("降本", "省token", "省 token", "计费", "费用", "成本预算", "预算红线"),
+    }
+
     def _rule_applies_to_context(self, rule_tags: List[str], context: Dict[str, Any]) -> bool:
-        """全局常开模式：所有规则不按场景过滤，规则引擎只靠条件匹配"""
-        return True
+        """[C1 域分层] 按 6 桶域 tag 过滤候选规则（防漏拦设计）：
+        无桶 tag / 常驻 / 资金安全桶 → 常开；任务域高置信判定(dev/writing/cost) → 同域才放行；
+        任务域未知或含资金交易词 → 不裁剪（召回优先，待 C4 路由键评审后加严）"""
+        buckets = self._rule_bucket_tags(rule_tags)
+        if not buckets:
+            return True
+        if buckets & self.C1_ALWAYS_BUCKETS:
+            return True
+        ctx_domain = self._infer_context_domain(context)
+        if not ctx_domain:
+            return True
+        return ctx_domain in buckets
+
+    def _rule_bucket_tags(self, rule_tags: List[str]) -> set:
+        """返回规则 tags 中的 6 桶域桶名集合（旧 domain_ashare_* 等非桶 tag 忽略）"""
+        return {t[len("domain_"):] for t in (rule_tags or []) if t in self.C1_DOMAIN_TAGS}
+
+    def _infer_context_domain(self, context: Dict[str, Any]) -> Optional[str]:
+        """[C1] 任务域保守分类：命中资金/交易词 → None（不裁剪）；
+        仅 dev_data/writing/cost_ops 桶词高置信命中时返回该桶，否则 None"""
+        if not isinstance(context, dict):
+            return None
+        blob = " ".join(str(context.get(k, "") or "") for k in
+                        ("text", "prompt", "command", "cmd", "task", "message", "tool_name"))
+        blob = blob.lower()
+        if any(w in blob for w in self.C1_MONEY_HINTS):
+            return None
+        hits = {}
+        for bucket, words in self.C1_DOMAIN_HINTS.items():
+            cnt = sum(1 for w in words if w in blob)
+            if cnt > 0:
+                hits[bucket] = cnt
+        if not hits:
+            return None
+        best = max(hits, key=lambda b: (hits[b], b))
+        # 多桶同频竞态 → 不裁剪（避免误判把规则整桶漏掉）
+        if sum(1 for b, c in hits.items() if c == hits[best]) > 1:
+            return None
+        return best
+
+    def _cap_matched_by_domain(self, matched: List[Any]) -> List[Any]:
+        """[C1] 单域注入上限 <=15：仅对非资金桶计数；超限按
+        （action 阻断 → severity → confidence）保留前 15；常驻/资金桶与无桶规则不裁剪"""
+        if not matched or len(matched) <= self.C1_DOMAIN_CAP:
+            return matched
+        always = self.C1_DOMAIN_ALWAYS_TAGS
+        keep = set()
+        groups = {}
+        for r in matched:
+            tags = set(getattr(r, "tags", None) or [])
+            rtags = tags & self.C1_DOMAIN_TAGS
+            if not rtags or rtags & always:
+                keep.add(id(r))
+            else:
+                for t in rtags:
+                    groups.setdefault(t, []).append(r)
+        sev = {"critical": 0, "blocking": 0, "high": 1, "medium": 2, "low": 3}
+
+        def _rk(r):
+            action = str(getattr(r, "action", "") or "").lower()
+            return (0 if action.startswith("block") else 1,
+                    sev.get(str(getattr(r, "severity", "") or ""), 9),
+                    -float(getattr(r, "confidence", 0.0) or 0.0))
+
+        for tag, rules in groups.items():
+            if len(rules) <= self.C1_DOMAIN_CAP:
+                for r in rules:
+                    keep.add(id(r))
+            else:
+                for r in sorted(rules, key=_rk)[:self.C1_DOMAIN_CAP]:
+                    keep.add(id(r))
+        return [r for r in matched if id(r) in keep]
 
     def retrieve_for_task(self, task_context: Dict[str, Any]) -> Dict[str, List]:
         """
@@ -1368,14 +1461,17 @@ class RuleEngine:
             if self._match_pattern_context(pattern, task_context):
                 matched_patterns.append(pattern)
 
-        # ========== Mindol 语义回退：表达式匹配不到时使用语义检索 ==========
+        # [C1 域分层] 单域注入上限 <=15（常驻/资金桶豁免；超限按 阻断/severity/置信度 保留）
+        matched_interceptions = self._cap_matched_by_domain(matched_interceptions)
+
+        # ========== Shalou 语义回退：表达式匹配不到时使用语义检索 ==========
         if not matched_interceptions:
             try:
                 _ctx_str = json.dumps(task_context, ensure_ascii=False)
-                if self._mindol is None:
-                    self._init_mindol()
-                if self._mindol:
-                    _results = self._mindol.retrieve(_ctx_str, top_k=5, spaces=["rule"])
+                if self._shalou is None:
+                    self._init_shalou()
+                if self._shalou:
+                    _results = self._shalou.retrieve(_ctx_str, top_k=5, spaces=["rule"])
                     for _unit, _score in _results:
                         if _score < 0.25:
                             continue
@@ -1393,7 +1489,7 @@ class RuleEngine:
                                         pass
                                     break
             except Exception:
-                pass  # Mindol 不可用时静默降级
+                pass  # Shalou 不可用时静默降级
 
         return {
             "interceptions": matched_interceptions,
@@ -1457,7 +1553,7 @@ class RuleEngine:
         try:
             _why = _noise_reason(getattr(pattern, "decision_logic", "") or "")
             if _why:
-                self._mindol_warn("promote_pattern-quality-gate", Exception(f"{pattern_id} 拒绝提升: {_why}"))
+                self._shalou_warn("promote_pattern-quality-gate", Exception(f"{pattern_id} 拒绝提升: {_why}"))
                 return False
         except Exception:
             pass

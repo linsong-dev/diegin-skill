@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Mindol 每日维护（[PERF-C 2026-08-20] P3）
+"""Shalou 每日维护（[PERF-C 2026-08-20] P3）
 分档保留期 dormant 化 + 记忆衰减（decay_and_dormancy）+ 主动统计。
 
 保留期分档（按「该用的用，该省的省」）：
@@ -9,7 +9,7 @@
   - rule/trade/pattern/user/abstract/state 永不清理
 
 幂等：已 dormant 的记录不再处理；软删除可恢复（status=dormant）。
-用法: python mindol_maintenance.py [--apply]
+用法: python shalou_maintenance.py [--apply]
 默认 --dry-run 只输出统计；--apply 才实际 dormant 化。
 """
 import sys, os, sqlite3, time, datetime, json
@@ -25,7 +25,7 @@ def log(msg):
         except Exception:
             pass
         with open(_logp, "a", encoding="utf-8") as f:
-            f.write(f"{ts} [MINDOL-MAINT] {msg}\n")
+            f.write(f"{ts} [SHALOU-MAINT] {msg}\n")
     except Exception:
         pass
 
@@ -41,10 +41,10 @@ DEFAULT_DAYS = 1
 
 def main():
     apply = "--apply" in sys.argv
-    db_path = os.path.join(os.environ.get("CODEX_HOME", ""), "mindol", "memory.db")
+    db_path = os.path.join(os.environ.get("CODEX_HOME", ""), "shalou", "memory.db")
     if not os.path.exists(db_path):
         # 兜底：便携版相对路径
-        db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "mindol", "memory.db")
+        db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "shalou", "memory.db")
     if not os.path.exists(db_path):
         log(f"ERROR memory.db not found: {db_path}")
         return 1
@@ -83,7 +83,7 @@ def main():
         cur.execute("UPDATE memory_units SET status='dormant' WHERE source=? AND status='active' AND timestamp<?", (s, cut))
     # 记忆衰减（decay_and_dormancy 语义等价：经验空间强度衰减 + 低阈值休眠）
     try:
-        from mindol.diegin_integration import memory_decay
+        from shalou.diegin_integration import memory_decay
         decay = memory_decay()
         log(f"decay={decay}")
     except Exception as e:

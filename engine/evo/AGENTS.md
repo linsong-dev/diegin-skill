@@ -2,12 +2,12 @@
 
 > 作用域：`engine/evo/` 全部源码与规则资产。本文件就近约束核心进化引擎；根 AGENTS.md 仍是全域预检规则，两者不冲突，冲突时以根 AGENTS.md 的裁决律/去伪存真为准。
 
-## 1. 规则库 / Mindol 一致性（不可破坏）
+## 1. 规则库 / Shalou 一致性（不可破坏）
 
-- 规则与模式写入后必须保持**双库一致**：`engine/evo/rules/*.json` 与 Mindol 记忆库（264=264 基线）同步，禁止只写一边。
-- 全量同步（`_mindol_sync_all`）为**单向归档保护**：旧进程内存覆盖不得复活已归档单元；只允许新增/修改 active 与 staging。
+- 规则与模式写入后必须保持**双库一致**：`engine/evo/rules/*.json` 与 Shalou 记忆库（264=264 基线）同步，禁止只写一边。
+- 全量同步（`_shalou_sync_all`）为**单向归档保护**：旧进程内存覆盖不得复活已归档单元；只允许新增/修改 active 与 staging。
 - 归档（archived）单元默认不再注入 pre_check 上下文；如需复活必须走 `_force_reopen` 人工入口（见 §3）。
-- 每次规则/模式变更后运行 `diegin_self_check.py`（13 项）确认 `dual_store_consistent` 与 `mindol_rule_units == json_rules`。
+- 每次规则/模式变更后运行 `diegin_self_check.py`（13 项）确认 `dual_store_consistent` 与 `shalou_rule_units == json_rules`。
 
 ## 2. 触发器表达式约束（安全求值器）
 
@@ -24,7 +24,7 @@
 ## 4. 归档护栏
 
 - 删除/归档规则必须保留证据轨迹（pre_ 备份文件或归档记录），禁止静默删除后无痕。
-- 死规则（active 超期零触发）应归档而非删除，归档后重生成索引并同步 Mindol。
+- 死规则（active 超期零触发）应归档而非删除，归档后重生成索引并同步 Shalou。
 
 ## 4.5 自动提取质量门（ACC-QRY-005）
 

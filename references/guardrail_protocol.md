@@ -50,7 +50,7 @@
 | 级别 | 判定 | 动作 |
 |:----|:-----|:-----|
 | **P0** | trigger 引用上下文不存在的字段（`shell_type`/`op`/`task_type == file_write` 等裸词） | **拒绝写入**（raise ValueError），确定性死规则 |
-| **P1** | 引用 `domain` 等仅语义字段（表达式永不命中，只靠 Mindol 检索） | 告警放行 |
+| **P1** | 引用 `domain` 等仅语义字段（表达式永不命中，只靠 Shalou 检索） | 告警放行 |
 | **P2** | 字段合法但在全部真实钩子上下文模板下均未命中 | 告警放行（提示作者复核） |
 
 钩子真实字段白名单（模板）：`task_type`、`tool_name`、`command`、`text`、`prompt`、

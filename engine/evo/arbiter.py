@@ -76,14 +76,17 @@ class ConflictArbiter:
         base = getattr(rule, "confidence", 0) or 0
         return base + (getattr(rule, "_mem_conf_adj", 0) or 0)
 
-    def _apply_memory_weight(self, interceptions, patterns, mindol_hits) -> str:
+    def _apply_memory_weight(self, interceptions, patterns, shalou_hits) -> str:
         """P6: 语义记忆权重 — 历史经验影响规则/模式置信度（仅本次仲裁，不持久化）。
         高分(>=0.8)历史阻断/失败案例 → 相关拦截规则 +0.5（支持拦截），相关成功模式 -0.3（削弱放行）
         高分(>=0.8)历史放行/成功案例 → 相关拦截规则 -0.3（削弱拦截），相关成功模式 +0.5（支持放行）
         双向调节使 P4 置信度裁决真正接收语义记忆输入（P6 正式化，非幽灵定义）。
         """
-        if not mindol_hits:
+        if not shalou_hits:
             return ""
+        # P3(恒常门任务恢复)期间：P6 单点豁免，恢复任务的 completion_criteria 不受方向调权影响
+        if getattr(self, '_p3_resume', False):
+            return 'P3恢复期间P6静默(单点豁免)'
         # 定稿（2026-08-12 律令九章·预策）：P6 调权范围限定 ±0.3，单轮影响不超过 ±0.1。
         # 实现：单条命中对单条规则增量 ±0.1；单条规则单轮累计绝对值达 0.1 后不再累加；
         #       硬限幅 clamp 到 ±0.3（为多源/跨轮预留，实际单轮最多 0.1）。
@@ -95,6 +98,15 @@ class ConflictArbiter:
             prev = getattr(r, "_mem_conf_adj", 0) or 0
             if abs(prev) >= P6_ROUND_LIMIT:
                 return  # 单轮限幅已到，不再累加
+            # 2026-09-05 修订版：正向调权受守三下调 50% 上限约束（客观失败信号不被方向调权抵消）
+            if delta > 0:
+                try:
+                    from shousan_guard import cap as _sguard_cap
+                    delta = _sguard_cap(getattr(r, "id", "") or "", delta)
+                except Exception:
+                    pass
+                if delta <= 0:
+                    return
             setattr(r, "_mem_conf_adj", max(-P6_HARD_LIMIT, min(P6_HARD_LIMIT, prev + delta)))
             try:
                 audit_p6(getattr(r, "id", "") or "", delta, hit, r)
@@ -103,7 +115,7 @@ class ConflictArbiter:
 
         notes = []
         all_items = list(interceptions) + list(patterns or [])
-        for hit in mindol_hits:
+        for hit in shalou_hits:
             try:
                 score = float(hit.get("score", 0) or 0)
             except Exception:
@@ -174,7 +186,7 @@ class ConflictArbiter:
     # 核心仲裁逻辑（对齐 AGENTS.md）
     # ──────────────────────────────────────────────────
 
-    def resolve(self, interceptions, patterns, mindol_hits=None,
+    def resolve(self, interceptions, patterns, shalou_hits=None,
                 closure_state=None, pace_channel=None, context=None,
                 constancy_state=None, fast_path: bool = False):
         """
@@ -187,7 +199,7 @@ class ConflictArbiter:
             缓急律降级：仅作宕机/节奏工具保留（pace_channel fast_path/downtime → 快速通道），不入九章
         P4: 守三改进规则 vs 攻七成功模式 → 置信度裁决（delta>0.1 才判冲突，delta≤0.1 守三优先不误报）
         P5: 举一反三 staging 规则不参与实时仲裁
-        P6: Mindol 语义记忆权重（历史经验双向调节规则/模式置信度，调权±0.3/单轮±0.1，仅影响 P4 与兜底，不凌驾 P0-P3）
+        P6: Shalou 语义记忆权重（历史经验双向调节规则/模式置信度，调权±0.3/单轮±0.1，仅影响 P4 与兜底，不凌驾 P0-P3）
         """
         if not interceptions:
             return ArbitrationResult(
@@ -197,6 +209,12 @@ class ConflictArbiter:
 
         # 一二不过三·警觉落动作状态（本次仲裁内有效）
         self._alerting_rules = []
+
+        # P3 恢复期间 P6 单点豁免（2026-09-05 修订版 第六章）：恢复任务完成标准不受方向调权影响
+        self._p3_resume = bool(
+            isinstance(constancy_state, dict)
+            and (constancy_state.get('resumed') or constancy_state.get('resume_requested'))
+        )
 
         # v3.6: 审计型规则（action 含 audit_only/record_*）仅记录不阻断
         # 修复：P4 置信度裁决曾把审计规则当拦截指令，导致 pre_tool 场景误 block
@@ -316,14 +334,16 @@ class ConflictArbiter:
                     reason=f"[裁决律P2] 止观门: {archived_items[0].id} 已归档，放行"
                 )
 
-        # ⭐ P3: 恒常门任务恢复优先（定稿：恢复信号在"衡"中统一决策）⭐
+        # ⭐ P3: 恒常门任务恢复优先（R1 2026-09-04：仅真实恢复信号 resumed=true 放行；
+        #  has_pending 只作入口提示，不短路规则裁决——对齐九章第七章"恒常门不参与实时仲裁；
+        #  恢复信号在衡中统一决策"；此前 470 条 paused 任务导致全部引擎层规则被短路为 allow）⭐
         if constancy_state and isinstance(constancy_state, dict):
             _has_pending = bool(constancy_state.get("has_pending"))
             _resumed = bool(constancy_state.get("resumed"))
-            if _has_pending or _resumed:
+            if _resumed:
                 _r_tasks = constancy_state.get("tasks") or []
                 _first = _r_tasks[0].get("task_id", "") if _r_tasks else (constancy_state.get("resume_requested") or "")
-                _reason = "[裁决律P3] 恒常门: 检测到未完成任务，任务恢复优先，放行继续"
+                _reason = "[裁决律P3] 恒常门: 用户恢复信号已确认，任务续接放行"
                 if _first:
                     _reason += f" | task_id={str(_first)[:40]}"
                 return ArbitrationResult(
@@ -331,6 +351,7 @@ class ConflictArbiter:
                     winning_rule=None,
                     reason=_reason
                 )
+            # 仅 has_pending：不作为放行理由，落入后续规则裁决（P4/P6/严重度兜底）
         # 缓急律（运行版保留，不入九章）：宕机/紧急分流仍作为节奏工具生效
         # pace_channel: pacemaker.classify() 输出 {"channel": "fast_path"|"normal"|"full_path"|"downtime", ...}
         _urgent_channel = None
@@ -366,7 +387,7 @@ class ConflictArbiter:
         # ⭐ P6: 语义记忆权重（历史经验 → 规则置信度微调，仅本次仲裁）⭐
         # 运维手册 2.3 决策超时熔断：fast_path 仅 P0-P3 + 严重度兜底，跳过 P6/P4 微调
         _fast_tag = " [快速通道|决策超时熔断]" if fast_path else ""
-        memory_note = self._apply_memory_weight(active_interceptions, patterns, mindol_hits) if not fast_path else ""
+        memory_note = self._apply_memory_weight(active_interceptions, patterns, shalou_hits) if not fast_path else ""
 
         # ⭐ P4: 守三 vs 攻七 置信度裁决 ⭐
         patterns = patterns or []

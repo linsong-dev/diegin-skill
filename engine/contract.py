@@ -155,6 +155,7 @@ def dispatch(envelope: dict, py=None, engine_py=None) -> dict:
                 winning_rule=r.get("winning_rule_id", "") or "",
                 suggestions=r.get("suggestions", []) or [],
                 platform=platform,
+                extra={"routing_suggestion": r.get("routing_suggestion") or {}},
             )
 
         if event == "prompt_pre":
@@ -162,6 +163,7 @@ def dispatch(envelope: dict, py=None, engine_py=None) -> dict:
             payload = {
                 "prompt": ctx.get("prompt", "") or "",
                 "turn_id": ctx.get("turn_id", ""),
+                "session_id": ctx.get("session_id", ""),
                 "blocked_error_type": ctx.get("blocked_error_type", ""),
             }
             p = _run(py, engine_py, "pre_reply", payload)

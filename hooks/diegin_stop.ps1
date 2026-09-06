@@ -262,12 +262,12 @@ if ($phaseJson -and (Test-Path $pythonExe)) {
         Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:Stop] HARD_FLOOR_ERROR $_"
     }
 }
-# ---- Mindol 语义记忆写入（Stop事件） ----
+# ---- Shalou 语义记忆写入（Stop事件） ----
 # ensure engineDecision exists, default to 'no_check'
 if (-not $engineDecision) { $engineDecision = @{decision='no_check'} }
-$mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
-if (Test-Path $mindolBridge) {
-    $mindolText = "phase=stop priority=stop hardFloor=" + $engineDecision.decision + " phaseJson=" + [System.Convert]::ToBoolean($phaseJson -ne "")
-    if ($mindolText.Length -gt 500) { $mindolText = $mindolText.Substring(0, 500) }
-    $null = & $pythonExe $mindolBridge record stop $mindolText 2>&1
+$shalouBridge = Join-Path $g_pr "engine\shalou_bridge.py"
+if (Test-Path $shalouBridge) {
+    $shalouText = "phase=stop priority=stop hardFloor=" + $engineDecision.decision + " phaseJson=" + [System.Convert]::ToBoolean($phaseJson -ne "")
+    if ($shalouText.Length -gt 500) { $shalouText = $shalouText.Substring(0, 500) }
+    $null = & $pythonExe $shalouBridge record stop $shalouText 2>&1
 }

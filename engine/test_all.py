@@ -147,18 +147,23 @@ def test_op_contains():
 
 
 def test_token_governance():
-    """TOKEN 治理：Mindol 写侧降噪 + 会话预算哨兵 + 目标预算护栏"""
+    """TOKEN 治理：Shalou 写侧降噪 + 会话预算哨兵 + 目标预算护栏"""
     import os, json, tempfile, sqlite3
     # 1) memory_archive 写侧降噪：JSON 全文/长转储不落库
     try:
         import sys as _sys
-        _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "mindol", "engine"))
-        from mindol.diegin_integration import _archive_summary, memory_archive, _ARCHIVE_TOTAL_LIMIT
+        _shalou_engine = ""
+        _codex_home = os.environ.get("CODEX_HOME", "")
+        if _codex_home:
+            _shalou_engine = os.path.join(os.path.dirname(os.path.dirname(_codex_home)), "开发", "本地源码库", "shalou", "engine")
+        if _shalou_engine and os.path.isdir(_shalou_engine):
+            _sys.path.insert(0, _shalou_engine)
+        from shalou.diegin_integration import _archive_summary, memory_archive, _ARCHIVE_TOTAL_LIMIT
         big = json.dumps({"action": "begin", "intent_summary": "x" * 500, "detail": "y" * 1000}, ensure_ascii=False)
         s = _archive_summary(big)
         c1 = check("TOKEN·归档摘要压缩", len(s) <= 240 and "y" * 1000 not in s, f"{len(s)}字符")
         calls = []
-        import mindol.diegin_integration as _di
+        import shalou.diegin_integration as _di
         class _Fake:
             def archive(self, rule_id, content):
                 calls.append(content)
@@ -279,6 +284,149 @@ def test_noise_reason():
 
 
 
+
+def test_shousan_guard_cap():
+    """守三下调 50% 上限（2026-09-05 第六章）：P6 正向调权不得超过守三下调总和的一半"""
+    import tempfile
+    import shousan_guard as _sg
+    from shousan_guard import record, cap
+    _tmp = tempfile.mkdtemp(prefix="sguard_test_")
+    _sg._STATE_PATH = os.path.join(_tmp, "shousan_down_regs.json")
+    _rid = "test_sguard_cap_rule"
+    record(_rid, 0.4, reason="test 守三下调登记")
+    c1 = check("守三帽·无下调记录不过滤", cap(_rid + "_none", 0.2) == 0.2)
+    c2 = check("守三帽·P6上限=50%守三下调", cap(_rid, 0.5) == 0.2)
+    c3 = check("守三帽·低于上限原样放行", cap(_rid, 0.1) == 0.1)
+    return c1 and c2 and c3
+
+
+def test_arbiter_p3_resume():
+    """P3(恒常门恢复)期间 P6 单点豁免：方向调权静默，不动 completion_criteria"""
+    from arbiter import ConflictArbiter
+    from rule_engine import RuleEngine, InterceptionRule
+    _arb = ConflictArbiter(RuleEngine())
+    c1 = check("P3豁免·默认未置位", getattr(_arb, "_p3_resume", False) is False)
+    _ir = InterceptionRule(id="test_p3_resume_rule", trigger_condition="true", action="block", severity="high",
+                           tags=[], logic_score=0, outcome_score=0, confidence=5.0,
+                           source="test", lifecycle_status="active")
+    _hits = [{"text": "历史高置信阻断案例：同类高危操作必须拦截", "score": 0.95, "space": "rule"}]
+    _arb.resolve([_ir], [], shalou_hits=_hits, constancy_state={"resumed": True})
+    c2 = check("P3豁免·恢复期置位", _arb._p3_resume is True)
+    c3 = check("P3豁免·恢复期无方向调权", (getattr(_ir, "_mem_conf_adj", 0) or 0) == 0)
+    return c1 and c2 and c3
+
+
+def test_holder_ch10_entry():
+    """第十章持行章 ch10 入口：三类信号注入 + 只读不自动改规则"""
+    import tempfile
+    import evo.holder as _holder
+    _tmp = tempfile.mkdtemp(prefix="holder_test_")
+    _holder._VAR_DIR = _tmp
+    _holder._STATE_DIR = os.path.join(_tmp, "state")
+    r = _holder.ch10_entry({"task": "第十章持行章测试"}, {"decision": "allow"}, matched_ids=["test_ch10_rule"])
+    c1 = check("持行章·入口标记", r.get("source") == "ch10_holder" and r.get("principle") == "持行·律令章")
+    _sig = r.get("signals", {})
+    c2 = check("持行章·三类信号注入", {"force_activate", "blind_zone", "deposition"} <= set(_sig))
+    c3 = check("持行章·侧压系数输出", isinstance(r.get("side_pressure", {}).get("side_pressure"), float))
+    c4 = check("持行章·守真不越权", "candidates" in _sig.get("deposition", {}) or _sig.get("deposition", {}).get("warning") is not None)
+    return c1 and c2 and c3 and c4
+
+
+def test_case_prototype_idempotent():
+    """B方案 case_prototype 空间：同场景幂等登记 + 重复登记不吞战绩 + 连续成功阈值"""
+    import tempfile
+    import shalou.diegin_integration as _di
+    from shalou.codex_adapter import CodexMemoryAdapter
+    _tmp = tempfile.mkdtemp(prefix="caseproto_test_")
+    _old_adapt = _di._MEMORY_ADAPTER
+    _di._MEMORY_ADAPTER = CodexMemoryAdapter(storage_path=_tmp)
+    try:
+        _key = "verify_fix::caseproto_幂等测试场景"
+        _u1 = _di.write_case_prototype("场景A首次登记文本", uid_seed=_key)
+        _u2 = _di.write_case_prototype("场景A重复登记文本(描述变化)", uid_seed=_key)
+        c1 = check("case原型·uid 场景幂等", bool(_u1) and _u1 == _u2)
+        _r1 = _di.record_case_outcome(_u1, ok=True)
+        _r2 = _di.record_case_outcome(_u1, ok=True)
+        c2 = check("case原型·连续成功累计", _r2.get("consecutive_success") == 2)
+        _u3 = _di.write_case_prototype("场景A再次登记文本", uid_seed=_key)
+        _r3 = _di.record_case_outcome(_u1, ok=True)
+        c3 = check("case原型·重复登记不吞战绩且达阈值", _u3 == _u1 and _r3.get("promotable") is True and _r3.get("consecutive_success") == 3)
+        _r4 = _di.record_case_outcome(_u1, ok=False)
+        c4 = check("case原型·失败清零", _r4.get("consecutive_success") == 0 and _r4.get("total_fail") == 1)
+        return c1 and c2 and c3 and c4
+    finally:
+        _di._MEMORY_ADAPTER = _old_adapt
+
+def test_l1_flip_rw_balance():
+    """L1 沙漏翻转·读写平衡（沙漏§3.3/§5.3）：自然/逆向触发 + 原子状态切换 + 审计 + 冷却"""
+    import tempfile
+    import shalou.flip as _F
+    _tmp = tempfile.mkdtemp(prefix="flip_test_")
+    _F.MIN_FLIP_INTERVAL_MIN = 0
+    _F.RW_FLIP_RATIO = 2.0
+    for _ in range(8):
+        _F.record_io("write", _tmp)
+    _ev = _F.evaluate(_tmp)
+    c1 = check("L1翻转·写主导触发自然", _ev.get("triggered") is True and _ev.get("flip_type") == "natural")
+    _ex = _F.execute_flip("natural", storage_dir=_tmp, source="test")
+    c2 = check("L1翻转·自然→倒放180", _ex.get("ok") is True and _ex.get("to_angle") == 180.0)
+    _h = _F.health(_tmp)
+    c3 = check("L1翻转·状态生效+计数", _h.get("angle") == 180.0 and _h.get("mode") == "upside_down" and _h.get("flip_count") == 1)
+    c4 = check("L1翻转·审计日志落盘", os.path.exists(_F.event_path(_tmp)))
+    # 读主导（新目录）→ 逆向
+    _tmp2 = tempfile.mkdtemp(prefix="flip_test2_")
+    for _ in range(8):
+        _F.record_io("read", _tmp2)
+    _ev2 = _F.evaluate(_tmp2)
+    c5 = check("L1翻转·读主导触发逆向", _ev2.get("triggered") is True and _ev2.get("flip_type") == "reverse")
+    # 冷却（120分钟）阻止连续翻转
+    _F.MIN_FLIP_INTERVAL_MIN = 120
+    _ex1b = _F.execute_flip("reverse", storage_dir=_tmp2, source="test")
+    _ex2 = _F.execute_flip("natural", storage_dir=_tmp2, source="test")
+    c6 = check("L1翻转·冷却阻止频繁翻转", _ex1b.get("ok") is True and _ex2.get("ok") is False)
+    return c1 and c2 and c3 and c4 and c5 and c6
+
+
+def test_l1_angle_parking():
+    """L1 沙漏·360度任意角度停驻（沙漏§2.4/§5.1）：90=侧放待机 / 任意角度 / 状态健康"""
+    import tempfile
+    import shalou.flip as _F
+    _tmp = tempfile.mkdtemp(prefix="flip_park_")
+    _s90 = _F.set_angle(90.0, _tmp, source="test", reason="停驻测试")
+    _h90 = _F.health(_tmp)
+    c1 = check("L1停驻·90度侧放", _s90.get("ok") is True and _h90.get("mode") == "side")
+    _s45 = _F.set_angle(45.0, _tmp, source="test", reason="任意角度")
+    _h45 = _F.health(_tmp)
+    c2 = check("L1停驻·任意角度混合", _s45.get("ok") is True and _h45.get("mode") == "arbitrary" and "任意角度" in (_h45.get("direction") or {}).get("label", ""))
+    _s0 = _F.set_angle(0.0, _tmp, source="test", reason="正放恢复")
+    _h0 = _F.health(_tmp)
+    c3 = check("L1停驻·0度正放恢复", _s0.get("ok") is True and _h0.get("mode") == "upright")
+    c4 = check("L1停驻·健康含流动监控", "flip_last_24h" in _h0 and "flow_rate_10min" in _h0)
+    return c1 and c2 and c3 and c4
+
+
+def test_l1_user_flip_text():
+    """L1 沙漏·主动翻转（用户指令）：侧放/正放/翻转词映射到翻转动作"""
+    import tempfile
+    import evo.holder as _h
+    _tmp = tempfile.mkdtemp(prefix="flip_uf_")
+    _sdir = os.path.join(_tmp, "shalou")
+    os.makedirs(_sdir, exist_ok=True)
+    _orig = _h._memory_db_path
+    _h._memory_db_path = lambda: os.path.join(_sdir, "memory.db")
+    try:
+        _r1 = _h.user_flip("沙漏侧放 停驻", reason="test 停驻")
+        c1 = check("L1用户·侧放停驻", _r1.get("ok") is True and _r1.get("action") == "side_park")
+        _r2 = _h.user_flip("沙漏正放 恢复流动", reason="test 正放")
+        c2 = check("L1用户·正放恢复", _r2.get("ok") is True and _r2.get("action") == "upright_resume")
+        _r3 = _h.user_flip("沙漏翻转", reason="test 翻转")
+        c3 = check("L1用户·翻转指令", _r3.get("ok") is True and "flip" in _r3.get("action", ""))
+        _r4 = _h.user_flip("日常任务继续推进", reason="test 非翻转")
+        c4 = check("L1用户·非翻转指令不动", _r4.get("ok") is False)
+        return c1 and c2 and c3 and c4
+    finally:
+        _h._memory_db_path = _orig
+
 def main():
     print(f"\n{'='*50}", flush=True)
     print(f"  迭进 v3.4.0 端到端测试", flush=True)
@@ -318,6 +466,16 @@ def main():
 
     print(f"\n--- 攻七质量门 ---", flush=True)
     test_noise_reason()
+
+    print(f"\n--- 第十章 P0 闭环 (2026-09-05) ---", flush=True)
+    test_shousan_guard_cap()
+    test_arbiter_p3_resume()
+    test_holder_ch10_entry()
+    test_case_prototype_idempotent()
+    print(f"\n--- L1 沙漏翻转/停驻/读写平衡 (2026-09-06 受权实施) ---", flush=True)
+    test_l1_flip_rw_balance()
+    test_l1_angle_parking()
+    test_l1_user_flip_text()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

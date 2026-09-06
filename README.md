@@ -20,11 +20,11 @@
 
 ---
 
-## 与 Mindol 的关系（v3.9.7 起：非自包含）
+## 与 Shalou 的关系（v3.9.7 起：非自包含）
 
-- 迭进与 Mindol 是**两个独立插件/仓库**（`diegin-skill` / `mindol`）。
-- 迭进不内置 Mindol；运行时通过 venv 安装的 mindol 包调用（全机唯一代码副本）。
-- 组合运行 = 「迭进的完全体」：迭进九章 + Mindol 语义记忆 / 情绪调制 / 跨空间联想。
+- 迭进与 Shalou 是**两个独立插件/仓库**（`diegin-skill` / `shalou`）。
+- 迭进不内置 Shalou；运行时通过 venv 安装的 shalou 包调用（全机唯一代码副本）。
+- 组合运行 = 「迭进的完全体」：迭进九章 + Shalou 语义记忆 / 情绪调制 / 跨空间联想。
 - 两插件可分别单独使用；版本联动由 checkpush 发布门禁保证。
 
 ---
@@ -69,7 +69,7 @@
 | engine/evo/constancy.py | 恒常门·持存（task_id 生命周期/嵌套≤3/30天快照） |
 | engine/evo/self_mirror.py | 自照镜·方向之镜（勇气信号×0.6/P6 静默影响） |
 | engine/evo/dashboard.py | 健康度仪表盘 |
-| engine/mindol/ | Mindol 语义记忆引擎 |
+| engine/shalou/ | Shalou 语义记忆引擎 |
 | references/whitepaper.md | AI 自我进化系统白皮书 v1.0（律令九章方法论） |
 
 ## 律令九章（四律三门一锁一镜）
@@ -98,7 +98,7 @@
 | P3 任务恢复 | 恒常门·持存（恢复信号统一在"衡"中决策，恢复前用户确认） |
 | P4 置信 | 攻七 / 守三（置信度高者胜出；警觉落动作对相关模式 -0.2） |
 | P5 staging | 举一反三（先经去伪存真验证再激活） |
-| P6 语义记忆 | Mindol（调权±0.3/单轮±0.1，含自照镜勇气信号静默影响） |
+| P6 语义记忆 | Shalou（调权±0.3/单轮±0.1，含自照镜勇气信号静默影响） |
 
 > **认知顺序用于学习与叙事；运行时主导权由预策律 P0-P6 决定。两个维度不同，互不冲突。**
 > **缓急律已从九章移除，降级为宕机时段/批处理的节奏工具（不入 P3）。**
@@ -120,7 +120,7 @@
 - **乱码根因修复**：PS5.1 ↔ Python 管道中文乱码（`$OutputEncoding` 默认 US-ASCII、`[Console]::OutputEncoding` 默认 GBK）导致 prompt 入库变 `?`、pre_reply JSON 解析失败 → 强制 UTF-8 + 质量门正则惰性量词修复；7 个被拒的攻七模式恢复提升，经验沉淀管线卡死闭环。
 - **攻七规则当日 auto_adopt**：08-09 入库的攻七规则（`pat_manual_doc_writeback_verify` ×4、`pat_manual_new_tool_smoke` ×1）08-10 实战当日自动采纳（置信度 +0.5），「入库 → 实战 → 采纳」闭环 24 小时内跑通。
 - **恒常门跨对话恢复 v3.9.10 持续实证（2026-08-21）**：推广任务跨多次对话恢复执行（resume_count 7），241 个恒常门任务全部可跨会话续接，三件套（目标/完成标准/待办）注入即续，恢复率从 0 起步持续累积。
-- **质量基线 v3.9.10（2026-08-21 实测）**：249 条规则三库一致（JSON/Mindol/运行时）、死规则 0、空壳模式 0、假证据 0、引擎自检 failed_checks 全绿、test_all 32/32 通过。
+- **质量基线 v3.9.10（2026-08-21 实测）**：249 条规则三库一致（JSON/Shalou/运行时）、死规则 0、空壳模式 0、假证据 0、引擎自检 failed_checks 全绿、test_all 32/32 通过。
 ## 快速开始
 ### 环境要求
 - Python 3.12+
@@ -186,7 +186,7 @@ diegin/
 │   ├── call_diegin.py    CLI 入口
 │   ├── test_all.py       32 个端到端测试
 │   ├── evo/              律令九章引擎（含恒常门/自照镜）
-│   └── mindol/           Mindol 语义记忆引擎
+│   └── shalou/           Shalou 语义记忆引擎
 ├── hooks/             PowerShell 钩子（全域常驻）
 ├── config/            路由配置
 ├── assets/            Logo 等资源

@@ -102,7 +102,7 @@ from self_mirror import SelfMirror, get_self_mirror as _get_self_mirror_inst
 _ENGINE_DIR = str(Path(__file__).parent.parent)  # engine/
 if _ENGINE_DIR not in sys.path:
     sys.path.insert(0, _ENGINE_DIR)
-from mindol.diegin_integration import (
+from shalou.diegin_integration import (
     memory_search as mempalace_search,
     memory_archive as dgen_archive,
     get_memory_stats,
@@ -502,7 +502,7 @@ def _get_vectorizer():
     global _VECTORIZER
     if _VECTORIZER is None:
         try:
-            from mindol.vectorizer import SimpleVectorizer
+            from shalou.vectorizer import SimpleVectorizer
             _VECTORIZER = SimpleVectorizer()
         except Exception:
             _VECTORIZER = None
@@ -1287,7 +1287,7 @@ def get_rules_for_task(task_context: Dict[str, Any]) -> Dict[str, List]:
 
 def arbitrate(interceptions: List[InterceptionRule],
               patterns: List[SuccessPattern],
-              mindol_hits: Optional[List[Dict]] = None,
+              shalou_hits: Optional[List[Dict]] = None,
               closure_state: Optional[Dict] = None,
               pace_channel: Optional[Dict] = None,
               context: Optional[Dict] = None,
@@ -1304,7 +1304,7 @@ def arbitrate(interceptions: List[InterceptionRule],
     arbiter_obj = _get_arbiter()
 
 
-    result = arbiter_obj.resolve(interceptions, patterns, mindol_hits=mindol_hits,
+    result = arbiter_obj.resolve(interceptions, patterns, shalou_hits=shalou_hits,
                                 closure_state=closure_state, pace_channel=pace_channel,
                                 context=context, constancy_state=constancy_state,
                                 fast_path=fast_path)
@@ -1332,7 +1332,7 @@ def arbitrate(interceptions: List[InterceptionRule],
 
 
         "conflict_set": [],
-        "mindol_memory_note": getattr(result, "reason", "") if mindol_hits and "P6记忆" in getattr(result, "reason", "") else ""
+        "shalou_memory_note": getattr(result, "reason", "") if shalou_hits and "P6记忆" in getattr(result, "reason", "") else ""
 
 
     }
@@ -2178,7 +2178,7 @@ def maintenance_failure_ttl(engine):
 
 
 def maintenance_archived_purge(engine):
-    """P3-10 archived 清理策略：超期(默认90天)且零触发的 archived 规则物理删除（Mindol 语义记忆保留）"""
+    """P3-10 archived 清理策略：超期(默认90天)且零触发的 archived 规则物理删除（Shalou 语义记忆保留）"""
     from datetime import datetime as _dt
     _cfg_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.toml')
     _retention = 90
@@ -2212,7 +2212,7 @@ def maintenance_archived_purge(engine):
             engine.delete_interception(rule.id)
             _del += 1
     if _del > 0:
-        print(f"  [ARCHIVE-PURGE] {_del} 条零触发 archived 规则超 {_retention} 天已物理清理（Mindol 语义记忆保留）")
+        print(f"  [ARCHIVE-PURGE] {_del} 条零触发 archived 规则超 {_retention} 天已物理清理（Shalou 语义记忆保留）")
     return _del
 
 
@@ -2443,9 +2443,9 @@ def run_maintenance():
                     from datetime import datetime as _dt2
                     _meta = type("MetaExperience", (), {"id": "", "insight": _insight, "created_at": _dt2.now().isoformat()})()
                     engine.add_meta(_meta)
-                    if hasattr(engine, "_mindol") and engine._mindol:
+                    if hasattr(engine, "_shalou") and engine._shalou:
                         _muid = f"meta_auto_{_dt2.now().strftime('%Y%m%d_%H%M%S')}"
-                        engine._mindol.add_unit(text=_insight, source="diegin_meta", uid=_muid, space=engine._mindol.SPACE_ABSTRACT)
+                        engine._shalou.add_unit(text=_insight, source="diegin_meta", uid=_muid, space=engine._shalou.SPACE_ABSTRACT)
                 print(f"    [META] abstract: {_insight[:50]}")
             except Exception:
                 pass
@@ -2614,7 +2614,7 @@ def run_maintenance():
     except Exception as _e:
         print(f"  [FIX-VERIFY] 跳过: {_e}")
 
-    # === P2: 八原则健康看板（写 Mindol + 三态响应） ===
+    # === P2: 八原则健康看板（写 Shalou + 三态响应） ===
     try:
         _ph = principle_health()
         _red = [k for k, v in _ph.items() if isinstance(v, dict) and v.get("health") == "🔴"]
@@ -2625,9 +2625,9 @@ def run_maintenance():
             print(f"  [HEALTH] 🟡 建议关注: {_yellow}")
         if not _red and not _yellow:
             print(f"  [HEALTH] 八原则健康看板: 全部 🟢")
-        # 写入 Mindol codex 空间（下一轮 pre_check 可检索到）
+        # 写入 Shalou codex 空间（下一轮 pre_check 可检索到）
         try:
-            from mindol.diegin_integration import memory_archive
+            from shalou.diegin_integration import memory_archive
             memory_archive("principle_health", json.dumps({k: v for k, v in _ph.items() if k != "generated_at"}, ensure_ascii=False)[:800])
         except Exception:
             pass
@@ -2651,6 +2651,45 @@ def run_maintenance():
             print(f"  [CLEAN] 去伪存真暂存区超时淘汰: {_expired} 条")
     except Exception as _ve:
         print(f"  [CLEAN] 暂存区淘汰跳过: {_ve}")
+
+    # 第十章持行章·规则沉积消费（P0 闭环，2026-09-05）：激活率<20% → 推进候选/审计列表，
+    # 不自动删除（与去伪存真边界：去留判定归人工/举一反三批处理窗口，见运维手册）
+    try:
+        try:
+            from evo.holder import deposition_signal, hyperparam_review_needed
+        except Exception:
+            from holder import deposition_signal, hyperparam_review_needed
+        _dep = deposition_signal()
+        if _dep.get("warning"):
+            _cands = _dep.get("candidates") or []
+            _dep_out = {
+                "ts": datetime.now().isoformat(),
+                "activation_rate": _dep.get("activation_rate"),
+                "active_total": _dep.get("active_total"),
+                "activated": _dep.get("activated"),
+                "candidates": _cands[:15],
+                "policy": "推进候选：交举一反三批处理窗口/人工审阅；不自动删除（去伪存真门禁）",
+            }
+            _dep_path = os.path.join(os.path.dirname(__file__), "..", "..", "var", "state", "deposition_advance_list.json")
+            os.makedirs(os.path.dirname(_dep_path), exist_ok=True)
+            with open(_dep_path, "w", encoding="utf-8") as _df:
+                json.dump(_dep_out, _df, ensure_ascii=False, indent=2)
+            print(f"  [DEPOSITION] 规则沉积激活率 {_dep.get('activation_rate')}，候选 {len(_cands)} 条 → deposition_advance_list.json（推进候选，不自动删除）")
+        elif _dep.get("activation_rate") is not None:
+            print(f"  [DEPOSITION] 守三规则激活率 {_dep.get('activation_rate')} 健康（≥20%）")
+        # 超参数审视：连续 3 次沉积警告 → 仅生成报告（不自动调整阈值）
+        _hr = hyperparam_review_needed()
+        if _hr.get("needed"):
+            _hr_path = os.path.join(os.path.dirname(__file__), "..", "..", "var", "reports", "hyperparam_review_%s.md" % datetime.now().strftime("%Y%m%d"))
+            os.makedirs(os.path.dirname(_hr_path), exist_ok=True)
+            with open(_hr_path, "w", encoding="utf-8") as _hf:
+                _hf.write("# 超参数审视报告（第十章持行章·仅报告不自动调参）\n\n")
+                _hf.write("- 时间: %s\n" % datetime.now().isoformat())
+                _hf.write("- 连续沉积警告次数: %s\n" % _hr.get("streak"))
+                _hf.write("- 说明: 连续3次规则沉积/阻断频繁评估触发。权重/阈值如需调整，走人工确认门禁后生效。\n")
+            print(f"  [DEPOSITION] 连续{_hr.get('streak')}次沉积警告 → 超参数审视报告已生成（不自动调参）")
+    except Exception as _dep_e:
+        print(f"  [DEPOSITION] 跳过: {_dep_e}")
 
     print("[OK] 定期维护完成")
 
@@ -2698,16 +2737,16 @@ def run_maintenance():
     except Exception as _e2:
         print(f"  [DGEN] dgen_evolve 接入跳过: {_e2}")
 
-    # v3.7.2 记忆代谢：Mindol 经验类空间时间衰减 + 自动休眠（权威空间豁免）
+    # v3.7.2 记忆代谢：Shalou 经验类空间时间衰减 + 自动休眠（权威空间豁免）
     try:
         _evo_dir2 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if _evo_dir2 not in sys.path:
             sys.path.insert(0, _evo_dir2)
-        from mindol.diegin_integration import memory_decay
+        from shalou.diegin_integration import memory_decay
         _decay_stats = memory_decay()
-        print(f"  [MINDOL] 记忆代谢: {_decay_stats}")
+        print(f"  [SHALOU] 记忆代谢: {_decay_stats}")
     except Exception as _e3:
-        print(f"  [MINDOL] 记忆代谢异常: {_e3}")
+        print(f"  [SHALOU] 记忆代谢异常: {_e3}")
 
 
 def auto_sandwich_trigger(task_type: str, positive: List[str] = None, negative: List[str] = None, method: str = ""):
@@ -2878,7 +2917,7 @@ def get_constancy():
     return _get_constancy_inst()
 
 def _constancy_archive(action, task_id, ok=True):
-    """恒常门：写操作后归档 Mindol codex（JSON↔Mindol 互为备份，单向重建 JSON→Mindol）"""
+    """恒常门：写操作后归档 Shalou codex（JSON↔Shalou 互为备份，单向重建 JSON→Shalou）"""
     try:
         if not ok or not task_id:
             return
@@ -2900,12 +2939,12 @@ def constancy_begin(intent_summary, completion_criteria="", pending_items=None,
         _constancy_archive("begin", _r.get("task_id", ""))
     return _r
 
-def constancy_find_by_intent(text, top_k=3, mindol_fallback=True):
+def constancy_find_by_intent(text, top_k=5, shalou_fallback=True):
     """恒常门·模糊查找：按意图检索可恢复任务（自然语言恢复，无 task_id 时）。
-    v3.9.2：无高置信候选时降级 Mindol 语义检索兜底（kind=memory 片段候选）。"""
+    v3.9.2：无高置信候选时降级 Shalou 语义检索兜底（kind=memory 片段候选）。"""
     try:
         return _get_constancy_inst().find_by_intent(text, top_k=top_k,
-                                                    mindol_fallback=mindol_fallback)
+                                                    shalou_fallback=shalou_fallback)
     except Exception:
         return []
 
@@ -3046,9 +3085,9 @@ def mirror_run_if_due(emergency=False):
     return None
 
 
-def mirror_confirm_courage(confirmed=True):
-    """自照镜：勇气信号下一轮用户交互确认（定稿第九章）——未负面反馈且任务目标达成 → 生效；否则归零"""
-    return _get_self_mirror_inst().confirm_courage(bool(confirmed))
+def mirror_confirm_courage(confirmed=True, reason=""):
+    """自照镜：勇气信号下一轮用户交互确认（2026-09-05 修订）——显性正面反馈 → 生效；否则归零"""
+    return _get_self_mirror_inst().confirm_courage(bool(confirmed), reason=str(reason))
 
 def mirror_status():
     """自照镜：状态查看"""

@@ -355,6 +355,25 @@ if ($blockedType) {
     Write-DGENContextAndExit -ExitCode 1
 }
 
+# [A-1 攻七强制前置 2026-09-04] 人读交付文档(.md/.txt 写入 outputs/交付目录)的写命令必须带 A1_DELIVER_PRE 合规标记
+# 平台级硬门：先于引擎与快速通道执行，避免 P3 恒常门(有待恢复任务)短路导致不拦截
+$isA1Delivery = $false
+if ($command) {
+    try {
+        $c = [string]$command
+        $isMdTxt = ($c.Contains('.md') -or $c.Contains('.txt'))
+        $isOuts = ($c.Contains('outputs') -or $c.Contains('deliver') -or $c.Contains([char]0x4EA4 + [char]0x4ED8))
+        $isWrite = ($c.Contains('Set-Content') -or $c.Contains('WriteAllText') -or $c.Contains('io.open') -or $c.Contains('Out-File') -or $c.Contains('open(') -or $c.Contains('Add File') -or $c.Contains('Update File'))
+        $isRead  = ($c.Contains('Get-Content') -or $c.Contains('read(') -or $c.Contains('ReadAllText'))
+        if ($isMdTxt -and $isOuts -and $isWrite -and -not $isRead) { $isA1Delivery = $true }
+    } catch { $isA1Delivery = $false }
+}
+if ($isA1Delivery -and -not $command.Contains('A1_DELIVER_PRE')) {
+    Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-BLOCK] delivery-write without A1_DELIVER_PRE"
+    Write-Error ("DGEN_BLOCK|reason=攻七A-1强制前置: 交付人读文档(.md/.txt)写命令必须带 A1_DELIVER_PRE 标记并实际执行(人读UTF8 BOM+CRLF/写后校验EF BB BF/检查扩展名关联/实测打开一次) |rule=rule_gongqi_delivery_precheck")
+    Write-DGENContextAndExit -ExitCode 1
+}
+
 # ============================================================
 # 第4步：引擎检查 + 写状态文件供 AI 读取
 # ============================================================
@@ -371,7 +390,7 @@ if ($sessionId) {
     try {
         if (Test-Path $fastPathFile) {
             $fpv = Get-Content $fastPathFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($fpv -and $fpv.session_id -eq $sessionId -and $fpv.decision -eq "allow") {
+            if ($fpv -and $fpv.session_id -eq $sessionId -and $fpv.decision -eq "allow" -and -not $isA1Delivery) {
                 $fpAge = [DateTime]::Now - [DateTime]::Parse($fpv.ts)
                 if ($fpAge.TotalSeconds -lt 120) {
                     $fastPathUsed = $true
@@ -556,18 +575,18 @@ if ($st -eq "allowed") { $st = "ALLOWED" }
 elseif ($st -eq "verified") { $st = "VERIFIED" }
 elseif ($st -eq "pending") { $st = "PENDING" }
 Write-DGENStatusFile -Status $st -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
-# ---- Mindol 语义记忆 ----
-# [PERF-C 2026-08-20] pre_tool 裁决摘要降频：每 5 次工具调用写 1 条（原每次 1 条；审计日志已全量覆盖，Mindol 只需低频采样）
-$mindolBridge = Join-Path $g_pr "engine\mindol_bridge.py"
-if (Test-Path $mindolBridge) {
-    $ptCounterFile = Join-Path $stateDir "pretool_mindol_counter.txt"
+# ---- Shalou 语义记忆 ----
+# [PERF-C 2026-08-20] pre_tool 裁决摘要降频：每 5 次工具调用写 1 条（原每次 1 条；审计日志已全量覆盖，Shalou 只需低频采样）
+$shalouBridge = Join-Path $g_pr "engine\shalou_bridge.py"
+if (Test-Path $shalouBridge) {
+    $ptCounterFile = Join-Path $stateDir "pretool_shalou_counter.txt"
     $ptCount = 0
     if (Test-Path $ptCounterFile) { $ptCount = [int](Get-Content $ptCounterFile -Raw -ErrorAction SilentlyContinue) }
     $ptCount++
     [System.IO.File]::WriteAllText($ptCounterFile, "$ptCount", $script:utf8NoBOM)
     if ($ptCount -ge 5) {
         [System.IO.File]::WriteAllText($ptCounterFile, "0", $script:utf8NoBOM)
-        & $pythonExe $mindolBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
+        & $pythonExe $shalouBridge record pre_tool "decision=$finalDecision matched=$finalMatched status=$st" codex 2>&1 | Out-Null
     }
 }
 Write-DGENContextAndExit -ExitCode 0

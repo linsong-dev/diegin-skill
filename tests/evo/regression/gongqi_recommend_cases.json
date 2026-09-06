@@ -4,7 +4,7 @@
     "purpose": "攻七推荐正式回归集（训练/测试分离，借鉴 Penguin GDPevo 防偷看答案）",
     "train_split_note": "train_snapshot = 真实规则库历史沉淀快照（基线，随规则库演进人工更新，不用于硬断言）",
     "test_split_note": "test_cases = 固定种子模式 + 输入上下文 -> 期望推荐（硬断言，不随真实规则库漂移）",
-    "anti_leak": "测试运行时注入隔离临时规则目录 + 临时 CODEX_HOME；build_gongqi_suggestions 为纯函数，只读不写规则库/Mindol，测试用例绝不进入引擎学习路径",
+    "anti_leak": "测试运行时注入隔离临时规则目录 + 临时 CODEX_HOME；build_gongqi_suggestions 为纯函数，只读不写规则库/Shalou，测试用例绝不进入引擎学习路径",
     "engine_version": "v3.6+",
     "created_at": "2026-08-07"
   },

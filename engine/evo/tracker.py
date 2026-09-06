@@ -87,7 +87,7 @@ class BehaviorTracker:
         self.rule_engine = rule_engine
         self.soft_elimination_threshold = 0.8
         self.decay_factor = 0.9
-        # C1 计数旁路：同进程合并 + 降频落盘（防 Mindol/JSON 全量重写）
+        # C1 计数旁路：同进程合并 + 降频落盘（防 Shalou/JSON 全量重写）
         self._counter_queue = {}
         self._counter_events = 0
         self._reconcile_counts_from_json()
@@ -149,8 +149,8 @@ class BehaviorTracker:
                        "last_triggered", "last_ignored", "confidence", "lifecycle_status")
 
     def _reconcile_counts_from_json(self):
-        """降频双存储比对：Mindol 权威单元不携带计数，加载时用 JSON 计数补齐内存
-        （修复 v3.6 计数落盘 JSON 但加载走 Mindol 导致重启归零的问题）"""
+        """降频双存储比对：Shalou 权威单元不携带计数，加载时用 JSON 计数补齐内存
+        （修复 v3.6 计数落盘 JSON 但加载走 Shalou 导致重启归零的问题）"""
         try:
             rd = self.rule_engine.rules_dir
             for fname, rules in (("interception_rules.json", self.rule_engine._interceptions),
@@ -760,6 +760,77 @@ class BehaviorTracker:
                           for et, e in esc.items() if e.get("status") == "confirmed"],
         }
 
+    def check_silent_lockdown_recovery(self, probe_ok=None):
+        """运维手册 2.12 P1熔断恢复诊断：锁止后每6小时执行一次只读环境健康检查；
+        连续2次诊断通过 → 自动解除锁止并通知用户；连续3次无变化 → 提升告警级别。"""
+        from datetime import timedelta
+        now = datetime.now()
+        lockdown = self._load_json_safe(self._silent_lockdown_path(), {})
+        if not isinstance(lockdown, dict) or not lockdown:
+            return {"locked": 0, "action": "none", "note": "无静默锁止"}
+        rec_path = os.path.join(os.path.dirname(self._silent_lockdown_path()), "silent_lockdown_diag.json")
+        rec = self._load_json_safe(rec_path, {"passes": {}, "runs": {}, "last_probe": ""})
+        if not isinstance(rec, dict):
+            rec = {"passes": {}, "runs": {}, "last_probe": ""}
+        out = {"locked": len(lockdown), "action": "still_locked", "passes": {}}
+        for et, v in list(lockdown.items()):
+            try:
+                locked_at = datetime.fromisoformat(str(v.get("locked_at", "")))
+            except Exception:
+                continue
+            if now < locked_at + timedelta(hours=6):
+                continue
+            ok = probe_ok if probe_ok is not None else self._env_probe_ok()
+            runs = int(rec.setdefault("runs", {}).get(et, 0) or 0) + 1
+            rec["runs"][et] = runs
+            if runs > 3:
+                out["action"] = "escalate_alert"
+                out["note"] = "连续3次诊断均无变化，维持锁止并提升告警级别(人工介入超时，系统持续锁止)"
+                continue
+            passes = int(rec.setdefault("passes", {}).get(et, 0) or 0)
+            if ok:
+                passes += 1
+                rec["passes"][et] = passes
+                if passes >= 2:
+                    lockdown.pop(et, None)
+                    self._save_json_safe(self._silent_lockdown_path(), lockdown)
+                    esc = self._load_json_safe(self._human_escalation_path(), {})
+                    if isinstance(esc, dict) and et in esc:
+                        esc[et]["status"] = "auto_recovered"
+                        esc[et]["recovered_at"] = now.isoformat()
+                        self._save_json_safe(self._human_escalation_path(), esc)
+                    out["action"] = "unlocked"
+                    out["note"] = "环境已恢复(连续2次诊断通过)，自动解除锁止并通知用户"
+            else:
+                rec["passes"][et] = 0
+            out["passes"][et] = rec["passes"][et]
+        rec["last_probe"] = now.isoformat()
+        self._save_json_safe(rec_path, rec)
+        return out
+
+    def _env_probe_ok(self):
+        """只读环境健康探测：规则库可读 + Shalou(memory.db) 可读（不执行任何写操作）"""
+        try:
+            _diegin = os.path.dirname(os.path.dirname(os.path.dirname(self._strikes_db_path())))
+            rules_p = os.path.join(_diegin, "engine", "evo", "rules", "interception_rules.json")
+            if not os.path.exists(rules_p):
+                return False
+            data = self._load_json_safe(rules_p, None)
+            if not isinstance(data, list) or not data:
+                return False
+            db_path = os.path.join(os.path.dirname(_diegin), "shalou", "memory.db")
+            if not os.path.exists(db_path):
+                return False
+            import sqlite3
+            con = sqlite3.connect(db_path)
+            try:
+                con.execute("SELECT COUNT(*) FROM memory_units").fetchone()
+            finally:
+                con.close()
+            return True
+        except Exception:
+            return False
+
     def record_self_error(self, error_type, detail='', task_context=None,
                               intent_summary='', result_text='', user_negative=None):
         """
@@ -1047,9 +1118,15 @@ class BehaviorTracker:
         except Exception as _ee:
             pass
 
-        # 封顶：升级后下次不再处理
+        # 封顶：升级后下次不再处理（登记守三下调，供 P6 正向调权 50% 上限约束）
         if rule:
+            _prev_conf = float(getattr(rule, "confidence", 0) or 0)
             self.rule_engine.update_interception(rule.id, lifecycle_status="alerting", confidence=0.0)
+            try:
+                from shousan_guard import record as _sguard_record
+                _sguard_record(rule.id, _prev_conf, reason="一二不过三升级归零(守三下调)")
+            except Exception:
+                pass
         # 定稿第三章·升级三步：① dgen_fatal_errors 永久记录 ② 置信度归零(已做) ③ 人工介入通知+24h静默锁止
         try:
             self._record_fatal_error(error_type, rule, detail, now)
@@ -1148,6 +1225,11 @@ class BehaviorTracker:
                 override_count=rule.override_count,
                 last_triggered=rule.last_triggered)
             self.rule_engine.save_all()
+            try:
+                from shousan_guard import record as _sguard_record
+                _sguard_record(rule_id, max(0.0, float(old_conf) - float(rule.confidence)), reason="用户否决(veto)")
+            except Exception:
+                pass
             return {"action": "vetoed", "rule_id": rule_id,
                     "new_confidence": rule.confidence,
                     "old_confidence": old_conf,
@@ -1179,6 +1261,11 @@ class BehaviorTracker:
                 override_count=rule.override_count,
                 last_triggered=rule.last_triggered)
             self.rule_engine.save_all()
+            try:
+                from shousan_guard import record as _sguard_record
+                _sguard_record(rule_id, max(0.0, float(old_conf) - float(rule.confidence)), reason="沉默+行为相反推定否决")
+            except Exception:
+                pass
             return {"action": "inferred_veto", "rule_id": rule_id,
                     "new_confidence": rule.confidence,
                     "old_confidence": old_conf,
@@ -1532,6 +1619,11 @@ class BehaviorTracker:
             entry["status"] = "active"
         db[error_type] = entry
         self._save_strikes_db(db)
+        # 第十章 P0 闭环：改毕验结果 → case_prototype 战绩（成功连续+1/失败清零；>=3 输出举一反三迁移申请）
+        try:
+            self._record_case_prototype(error_type, detail, ok=bool(success))
+        except Exception:
+            pass
         if success:
             try:
                 self.notify_gongqi(error_type, detail, fix_rule_id="", mode="verified_fix")
@@ -1546,6 +1638,28 @@ class BehaviorTracker:
                     "message": "改毕验通过：修复成功，经验已固化到攻七模式库"}
         return {"action": "fix_failed", "error_type": error_type,
                 "message": "改毕验未通过：修复无效，同类错误再出现将触发第2次阻断"}
+
+    def _record_case_prototype(self, error_type, detail="", ok=True) -> dict:
+        """第十章 P0 闭环：改毕验成功/失败 → case_prototype 战绩（幂等登记，成功连续>=3 可输出迁移申请）。
+        只计数与申请，不自动写规则；失败清零连续成功；shalou/holder 不可用时静默返回空。"""
+        try:
+            from evo.holder import register_case_prototype, record_case_success
+        except Exception:
+            try:
+                from holder import register_case_prototype, record_case_success
+            except Exception:
+                return {}
+        try:
+            _key = "verify_fix::" + str(error_type)[:120]
+            _text = "一二不过三·改毕验 %s：%s | %s" % (
+                "成功" if ok else "失败", str(error_type)[:120], str(detail)[:160])
+            _reg = register_case_prototype(_key, text=_text)
+            _uid = _reg.get("uid", "")
+            if not _uid:
+                return _reg
+            return record_case_success(_uid, ok=bool(ok), note=str(detail)[:120])
+        except Exception as _e:
+            return {"error": str(_e)[:120]}
 
     def _auto_verify_pending_fixes(self, max_age_hours=24):
         """①改毕验·自动版：检查所有 pending_verify 修复。
@@ -1578,6 +1692,11 @@ class BehaviorTracker:
                 self._save_strikes_db(db)
                 try:
                     self.notify_gongqi(error_type, entry.get("last_detail", ""), mode="verified_fix")
+                except Exception:
+                    pass
+                # 第十章 P0 闭环：自动改毕验成功 → case_prototype 战绩（连续成功累计）
+                try:
+                    self._record_case_prototype(error_type, entry.get("last_detail", ""), ok=True)
                 except Exception:
                     pass
                 results.append({"error_type": error_type, "action": "auto_verified",

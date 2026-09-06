@@ -151,7 +151,7 @@ def test_find_by_intent_hollow_downweight(tmp_path, monkeypatch):
                      completion_criteria="推广计划书九章化+发布",
                      pending_items=["更新计划书"])
     reg.suspend(real["task_id"])
-    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3, mindol_fallback=False)
+    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3, shalou_fallback=False)
     assert r and r[0]["task_id"] == real["task_id"]
     hollow_score = next(t["score"] for t in r if t["task_id"] == hollow["task_id"])
     real_score = next(t["score"] for t in r if t["task_id"] == real["task_id"])
@@ -169,7 +169,7 @@ def test_find_by_intent_candidate_three_tuple(tmp_path, monkeypatch):
     reg.suspend(real["task_id"])
     other = reg.begin("A股模拟盘交易任务")
     reg.suspend(other["task_id"])
-    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3, mindol_fallback=False)
+    r = reg.find_by_intent("恢复 迭进推广 任务", top_k=3, shalou_fallback=False)
     assert r and r[0]["task_id"] == real["task_id"]
     assert "completion_criteria" in r[0]
     assert "pending_items" in r[0]
@@ -183,13 +183,13 @@ def test_find_by_intent_candidate_three_tuple(tmp_path, monkeypatch):
     for cand in r:
         if cand.get("kind") == "memory":
             assert "completion_criteria" not in cand
-def test_find_by_intent_mindol_fallback_no_high_conf(tmp_path, monkeypatch):
-    """v3.9.2 Mindol 兜底：无高置信任务候选时降级返回记忆片段
+def test_find_by_intent_shalou_fallback_no_high_conf(tmp_path, monkeypatch):
+    """v3.9.2 Shalou 兜底：无高置信任务候选时降级返回记忆片段
     （kind=memory、无 task_id，调用方只能提示不可自动恢复）"""
     reg = _make_registry(tmp_path, monkeypatch)
     a = reg.begin("完全无关的任务XYZ")
     reg.suspend(a["task_id"])
-    monkeypatch.setattr(constancy.TaskRegistry, "_mindol_fallback",
+    monkeypatch.setattr(constancy.TaskRegistry, "_shalou_fallback",
                         staticmethod(lambda text, top_k=3: [{
                             "kind": "memory", "task_id": "", "summary": "迭进推广相关内容片段",
                             "text": "迭进推广相关内容片段", "space": "raw_chat", "score": 0.55}]))
@@ -199,7 +199,7 @@ def test_find_by_intent_mindol_fallback_no_high_conf(tmp_path, monkeypatch):
 
 
 def test_find_by_intent_skips_fallback_when_high_conf(tmp_path, monkeypatch):
-    """v3.9.2 Mindol 兜底：唯一高置信任务候选存在时不触发降级检索"""
+    """v3.9.2 Shalou 兜底：唯一高置信任务候选存在时不触发降级检索"""
     reg = _make_registry(tmp_path, monkeypatch)
     a = reg.begin("迭进推广 v2（九章版）：更新推广计划书并执行",
                   completion_criteria="推广计划书九章化+发布",
@@ -209,18 +209,18 @@ def test_find_by_intent_skips_fallback_when_high_conf(tmp_path, monkeypatch):
     def _fb(*args, **kwargs):
         called["n"] += 1
         return []
-    monkeypatch.setattr(constancy.TaskRegistry, "_mindol_fallback", staticmethod(_fb))
+    monkeypatch.setattr(constancy.TaskRegistry, "_shalou_fallback", staticmethod(_fb))
     r = reg.find_by_intent("恢复 迭进推广 v2 任务", top_k=3)
     assert r and r[0]["task_id"] == a["task_id"]
     assert called["n"] == 0
 
 
-def test_mindol_fallback_parses_hits(tmp_path, monkeypatch):
-    """v3.9.2 _mindol_fallback：解析 memory_search 命中（过滤空片段/非 dict）"""
+def test_shalou_fallback_parses_hits(tmp_path, monkeypatch):
+    """v3.9.2 _shalou_fallback：解析 memory_search 命中（过滤空片段/非 dict）"""
     import types
-    pkg = types.ModuleType("mindol")
+    pkg = types.ModuleType("shalou")
     pkg.__path__ = []
-    mi = types.ModuleType("mindol.diegin_integration")
+    mi = types.ModuleType("shalou.diegin_integration")
     def _fake_search(query, max_results=5):
         return [
             {"text": "A股模拟盘任务记录", "score": 0.8, "space": "raw_chat"},
@@ -230,9 +230,9 @@ def test_mindol_fallback_parses_hits(tmp_path, monkeypatch):
             "not-a-dict",
         ]
     mi.memory_search = _fake_search
-    monkeypatch.setitem(sys.modules, "mindol", pkg)
-    monkeypatch.setitem(sys.modules, "mindol.diegin_integration", mi)
-    out = constancy.TaskRegistry._mindol_fallback("模拟盘", top_k=3)
+    monkeypatch.setitem(sys.modules, "shalou", pkg)
+    monkeypatch.setitem(sys.modules, "shalou.diegin_integration", mi)
+    out = constancy.TaskRegistry._shalou_fallback("模拟盘", top_k=3)
     assert len(out) == 2
     assert out[0]["kind"] == "memory" and out[0]["space"] == "raw_chat"
     assert out[1]["space"] == "codex"

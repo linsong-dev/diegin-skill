@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Mindol 桥接器 - PowerShell hooks 通过此脚本写入 Mindol"""
+"""Shalou 桥接器 - PowerShell hooks 通过此脚本写入 Shalou"""
 import sys, os, json
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -10,19 +10,19 @@ if not CODEX_HOME:
     base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     CODEX_HOME = base if base.endswith(".codex") else os.path.join(base, ".codex")
 
-MINDOL_STORAGE = os.path.join(CODEX_HOME, "mindol")
+SHALOU_STORAGE = os.path.join(CODEX_HOME, "shalou")
 
 
-def _get_mindol():
-    """获取 Mindol 实例（懒加载）"""
-    from mindol import core
-    m = core.Mindol(storage_path=MINDOL_STORAGE, persist=True)
+def _get_shalou():
+    """获取 Shalou 实例（懒加载）"""
+    from shalou import core
+    m = core.Shalou(storage_path=SHALOU_STORAGE, persist=True)
     return m
 
 
 def cmd_record(args):
-    """记录一条上下文到 Mindol CODEX 空间
-    用法: mindol_bridge.py record <source> <text> [space]
+    """记录一条上下文到 Shalou CODEX 空间
+    用法: shalou_bridge.py record <source> <text> [space]
     """
     if len(args) < 2:
         print("ERROR: need source and text")
@@ -31,7 +31,7 @@ def cmd_record(args):
     text = " ".join(args[1:])
     # P1 写入脱敏：token/凭证不落库（优先复用 diegin_integration 单一事实源，失败则内联兜底）
     try:
-        from mindol.diegin_integration import sanitize_text
+        from shalou.diegin_integration import sanitize_text
         text = sanitize_text(text)
     except Exception:
         import re as _re
@@ -48,7 +48,7 @@ def cmd_record(args):
             text = parts[0].strip()
     
     try:
-        m = _get_mindol()
+        m = _get_shalou()
         import datetime
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         uid = f"hook_{source}_{ts}"
@@ -64,7 +64,7 @@ def cmd_record(args):
 
 def cmd_search(args):
     """语义搜索
-    用法: mindol_bridge.py search <query> [space] [top_k]
+    用法: shalou_bridge.py search <query> [space] [top_k]
     """
     if len(args) < 1:
         print("ERROR: need query")
@@ -74,7 +74,7 @@ def cmd_search(args):
     top_k = int(args[2]) if len(args) > 2 else 5
     
     try:
-        m = _get_mindol()
+        m = _get_shalou()
         spaces = [space] if space else None
         results = m.retrieve(query, top_k=top_k, spaces=spaces)
         out = []
@@ -89,9 +89,9 @@ def cmd_search(args):
 
 
 def cmd_stats(args):
-    """查看 Mindol 状态"""
+    """查看 Shalou 状态"""
     try:
-        m = _get_mindol()
+        m = _get_shalou()
         stats = m.space_stats()
         print(json.dumps(stats, ensure_ascii=False))
         m.close()
@@ -102,10 +102,10 @@ def cmd_stats(args):
 
 
 def cmd_close(args):
-    """安全关闭 Mindol"""
+    """安全关闭 Shalou"""
     try:
-        from mindol import core
-        m = core.Mindol(storage_path=MINDOL_STORAGE, persist=True)
+        from shalou import core
+        m = core.Shalou(storage_path=SHALOU_STORAGE, persist=True)
         m.close()
         return 0
     except:
@@ -114,7 +114,7 @@ def cmd_close(args):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: mindol_bridge.py <record|search|stats|close> [args...]")
+        print("Usage: shalou_bridge.py <record|search|stats|close> [args...]")
         sys.exit(1)
     
     command = sys.argv[1]

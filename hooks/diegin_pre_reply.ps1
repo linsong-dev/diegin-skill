@@ -84,9 +84,9 @@ $stateDir = Join-Path $g_pr "var\state"
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:UserPromptSubmit] FIRED"
 
-# [PERF-C 2026-08-20] Mindol 入口阈值防线：每日一次检查 active>20000 → 触发维护（防再膨胀）
+# [PERF-C 2026-08-20] Shalou 入口阈值防线：每日一次检查 active>20000 → 触发维护（防再膨胀）
 try {
-    $maintCheckFile = Join-Path $stateDir "mindol_active_check.txt"
+    $maintCheckFile = Join-Path $stateDir "shalou_active_check.txt"
     $today = (Get-Date).ToString("yyyy-MM-dd")
     $needCheck = $true
     if (Test-Path $maintCheckFile) {
@@ -94,20 +94,20 @@ try {
         if ($lastCheck -eq $today) { $needCheck = $false }
     }
     if ($needCheck) {
-        $maintPy = Join-Path $g_pr "engine\mindol_maintenance.py"
+        $maintPy = Join-Path $g_pr "engine\shalou_maintenance.py"
         $maintOut = & $pythonExe $maintPy --dry-run 2>&1 | Out-String
         [System.IO.File]::WriteAllText($maintCheckFile, $today, $script:utf8NoBOM)
         if ($maintOut -match "active_total=(\d+)") {
             $mActive = [int]$Matches[1]
-            Add-NoBOMLog -Path $auditLog -Message "$time [MINDOL-MAINT] entry_check active=$mActive"
+            Add-NoBOMLog -Path $auditLog -Message "$time [SHALOU-MAINT] entry_check active=$mActive"
             if ($mActive -gt 20000) {
-                Add-NoBOMLog -Path $auditLog -Message "$time [MINDOL-MAINT] THRESHOLD_HIT active=$mActive -> trigger apply"
+                Add-NoBOMLog -Path $auditLog -Message "$time [SHALOU-MAINT] THRESHOLD_HIT active=$mActive -> trigger apply"
                 & $pythonExe $maintPy --apply 2>&1 | Out-Null
             }
         }
     }
 } catch {
-    Add-NoBOMLog -Path $auditLog -Message "$time [MINDOL-MAINT] entry_check_error=$($_.Exception.Message)"
+    Add-NoBOMLog -Path $auditLog -Message "$time [SHALOU-MAINT] entry_check_error=$($_.Exception.Message)"
 }
 
 # 一二不过三：读阻断文件

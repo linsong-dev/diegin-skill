@@ -1,12 +1,12 @@
-"""Tests for mindol core modules"""
+"""Tests for shalou core modules"""
 import os, sys, numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine"))
 
-from mindol.vectorizer import SimpleVectorizer
-from mindol.models import MemoryUnit, MemorySpace, SemanticRelation
-from mindol.core import Mindol
-from mindol.codex_adapter import CodexMemoryAdapter
-from mindol.diegin_integration import memory_search, memory_archive, get_memory_stats, close_memory
+from shalou.vectorizer import SimpleVectorizer
+from shalou.models import MemoryUnit, MemorySpace, SemanticRelation
+from shalou.core import Shalou
+from shalou.codex_adapter import CodexMemoryAdapter
+from shalou.diegin_integration import memory_search, memory_archive, get_memory_stats, close_memory
 
 DB = os.path.join(os.path.dirname(__file__), "_test_db")
 
@@ -38,7 +38,7 @@ def test_models():
 
 def test_core():
     clean()
-    core = Mindol(storage_path=DB, persist=False)
+    core = Shalou(storage_path=DB, persist=False)
     assert len(core.space_stats()) == 8
     assert "codex" in core.space_stats()
     assert "state" in core.space_stats()
@@ -51,10 +51,10 @@ def test_core():
 
 def test_persistence():
     clean()
-    core = Mindol(storage_path=DB, persist=True)
+    core = Shalou(storage_path=DB, persist=True)
     core.add_unit(text="persist test", source="chat", uid="p1", space="codex")
     core.save(); core.close()
-    core2 = Mindol(storage_path=DB, persist=True)
+    core2 = Shalou(storage_path=DB, persist=True)
     assert core2.get_unit("p1") is not None
     core2.close(); clean()
     print("  [PASS] persistence")
@@ -81,15 +81,15 @@ def test_integration():
     assert isinstance(stats, dict)
     close_memory()
     import shutil
-    shutil.rmtree(os.path.join(os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex")), "mindol"), ignore_errors=True)
-    print("  [PASS] mindol integration")
+    shutil.rmtree(os.path.join(os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex")), "shalou"), ignore_errors=True)
+    print("  [PASS] shalou integration")
 
 
 def test_state_dynamics_v37():
     """v3.7 最小步：四字段 + 强度权重 + 休眠过滤 + 老库迁移"""
     import sqlite3, shutil
     clean()
-    core = Mindol(storage_path=DB, persist=True)
+    core = Shalou(storage_path=DB, persist=True)
     # 强度初始（importance 驱动）
     u1 = core.add_unit(text="high importance rec", source="chat", uid="s1", space="codex", metadata={"importance": 0.9})
     u2 = core.add_unit(text="normal rec", source="chat", uid="s2", space="codex")
@@ -98,7 +98,7 @@ def test_state_dynamics_v37():
     assert u1.access_count == 0 and u1.last_accessed > 0
     core.save(); core.close()
     # 重载保持
-    core = Mindol(storage_path=DB, persist=True)
+    core = Shalou(storage_path=DB, persist=True)
     assert abs(core.get_unit("s1").strength - 0.95) < 1e-6
     # 强度权重排序 + 使用痕迹
     core.add_unit(text="term zzzqqq high", source="chat", uid="s3", space="codex", metadata={"importance": 1.0})
@@ -131,7 +131,7 @@ def test_state_dynamics_v37():
     c.execute("INSERT INTO memory_units (uid, space, text, source, timestamp) VALUES ('old1','codex','legacy rec','chat',1000.0)")
     c.execute("CREATE TABLE relations (source_uid TEXT NOT NULL, target_uid TEXT NOT NULL, relation_type TEXT NOT NULL, weight REAL DEFAULT 1.0, PRIMARY KEY (source_uid, target_uid, relation_type))")
     c.commit(); c.close()
-    core = Mindol(storage_path=legacy_dir, persist=True)
+    core = Shalou(storage_path=legacy_dir, persist=True)
     old = core.get_unit("old1")
     assert old is not None and old.strength == 1.0 and old.status == "active" and old.last_accessed == 1000.0
     core.close()
@@ -143,7 +143,7 @@ def test_decay_dormancy_v372():
     """v3.7.2 记忆代谢：时间衰减公式 + 阈值休眠 + 权威空间豁免 + 幂等"""
     import math, time
     clean()
-    core = Mindol(storage_path=DB, persist=True)
+    core = Shalou(storage_path=DB, persist=True)
     now = time.time()
     # 经验空间：30 天未访问 -> 强度按 exp(-0.02*30) 衰减
     core.add_unit(text="old chat memory", source="chat", uid="d1", space="codex")
@@ -170,7 +170,7 @@ def test_decay_dormancy_v372():
     assert abs(core.get_unit("d1").strength - expect2) < 1e-6
     # 落库保持
     core.save(); core.close()
-    core = Mindol(storage_path=DB, persist=True)
+    core = Shalou(storage_path=DB, persist=True)
     assert core.get_unit("d2").status == "dormant"
     assert abs(core.get_unit("d1").strength - expect2) < 1e-6
     core.close(); clean()
@@ -180,7 +180,7 @@ def test_decay_dormancy_v372():
 def test_mood_modulation():
     """[PERF-D] 情绪调制：set_mood 生效、_mood_weights 方向正确、retrieve 不崩溃"""
     clean()
-    core = Mindol(storage_path=DB, persist=False)
+    core = Shalou(storage_path=DB, persist=False)
     core.add_unit(text="trading aggressive strategy", source="trade", uid="m1", space="trade")
     core.add_unit(text="conservative risk rule", source="rule", uid="m2", space="rule")
     core.set_mood(1.0)
@@ -201,7 +201,7 @@ def test_mood_modulation():
 def test_associate():
     """[PERF-D] 跨空间联想：产出组合候选，无 query 时返回空"""
     clean()
-    core = Mindol(storage_path=DB, persist=False)
+    core = Shalou(storage_path=DB, persist=False)
     core.add_unit(text="首板低吸策略 alpha", source="trade", uid="a1", space="trade")
     core.add_unit(text="涨停回封模式 beta", source="pattern", uid="a2", space="pattern")
     core.add_unit(text="抽象方法论 gamma", source="abstract", uid="a3", space="abstract")
@@ -212,7 +212,7 @@ def test_associate():
     print("  [PASS] associate v3.8")
 
 if __name__ == "__main__":
-    print("=== Mindol Test Suite ===\n")
+    print("=== Shalou Test Suite ===\n")
     for fn in [test_vectorizer, test_models, test_core, test_persistence, test_adapter, test_integration, test_state_dynamics_v37, test_decay_dormancy_v372, test_mood_modulation, test_associate]:
         fn()
     print("\n=== ALL TESTS PASSED ===")
