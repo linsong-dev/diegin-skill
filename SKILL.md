@@ -769,15 +769,16 @@ Shalou 是迭进的**权威语义记忆引擎**，零外部依赖，纯本地运
 
 Shalou（内存优先·权威存储） ↔ RuleEngine（规则引擎）
 
-├─ rule      235 条规则（语义可检索）        JSON 副本（写主·人类可读）
+├─ rule      286 条规则（语义可检索）        JSON 副本（写主·人类可读）
 
-├─ pattern    20 条成功模式
+├─ pattern    50 条成功模式
 
-├─ trade      5 条（strike+Relation）         hooks → shalou_bridge
+├─ trade      8 条（strike+Relation）         hooks → shalou_bridge
 
 ├─ state      1 条阶段状态                     pre_check 上下文注入
 
-└─ codex    ~10,370 条决策归档                   post_review 自动归档
+├─ codex      4,254 条决策归档                   post_review 自动归档
+└─ raw_chat   3,334 条原始对话                 hook 自动写入
 
 `
 
@@ -972,5 +973,5 @@ pre_check() → shalou_context + display_line
 ## 运维参考（非强制条款）
 
 > 配置参数速查表（19 项数字锚点）、长期运行养护建议、运行状态检查表、故障排查指南见
-> `references/律令九章_运维养护手册_2026-08-27.md`（2026-08-27 定稿；L1–L4 运维层可调，含配置参数速查、长期养护建议、运行状态检查表、故障排查指南、通外·纳新通道记录与完整分层架构）。
+> 运维参数速查（L1–L2 数字锚点）、长期运行养护建议、运行状态检查表、故障排查指南、分层架构与通外·纳新通道记录，见 `references/迭进_沙漏统一运维手册_封笔终稿_2026-09-07.md`（2026-09-07 终稿，随律令九章/沙漏开发文档同步封笔）。
 > 本手册为部署与长期运维参考，不构成宪法正文强制条款。

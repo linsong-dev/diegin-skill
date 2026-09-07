@@ -57,6 +57,23 @@ def main():
         mid_count = 0
         engine = None
 
+    # 1b) 文档 11 空间完整性（2026-09-07 终稿：goal/anomaly_vault/verification 已注册）
+    try:
+        if engine is not None and m is not None:
+            stats = m.space_stats()
+            required = {m.SPACE_RULE, m.SPACE_PATTERN, m.SPACE_TRADE, m.SPACE_ABSTRACT,
+                        m.SPACE_GOAL, m.SPACE_CASE_PROTOTYPE, m.SPACE_ANOMALY_VAULT,
+                        m.SPACE_CODEX, m.SPACE_RAW_CHAT, m.SPACE_STATE, m.SPACE_VERIFICATION}
+            missing = sorted(required - set(stats))
+            result["checks"]["doc_11_spaces_present"] = not missing
+            if missing:
+                result["issues"].append("文档 11 空间缺失: %s" % ",".join(missing))
+        else:
+            result["checks"]["doc_11_spaces_present"] = False
+    except Exception as e:
+        result["checks"]["doc_11_spaces_present"] = False
+        result["issues"].append("空间完整性检查异常: %s" % e)
+
     # 2) 双存储一致性
     try:
         rj = os.path.join(ENGINE_DIR, "evo", "rules", "interception_rules.json")
