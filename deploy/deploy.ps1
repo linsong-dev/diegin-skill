@@ -30,6 +30,9 @@ $runtimeRoot = "$codexHome\diegin"
 # Portable-aware: agents dir is sibling of .codex in portable mode
 if ($env:CODEX_HOME) { $portableRoot = Split-Path $env:CODEX_HOME -Parent; $agentsDir = Join-Path $portableRoot ".agents" } else { $agentsDir = "$env:USERPROFILE\.agents" }
 $pluginMarketDir = "$agentsDir\plugins\diegin"
+# [2026-09-13] 真实市场源：本地 plugin install 实际从 CODEX_HOME\marketplaces\personal\.agents\plugins\diegin 读取
+$personalMarketDir = Join-Path $codexHome "marketplaces\personal\.agents\plugins\diegin"
+if (Test-Path $personalMarketDir) { $pluginMarketDir = $personalMarketDir }
 Write-Step "源码目录: $srcRoot" "OK"
 Write-Step "运行时目录: $runtimeRoot" "OK"
 
@@ -44,6 +47,20 @@ Copy-Item "$srcRoot\engine\*" "$runtimeRoot\engine" -Recurse -Force
 Copy-Item "$srcRoot\hooks\*" "$runtimeRoot\hooks" -Recurse -Force
 Copy-Item "$srcRoot\config\*" "$runtimeRoot\config" -Recurse -Force
 if (Test-Path "$srcRoot\SKILL.md") { Copy-Item "$srcRoot\SKILL.md" "$runtimeRoot\SKILL.md" -Force }
+# [2026-09-13] 单一真源修复：原先只拷根 SKILL.md、从不覆盖 skills\diegin\SKILL.md，
+# 而模型实际加载的是 plugin skills\ 下那份 -> 修复写进了模型读不到的文件。
+$srcRootResolved = (Resolve-Path $srcRoot).Path.TrimEnd('\')
+$mktResolved = if (Test-Path $pluginMarketDir) { (Resolve-Path $pluginMarketDir).Path.TrimEnd('\') } else { "" }
+if ($mktResolved -ne "" -and $mktResolved -ne $srcRootResolved) {
+    Copy-Item "$srcRoot\SKILL.md" (Join-Path $pluginMarketDir "SKILL.md") -Force
+    New-Item -ItemType Directory -Path (Join-Path $pluginMarketDir "skills\diegin") -Force | Out-Null
+    Copy-Item "$srcRoot\skills\diegin\SKILL.md" (Join-Path $pluginMarketDir "skills\diegin\SKILL.md") -Force
+    Write-Step "  SKILL.md 双写（市场源根 + skills\diegin\）" "OK"
+} elseif ($mktResolved -eq $srcRootResolved) {
+    Write-Step "  市场源即源码库（junction）：SKILL 双副本天然一致" "OK"
+} else {
+    Write-Step "  未找到市场源目录，跳过 SKILL 双写" "WARN"
+}
 Write-Step "  引擎 + 钩子 已部署" "OK"
 
 # ── 3. Marketplace 注册 ──

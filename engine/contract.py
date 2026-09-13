@@ -112,16 +112,25 @@ def action_memory(r: dict) -> tuple:
 
     返回 (text, key)；无命中规则时返回 ("", "")。
     """
+    # [2026-09-13 补全] 原实现只给 id + 动作名，AI 看不到「该怎么做」；且文档承诺的 140 字符截断未实现。
+    # 现补三件：① 生效级别 ② 每条 140 字符截断 ③ block 类 + critical/high 优先。
+    _sev_rank = {"critical": 0, "blocking": 0, "high": 1, "medium": 2, "low": 3}
+    _acts = [a for a in (r.get("matched_actions") or []) if isinstance(a, dict)]
+    _acts.sort(key=lambda a: (
+        0 if str(a.get("action") or "").lower().startswith("block") else 1,
+        _sev_rank.get(str(a.get("severity") or "").lower(), 9)))
     lines = []
     ids = set()
-    for a in (r.get("matched_actions") or [])[:3]:
-        if not isinstance(a, dict):
-            continue
+    for a in _acts[:3]:
         aid = str(a.get("id") or "")
         txt = " ".join(str(a.get("action") or "").split())
         if not txt:
             continue
-        lines.append("- %s: %s" % (aid or "?", txt))
+        if len(txt) > 140:
+            txt = txt[:139] + "\u2026"
+        _sev = str(a.get("severity") or "").strip()
+        _tag = ("[%s] " % _sev) if _sev else ""
+        lines.append("- %s: %s%s" % (aid or "?", _tag, txt))
         ids.add(aid)
     wid = str(r.get("winning_rule_id") or "")
     win = " ".join(str(r.get("winning_action") or "").split())
@@ -129,7 +138,7 @@ def action_memory(r: dict) -> tuple:
         lines.insert(0, "- %s: %s" % (wid or "winning", win))
     if not lines:
         return "", ""
-    text = "[行动时刻记忆] 命中规则的行动正文（照做，勿凭印象）:\n" + "\n".join(lines)
+    text = "[行动时刻记忆] 命中规则的行动正文（照做，勿凭印象；[级别]=生效级别）:\n" + "\n".join(lines)
     key = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()[:12]
     return text, key
 

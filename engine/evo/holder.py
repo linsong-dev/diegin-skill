@@ -253,21 +253,33 @@ SIDE_P_TRIGGER = 0.75        # >0.75 深侧放
 SNAP_THRESHOLD = 30          # 活跃快照阈值(个)
 TOKEN_THRESHOLD = 0.70       # Token 占用阈值
 BACKLOG_THRESHOLD = 3        # 自照镜报告积压阈值(份)
+SNAP_WINDOW = 30             # 快照全集保留窗口（对齐 constancy.SNAPSHOT_FULL_KEEP）
 MALIGNANT_IDLE_ROUNDS = 5    # 恶性空闲：连续 5 轮无输入
 
 
 def _snapshot_ratio() -> float:
+    """活跃快照占比。
+
+    [2026-09-13 口径修正] 原实现把全部非终态任务都算作「活跃快照」，但恒常门会把历史任务
+    压缩为冷存储指针（cold_stored=True，见 constancy.archive_old_snapshots）。指针不是快照——
+    实测 930 条任务中 637 条已是冷存储指针，仍被计入 ⇒ 该分量恒为 1.0，
+    深侧放常驻、资源被永久降级。现排除 cold_stored。
+    """
     tasks = _load_json(os.path.join(_state_dir(), "constancy_tasks.json"), {})
     active = 0
-    if isinstance(tasks, dict):
-        for t in tasks.values():
-            if isinstance(t, dict) and t.get("status") not in ("completed", "abandoned", "blocked"):
-                active += 1
-    elif isinstance(tasks, list):
-        for t in tasks:
-            if isinstance(t, dict) and t.get("status") not in ("completed", "abandoned", "blocked"):
-                active += 1
-    return round(min(1.0, active / SNAP_THRESHOLD), 3)
+    items = tasks.values() if isinstance(tasks, dict) else (tasks if isinstance(tasks, list) else [])
+    for t in items:
+        if not isinstance(t, dict):
+            continue
+        if t.get("status") in ("completed", "abandoned", "blocked"):
+            continue
+        if t.get("cold_stored"):
+            continue
+        active += 1
+    # 阈值与常态相等 = 报警常驻：保留窗口内（≤30）是正常水位，
+    # 故以「溢出窗口量」为压力：不超窗口 = 0，超出则按窗口归一。
+    _over = max(0, active - SNAP_WINDOW)
+    return round(min(1.0, _over / SNAP_THRESHOLD), 3)
 
 
 def _token_ratio() -> float:
@@ -285,11 +297,21 @@ def _token_ratio() -> float:
 
 
 def _backlog_ratio() -> float:
+    """自照镜报告积压占比。
+
+    [2026-09-13 口径修正] state.reports 是**滚动日志**（self_mirror.py 硬上限 10 条），
+    不是待办队列；原实现直接取 len() ⇒ 列表一满即恒为 1.0（实测 10 条 / 阈值 3）。
+    现改读 watermark `last_reviewed_ts`：报告是「九章素材全量快照」，新报告即覆盖旧报告，
+    故只把**新报告生成后尚未复核**的那一份计入积压。
+    """
     sm = _load_json(os.path.join(_state_dir(), "self_mirror.json"), {})
     n = 0
     if isinstance(sm, dict):
         reps = sm.get("reports", [])
-        n = len(reps) if isinstance(reps, list) else 0
+        if isinstance(reps, list):
+            _seen = str(sm.get("last_reviewed_ts") or "")
+            n = sum(1 for r in reps
+                    if isinstance(r, dict) and str(r.get("ts") or "") > _seen)
     return round(min(1.0, n / BACKLOG_THRESHOLD), 3)
 
 

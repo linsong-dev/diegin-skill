@@ -426,10 +426,14 @@ def _toolchain_pressure(session_id: str, min_chars: int = 30000,
         _chain = _out_s + _arg_s
         if _chain < int(min_chars):
             return ""
-        return ("\n[§0-C 工具链提示] 上一轮工具链 %s 万字符（调用 %d 次：输出 %s 万 / 参数 %s 万，"
-                "最大单条 %s 万）——这些**会永久留在每轮重发**；建议有界读（先 rg 定位再取片段 / 只留摘要）"
-                % (round(_chain / 10000.0, 1), _out_n + _arg_n, round(_out_s / 10000.0, 1),
-                   round(_arg_s / 10000.0, 1), round(_max_one / 10000.0, 1)))
+        # [2026-09-13 分级接线] 由「报数」升级为「分级建议」：按体量给 L2/L4 处置口径（依据 §0-C + 持行章，不新增机制）
+        _lvl = "L2" if _chain < 60000 else "L4"
+        _adv = {"L2": "下一轮起走 L2：先 rg 定位、只取必要行区间/字段，勿整文件回灌",
+                "L4": "体量过大，走 L4：原始输出落盘(var/)或存 Shalou，只把摘要+指针带回上下文"}[_lvl]
+        return ("\n[§0-C 工具链提示·%s] 上一轮工具链 %s 万字符（调用 %d 次：输出 %s 万 / 参数 %s 万，"
+                "最大单条 %s 万）——这些**会永久留在每轮重发**。处置：%s"
+                % (_lvl, round(_chain / 10000.0, 1), _out_n + _arg_n, round(_out_s / 10000.0, 1),
+                   round(_arg_s / 10000.0, 1), round(_max_one / 10000.0, 1), _adv))
     except Exception:
         return ""
 

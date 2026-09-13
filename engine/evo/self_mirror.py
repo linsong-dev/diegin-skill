@@ -431,6 +431,11 @@ class SelfMirror:
             pass
         self._state["last_mirror_round"] = self._state.get("round", 0)
         self._state["last_mirror_at"] = datetime.datetime.now().isoformat()
+        # [2026-09-13] 报告为「九章素材全量快照」：新报告覆盖旧报告。
+        # 记录 watermark 供 holder._backlog_ratio 区分「未复核的新报告」与历史日志。
+        _prev = self._state.get("reports") or []
+        if _prev and isinstance(_prev[-1], dict):
+            self._state["last_reviewed_ts"] = str(_prev[-1].get("ts") or "")
         self._state.setdefault("reports", []).append(report)
         self._state["reports"] = self._state["reports"][-10:]
         self._save()

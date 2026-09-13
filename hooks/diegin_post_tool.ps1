@@ -278,6 +278,13 @@ try {
     $shouldAnalyze = $false
     if ($null -ne $toolExitCode -and $toolExitCode -ne 0) { $shouldAnalyze = $true }
     elseif ($null -eq $toolExitCode -and $toolError) { $shouldAnalyze = $true }
+    # [2026-09-13 §0-C 计量口径修正] 「输出过大被截断」是体量事件，不是工具错误：
+    # 实测 'Warning: truncated output (original token count: N)' 曾被计成 tool_error_Bash（累计 7 次），
+    # 既污染 strikes/盲区统计，又误导守三归因。截断改由 _toolchain_pressure 分级处理（L2/L4）。
+    if ($shouldAnalyze -and $toolError -match 'truncated output|original token count|output truncated|输出已截断') {
+        Add-NoBOMLog -Path $auditLog -Message "$time [TRACKER] truncation-notice skip_record (0-C metering)"
+        $shouldAnalyze = $false
+    }
     
     if ($shouldAnalyze -and (Test-Path $pythonExe)) {
         $analyzeCtx = @{

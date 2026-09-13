@@ -1,3 +1,17 @@
+# ============================================================================
+# ⚠ 已废弃 · DEPRECATED（2026-09-13 核验）
+# ----------------------------------------------------------------------------
+# 本文件从未生效，保留仅作历史参考。原因（实测）：
+#   1) Codex 不读取 <CODEX_HOME>\diegin\config\requirements.toml；
+#      实际生效的钩子注册在 <CODEX_HOME>\hooks.json
+#      （6 条：SessionStart / PreToolUse / UserPromptSubmit / PostToolUse /
+#        PostCompact / Stop），由 <CODEX_HOME>\config.toml [hooks.state] 登记 trusted_hash。
+#   2) 下方 windows_managed_dir 与 command_windows 指向 %USERPROFILE%\.codex\diegin\hooks，
+#      而本机 C:\Users\Administrator\.codex 不存在 ⇒ 下列 5 条 managed hooks 从未执行，
+#      allow_managed_hooks_only = true 形同虚设。
+# 如需启用 managed hooks：请改 <CODEX_HOME>\hooks.json 并在 <CODEX_HOME>\config.toml
+# 的 [hooks.state] 登记；不要在本文件修改（本文件已无读取方）。
+# ============================================================================
 allow_managed_hooks_only = true
 
 [features]

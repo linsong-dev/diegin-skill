@@ -34,8 +34,8 @@ metadata:
 
         label: "安装迭进引擎"
 
-  version: "v3.10.2"
-  date: "2026-09-06"
+  version: "v3.10.3"
+  date: "2026-09-13"
 ---
 
 
@@ -336,6 +336,20 @@ metadata:
 | 约束 | 不产生规则；不参与实时仲裁；用户可见摘要≤50字（用于恢复前向用户确认）；内部恢复快照可无限长（含结构化关键变量 dump：task_id、intent_summary 全量、completion_criteria 详细、pending_items 完整清单、blocker_report 全量），由 Shalou codex 存储；父任务关联通过 parent_task_id 实现，嵌套深度不超过3层；已完成的任务永不自动恢复；封存包保留30天，超时自动清理；恢复前必须向用户确认"检测到未完成的任务，是否继续？"；子任务阻塞上报后由父任务决定是否继续、调整或放弃；溢出保护：当检测到 parent_task_id 嵌套深度即将达到第4层时，恒常门拒绝创建新子任务，并向父任务返回 nested_overflow 阻塞报告，由父任务在当前层自行消化或放弃该子目标；快照管理：内部恢复快照虽无硬性长度限制，但建议保留最近30个任务的快照全集；更早的快照仅保留 task_id、intent_summary（50字摘要）、status 与 completion_criteria 核心字段，完整快照可归档至冷存储；活跃恢复快照（用于入口检查时加载）设置硬性Token上限——建议16k tokens（可配置），超限部分自动转为"冷存储指针"（仅加载指针摘要，详细日志按需RAG检索），恢复时向用户提示"任务信息量较大，恢复后可能需要分批加载"；并发隔离：Shalou codex 采用数据库事务隔离机制，确保恒常门写入、守三读取、自照镜归档、预策律检索四类操作间的数据一致性，无需独立锁表 |
 
 恒常门是迭进从"单轮进化"走向"跨轮持续进化"的关键——有了它，中断不再是终结，而是暂停。
+
+> **补充（2026-08-31 目标-任务两级持存）**：恒常门原只建模「任务级」（task_id/parent_task_id），未建模「目标级」——导致同一目标（如 A股 15万→50万）散成多条互不相干任务、各按时间冷归档、无聚合机制。现补两层：
+
+| 层 | 实体 | 字段 | 职责 |
+|:--|:--|:--|:--|
+| 目标层 | goal_id | intent_summary / completion_criteria / progress_snapshot / settlement_node / merged_tasks / children / safety_rules | 持久目标(跨任务/跨会话/跨月), 月度净值快照, 终局结算 |
+| 任务层 | task_id | goal_id / parent_task_id / duplicate_of / status | 瞬时执行单元, 全部挂到所属 goal |
+
+- **聚合规则**: 入口恢复检查按 goal 聚合（检索同 goal 下 status≠completed 任务 → 合并展示「目标1条+子任务N条」）；同一目标重复任务标 `duplicate_of=goal_id` 并入，不再独立展示。
+- **封存同步**: 任务完成/封存 → 更新 goal.progress_snapshot（净值/剩余交易日/距目标差），而非只归档任务。
+- **终局**: goal.settlement_node 到期结算 → goal=completed → 其下任务统一归档。
+- **熔断**: 目标级回撤≥10% → goal 阶段性 paused（先归因报告再恢复），与任务级 blocked 区分。
+- **去伪存真**: goal 进度数据(净值/交易日)写入前须验证真伪（P0）。
+- **Shalou 语义侧**: 每 goal 建 trade 空间记忆单元 + relations `goal_belongs_to`(任务→目标) / `goal_tracks`(目标→进度快照)，P6 检索按目标聚合返回。
 
 ### 8. 止观 · 完形律（完形封存）
 

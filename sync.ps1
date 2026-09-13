@@ -361,6 +361,61 @@ function Self-Test {
     return ($script:stFail -eq 0)
 }
 
+# [2026-09-13] SKILL.md 单一真源守卫：模型加载的是 plugin skills\diegin\SKILL.md，
+# 曾长期与根 SKILL.md 分叉（修复写在模型读不到的那一份里）。此处做全副本 hash 一致性校验。
+function Get-SkillTargets {
+    $codexHome = Split-Path $dieginRoot -Parent
+    $t = [ordered]@{
+        "src\skills\diegin"          = (Join-Path $srcRoot "skills\diegin\SKILL.md")
+        "runtime(root)"              = (Join-Path $dieginRoot "SKILL.md")
+        "marketplace(root)"          = (Join-Path $codexHome "marketplaces\personal\.agents\plugins\diegin\SKILL.md")
+        "marketplace(skills\diegin)" = (Join-Path $codexHome "marketplaces\personal\.agents\plugins\diegin\skills\diegin\SKILL.md")
+    }
+    $cacheBase = Join-Path $codexHome "plugins\cache\personal\diegin"
+    if (Test-Path $cacheBase) {
+        $latest = Get-ChildItem $cacheBase -Directory -EA 0 | Sort-Object Name -Descending | Select-Object -First 1
+        if ($latest) {
+            $t["cache(root)"] = Join-Path $latest.FullName "SKILL.md"
+            $t["cache(skills\diegin)"] = Join-Path $latest.FullName "skills\diegin\SKILL.md"
+        }
+    }
+    return $t
+}
+
+function SKILL-Check {
+    INF "SKILL.md: single-source (hash across copies)"
+    $canonical = Join-Path $srcRoot "SKILL.md"
+    if (-not (Test-Path $canonical)) { WARN "src SKILL.md missing"; return }
+    $refHash = (Get-FileHash -LiteralPath $canonical -Algorithm SHA256).Hash
+    OK ("canonical src\SKILL.md " + $refHash.Substring(0,10))
+    $bad = 0
+    foreach ($k in (Get-SkillTargets).Keys) {
+        $p = (Get-SkillTargets)[$k]
+        if (-not (Test-Path $p)) { DIF ("missing: " + $k); $bad++; continue }
+        $h = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash
+        if ($h -ne $refHash) { DIF ("hash mismatch: " + $k + " " + $h.Substring(0,10) + " != " + $refHash.Substring(0,10)); $bad++ }
+        else { OK ($k + " consistent") }
+    }
+    if ($bad -eq 0) { OK "all SKILL.md copies identical" }
+}
+
+function SKILL-Sync {
+    INF "SKILL.md: src → runtime/marketplace/cache (single source)"
+    $canonical = Join-Path $srcRoot "SKILL.md"
+    if (-not (Test-Path $canonical)) { WARN "src SKILL.md missing"; return }
+    $srcResolved = (Resolve-Path $srcRoot).Path.TrimEnd('\')
+    $copied = 0
+    foreach ($k in (Get-SkillTargets).Keys) {
+        $p = (Get-SkillTargets)[$k]
+        $dir = Split-Path $p -Parent
+        if (-not (Test-Path $dir)) { DIF ("skip (no dir): " + $k); continue }
+        $dirResolved = (Resolve-Path $dir).Path.TrimEnd('\')
+        if ($dirResolved.StartsWith($srcResolved)) { OK ($k + " is source itself"); continue }
+        Copy-Item -LiteralPath $canonical -Destination $p -Force
+        ACT ("copied → " + $k); $copied++
+    }
+    if ($copied -eq 0) { OK "nothing to copy" }
+}
 # ===== Main =====
 Write-Host "=== DGEN Sync v3 ===" -ForegroundColor Cyan
 Write-Host ("  Action: " + $Action)
@@ -369,18 +424,20 @@ Write-Host ("  RT:     " + $dieginRoot)
 Write-Host ""
 
 switch ($Action) {
-    "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check }
+    "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check }
     "self-test"   { if (-not (Self-Test)) { exit 1 } }
     "sync-rules"  { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync }
     "sync-hooks"  { SH-Sync }
     "sync-refs"   { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; REF-Sync }
-    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync }
+    "sync-skill"  { SKILL-Sync }
+    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync; Write-Host ""; SKILL-Sync }
     default {
         Write-Host "Usage: .\sync.ps1 <action>" -ForegroundColor Yellow
         Write-Host "  check       — 仅检查差异（默认）" -ForegroundColor Cyan
         Write-Host "  sync-rules  — 合并运行时独有规则 → 源码库" -ForegroundColor Cyan
         Write-Host "  sync-hooks  — 同步运行时钩子 → 源码库" -ForegroundColor Cyan
         Write-Host "  sync-refs   — 同步源码库参考资料 → 运行时（src→rt 单向）" -ForegroundColor Cyan
+        Write-Host "  sync-skill  — 同步 SKILL.md 单一真源 → 运行时/市场源/插件缓存" -ForegroundColor Cyan
         Write-Host "  sync-all    — 先检查，再同步全部" -ForegroundColor Cyan
         Write-Host "  self-test   — 自检（回归守卫：防破坏性写入）" -ForegroundColor Cyan
     }
