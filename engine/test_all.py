@@ -197,6 +197,44 @@ def test_token_governance():
             _fh.write(json.dumps(_evt) + "\n")
         _g = _cd._session_size_guard(_sid)
         c3 = check("TOKEN·>150K强制提示", _g and "150000" in _g, _g[:60] if _g else "无注入")
+        # [P0 回归锁 2026-09-12] 哨兵必须落「负载占比」ratio，否则持行章 Token 分量回退硬编码 0.3
+        _wj = {}
+        try:
+            with open(_warn_path, encoding="utf-8") as _wf:
+                _wj = json.load(_wf)
+        except Exception:
+            _wj = {}
+        _rt = _wj.get("ratio")
+        _c3b = bool(isinstance(_rt, (int, float)) and 0.0 <= float(_rt) <= 1.0)
+        c3b = check("TOKEN·持行章Token分量(ratio)已落盘", _c3b, ("ratio=%s" % _rt) if _c3b else "缺失/越界")
+        try:
+            from evo import holder as _hd
+            _rd = _hd._token_ratio()
+            c3c = check("TOKEN·ratio被持行章读端消费", abs(float(_rd) - float(_rt)) < 1e-6, "读端=%s 落盘=%s" % (_rd, _rt))
+        except Exception as _he:
+            c3c = check("TOKEN·ratio被持行章读端消费", False, str(_he)[:60])
+        # [§0-C:191 回归锁 2026-09-12] 工具链体量信号：正常轮必须静默；重轮必须给出数字
+        try:
+            _tp_dir = os.path.join(_home, "sessions", "test", "c191lock")
+            os.makedirs(_tp_dir, exist_ok=True)
+            _sid2 = "c191lock_" + _uuid.uuid4().hex[:8]
+            _tp_f = os.path.join(_tp_dir, "rollout-%s-x.jsonl" % _sid2)
+            with open(_tp_f, "w", encoding="utf-8") as _tf:
+                _tf.write(json.dumps({"type": "response_item", "payload": {
+                    "type": "message", "role": "assistant", "content": [{"text": "a"}]}}) + "\n")
+                _tf.write(json.dumps({"type": "response_item", "payload": {
+                    "type": "function_call_output", "output": "z" * 500}}) + "\n")
+                _tf.write(json.dumps({"type": "response_item", "payload": {
+                    "type": "message", "role": "assistant", "content": [{"text": "b"}]}}) + "\n")
+            _q1 = _cd._toolchain_pressure(_sid2)              # 默认阈值 3 万 → 应静默
+            c4 = check("§0-C·工具链信号默认静默(不刷屏)", _q1 == "", "len=%d" % len(_q1 or ""))
+            _q2 = _cd._toolchain_pressure(_sid2, min_chars=100)  # 降阈值 → 应给数
+            c5 = check("§0-C·工具链信号可触发且含数字", bool(_q2) and "万字符" in _q2 and "次" in _q2,
+                       (_q2 or "").strip()[:60])
+            os.remove(_tp_f)
+        except Exception as _te:
+            c4 = check("§0-C·工具链信号默认静默(不刷屏)", False, str(_te)[:60])
+            c5 = check("§0-C·工具链信号可触发且含数字", False, str(_te)[:60])
     except Exception as e:
         c3 = check("TOKEN·>150K强制提示", False, str(e))
     finally:
@@ -358,7 +396,8 @@ def test_case_prototype_idempotent():
         _di._MEMORY_ADAPTER = _old_adapt
 
 def test_l1_flip_rw_balance():
-    """L1 沙漏翻转·读写平衡（沙漏§3.3/§5.3）：自然/逆向触发 + 原子状态切换 + 审计 + 冷却"""
+    """L1 沙漏翻转·势差驱动（沙漏§2.2/§2.4/§5.3 · P3/D1 契约 2026-09-11）：
+    IO 次数退为辅助证据 + 势差连续角度 + no-op 抑制 + 原子状态切换 + 审计 + 冷却"""
     import tempfile
     import shalou.flip as _F
     _tmp = tempfile.mkdtemp(prefix="flip_test_")
@@ -366,25 +405,40 @@ def test_l1_flip_rw_balance():
     _F.RW_FLIP_RATIO = 2.0
     for _ in range(8):
         _F.record_io("write", _tmp)
-    _ev = _F.evaluate(_tmp)
-    c1 = check("L1翻转·写主导触发自然", _ev.get("triggered") is True and _ev.get("flip_type") == "natural")
-    _ex = _F.execute_flip("natural", storage_dir=_tmp, source="test")
-    c2 = check("L1翻转·自然→倒放180", _ex.get("ok") is True and _ex.get("to_angle") == 180.0)
+    # [P3/D1] IO 次数不再独自触发（写>读×2 恒真已成历史）
+    _ev0 = _F.evaluate(_tmp)
+    c1 = check("L1翻转·IO不再独自触发(D1)", _ev0.get("triggered") is False)
+    # 势差驱动 -> 连续角度（下腔沉积率高 -> θ 偏激活 >90°）
+    _st = {"raw_chat": 1500, "codex": 200, "rule": 289, "pattern": 50, "abstract": 18}
+    _us = {"raw_chat": ["u%d" % i for i in range(1500)],
+           "codex": ["c%d" % i for i in range(200)],
+           "rule": ["r%d" % i for i in range(289)],
+           "pattern": ["p%d" % i for i in range(20)]}
+    _sed = {"rule": 225, "pattern": 43, "abstract": 11}
+    _F.reset_baseline(_tmp, space_stats=_st, uid_sets=_us)
+    _ev = _F.evaluate(_tmp, space_stats=_st, uid_sets=_us, sediment=_sed)
+    c1b = check("L1翻转·势差触发+连续角", _ev.get("triggered") is True
+                and _ev.get("flip_type") == "potential" and _ev.get("target_angle") is not None
+                and _ev["potential"]["suggested_angle"] > 90.0)
+    _ex = _F.execute_flip(_ev["flip_type"], storage_dir=_tmp,
+                          target_angle=_ev["target_angle"], source="test")
+    c2 = check("L1翻转·任意角度生效", _ex.get("ok") is True and _ex.get("to_angle") == _ev["target_angle"])
     _h = _F.health(_tmp)
-    c3 = check("L1翻转·状态生效+计数", _h.get("angle") == 180.0 and _h.get("mode") == "upside_down" and _h.get("flip_count") == 1)
+    c3 = check("L1翻转·状态生效+计数", abs(_h.get("angle") - _ev["target_angle"]) < 0.01
+               and _h.get("flip_count") == 1)
     c4 = check("L1翻转·审计日志落盘", os.path.exists(_F.event_path(_tmp)))
-    # 读主导（新目录）→ 逆向
-    _tmp2 = tempfile.mkdtemp(prefix="flip_test2_")
-    for _ in range(8):
-        _F.record_io("read", _tmp2)
-    _ev2 = _F.evaluate(_tmp2)
-    c5 = check("L1翻转·读主导触发逆向", _ev2.get("triggered") is True and _ev2.get("flip_type") == "reverse")
+    # [P3/D3] no-op 抑制：同角度重翻被拦，且不写审计
+    _n0 = sum(1 for _ in open(_F.event_path(_tmp), encoding="utf-8"))
+    _exn = _F.execute_flip("potential", storage_dir=_tmp,
+                           target_angle=_ev["target_angle"], source="test")
+    _n1 = sum(1 for _ in open(_F.event_path(_tmp), encoding="utf-8"))
+    c5 = check("L1翻转·no-op抑制(D3)", _exn.get("ok") is False and _exn.get("noop") is True and _n1 == _n0)
     # 冷却（120分钟）阻止连续翻转
     _F.MIN_FLIP_INTERVAL_MIN = 120
-    _ex1b = _F.execute_flip("reverse", storage_dir=_tmp2, source="test")
-    _ex2 = _F.execute_flip("natural", storage_dir=_tmp2, source="test")
+    _ex1b = _F.execute_flip("natural", storage_dir=_tmp, source="test")
+    _ex2 = _F.execute_flip("reverse", storage_dir=_tmp, source="test")
     c6 = check("L1翻转·冷却阻止频繁翻转", _ex1b.get("ok") is True and _ex2.get("ok") is False)
-    return c1 and c2 and c3 and c4 and c5 and c6
+    return c1 and c1b and c2 and c3 and c4 and c5 and c6
 
 
 def test_l1_angle_parking():
@@ -426,6 +480,51 @@ def test_l1_user_flip_text():
         return c1 and c2 and c3 and c4
     finally:
         _h._memory_db_path = _orig
+
+def test_action_memory_channel():
+    """行动时刻记忆（2026-09-12 第1项）：tool_pre 必须把命中规则的 action 正文带进 inject 通道
+
+    回归锁·病根：此前 tool_pre 只暴露规则 id 与命中条数（实测单轮可见 150 字符 / 8080 字符正文）
+    ⇒ AI 在动手那一刻看不到「该怎么做」，于是「记不住正确方法」。此锁保证管道不再断线。
+    """
+    import json as _json
+    import contract as _ct
+    # 1) 纯函数：正文可见 + 去重键；无命中不注入
+    _t, _k = _ct.action_memory({
+        "matched_actions": [{"id": "rule_a", "action": "先做A；再做B"}],
+        "winning_rule_id": "rule_a", "winning_action": "先做A；再做B",
+    })
+    c1 = check("行动记忆·规则正文可见", "rule_a" in _t and "先做A；再做B" in _t and len(_k) == 12, _t.splitlines()[0][:40] if _t else "")
+    c2 = check("行动记忆·无命中不注入", _ct.action_memory({"matched_interceptions": 0}) == ("", ""))
+    # 2) 契约通道透出（打桩引擎，只锁管道）
+    _orig = _ct._run
+    class _P:
+        def __init__(self, out):
+            self.stdout = out
+            self.returncode = 0
+    _env = _ct.parse_envelope(_json.dumps({"event": "tool_pre", "tool": {"name": "shell", "input": {"command": "Get-ChildItem"}}}))
+    try:
+        _hit = _json.dumps({"decision": "allow", "reason": "ok", "matched_interceptions": 1,
+                            "winning_rule_id": "rule_x",
+                            "matched_actions": [{"id": "rule_x", "action": "命中即照做：先查权威真源"}]},
+                           ensure_ascii=False)
+        _ct._run = lambda *a, **k: _P(_hit)
+        _r1 = _ct.dispatch(_env)
+        c3 = check("行动记忆·inject 透出", bool(_r1.get("inject")) and "先查权威真源" in _r1["inject"])
+        c4 = check("行动记忆·inject_key 透出", len(str(_r1.get("inject_key") or "")) == 12, str(_r1.get("inject_key")))
+        _ct._run = lambda *a, **k: _P(_json.dumps({"decision": "allow", "matched_interceptions": 0}))
+        _r2 = _ct.dispatch(_env)
+        c5 = check("行动记忆·无命中 inject 为空", _r2.get("inject") in (None, ""), repr(_r2.get("inject")))
+    finally:
+        _ct._run = _orig
+    # 3) 引擎出口：pre_check 必须带 matched_actions / winning_action（下游接线前提）
+    import call_diegin as _cd
+    _e = _cd.pre_check({"task_type": "pre_tool", "tool_name": "shell",
+                        "command": "Get-ChildItem -LiteralPath .", "text": "Get-ChildItem -LiteralPath ."})
+    c6 = check("行动记忆·引擎出口带键",
+               isinstance(_e.get("matched_actions"), list) and isinstance(_e.get("winning_action"), str))
+    return c1 and c2 and c3 and c4 and c5 and c6
+
 
 def main():
     print(f"\n{'='*50}", flush=True)
@@ -476,6 +575,8 @@ def main():
     test_l1_flip_rw_balance()
     test_l1_angle_parking()
     test_l1_user_flip_text()
+    print(f"\n--- 行动时刻记忆 (2026-09-12 第1项 受权实施) ---", flush=True)
+    test_action_memory_channel()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

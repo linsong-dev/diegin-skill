@@ -81,6 +81,54 @@ $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 $pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"; if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" } }
 $enginePy = Join-Path $g_pr "engine\call_diegin.py"
 $stateDir = Join-Path $g_pr "var\state"
+# [行动时刻记忆迁移 2026-09-13] 原挂 PreToolUse：其 additionalContext 会被平台插成 developer
+# 消息并落在 function_call 与 function_call_output 之间 → 上游 400 "No tool output found
+# for tool call ..."，整轮中断（当日实测 21 次）。现改为在 UserPromptSubmit（回合边界）投递：
+# 内容取自 action_memory_last.json（由 diegin_pre_tool.ps1 在「有命中」时写入最近一次非空行动记忆；
+# 不用 pre_tool_inject_cache.json——后者无命中即清空，会导致本特征在多数轮次消失）。
+# 去重：同会话同 inject_key 只投递一次（规则集变化才再投递）；超 30 分钟视为陈旧不投递。
+function Get-ActionMemoryInjection {
+    param([string]$SessionId)
+    if (-not $SessionId) { return "" }
+    try {
+        $cacheFile = Join-Path $stateDir "action_memory_last.json"
+        if (-not (Test-Path $cacheFile)) { return "" }
+        $ic = Get-Content $cacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $ic -or -not $ic.inject) { return "" }
+        if ($ic.session_id -ne $SessionId) { return "" }
+        $key = [string]$ic.inject_key
+        if (-not $key) { return "" }
+        try {
+            $age = (Get-Date) - [DateTime]::Parse($ic.ts)
+            if ($age.TotalMinutes -gt 30) {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_stale age_min=$([int]$age.TotalMinutes)"
+                return ""
+            }
+        } catch {}
+        $seenFile = Join-Path $stateDir "pre_reply_action_memory_seen.json"
+        $seenKey = ""
+        try {
+            if (Test-Path $seenFile) {
+                $sj = Get-Content $seenFile -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($sj -and $sj.session_id -eq $SessionId) { $seenKey = [string]$sj.key }
+            }
+        } catch {}
+        if ($key -eq $seenKey) {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_seen key=$key"
+            return ""
+        }
+        try {
+            $rec = @{session_id=$SessionId; key=$key; ts=(Get-Date -Format "o")}
+            Write-AtomicFile -Path $seenFile -Content ($rec | ConvertTo-Json -Compress)
+        } catch { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] seen_write_error=$($_.Exception.Message)" }
+        $amLen = ([string]$ic.inject).Length
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] deliver key=$key len=$amLen"
+        return [string]$ic.inject
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] error=$($_.Exception.Message)"
+        return ""
+    }
+}
 
 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:UserPromptSubmit] FIRED"
 
@@ -150,9 +198,16 @@ function Write-PreReplyEngineError {
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-ENGINE-ERROR] $Detail"
     Write-PhaseState -Phase "pre_reply" -Status "engine_error" -Data @{ts=(Get-Date -Format "o")}
     $script:preReplyEngineError = $true
-    Write-Output ""
-    Write-Output "⚠️ [迭进] $UserMessage"
-    Write-Output ""
+    # [2026-09-13] 原为裸文本 Write-Output——桌面版丢弃纯文本 stdout，等于 AI 看不到该告警。
+    # 改走 hookSpecificOutput.additionalContext（与正常注入同通道，实测可达）。
+    $errMsg = "⚠️ [迭进] $UserMessage"
+    $errOut = [ordered]@{
+        hookSpecificOutput = [ordered]@{
+            hookEventName = "UserPromptSubmit"
+            additionalContext = $errMsg
+        }
+    } | ConvertTo-Json -Depth 5 -Compress
+    Write-Output $errOut
 }
 
 # ---- 一次调用完成所有预检 ----
@@ -191,11 +246,17 @@ try {
             # 契约响应 allow：inject 即注入文本（display_text）
             $displayText = $resp.inject
             if (-not $displayText) { $displayText = "[DGEN] PASS" }
-            # [TOKEN 治理 v3.9.12] 注入指纹去重：同会话 600 秒内相同注入 → 最小标记（省每轮新增 token / 缓存未命中）
+            # [行动时刻记忆迁移 2026-09-13] 取最近一次工具预检命中规则的 action 正文（见上方函数）
+            $amText = Get-ActionMemoryInjection -SessionId $sessionId
+
+            # [TOKEN 治理 v3.9.12] 注入指纹去重：按「注入前文本」判定（保持既有省 token 语义）
+            # 判重与投递分离——行动记忆有独立去重键，不因拼接而击穿指纹缓存
+            $isDup = $false
+            $fpFile = Join-Path $g_pr "var\state\inject_fingerprint.json"
+            $fpTable = @{}
+            $sha = ""
             try {
                 if ($sessionId) {
-                    $fpFile = Join-Path $g_pr "var\state\inject_fingerprint.json"
-                    $fpTable = @{}
                     if (Test-Path $fpFile) {
                         try {
                             $fpObj = Get-Content $fpFile -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -205,24 +266,29 @@ try {
                     $shaBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($displayText))
                     $sha = -join ($shaBytes | ForEach-Object { $_.ToString("x2") })
                     $lastRec = $fpTable[$sessionId]
-                    $isDup = $false
                     if ($lastRec -and $lastRec.hash -eq $sha) {
                         try {
                             $lastTs = [DateTime]::Parse($lastRec.ts)
                             $isDup = ((Get-Date) - $lastTs).TotalSeconds -lt 600
                         } catch { $isDup = $false }
                     }
-                    if ($isDup) {
-                        $displayText = "[DGEN] PASS（迭进上下文未变化，跳过重复注入）"
-                        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] DEDUP skip session=$sessionId"
-                    } else {
-                        $fpTable[$sessionId] = @{hash=$sha; ts=(Get-Date -Format "o"); len=$displayText.Length}
-                        Write-AtomicFile -Path $fpFile -Content ($fpTable | ConvertTo-Json -Compress)
-                        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] FULL len=$($displayText.Length) session=$sessionId"
-                    }
                 }
             } catch {
                 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] DEDUP-ERROR $($_.Exception.Message)"
+            }
+
+            if ($isDup -and -not $amText) {
+                $displayText = "[DGEN] PASS（迭进上下文未变化，跳过重复注入）"
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] DEDUP skip session=$sessionId"
+            } else {
+                if ($amText) { $displayText = $displayText + "`n" + $amText }
+                try {
+                    if ($sessionId -and $sha) {
+                        $fpTable[$sessionId] = @{hash=$sha; ts=(Get-Date -Format "o"); len=$displayText.Length}
+                        Write-AtomicFile -Path $fpFile -Content ($fpTable | ConvertTo-Json -Compress)
+                    }
+                } catch {}
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-INJECT] FULL len=$($displayText.Length) session=$sessionId"
             }
             # [A通道] 2026-08-19：桌面版丢弃纯文本 stdout → 改走 hookSpecificOutput.additionalContext（核心 codex.exe 已确认支持该 Wire）
             $hookOut = [ordered]@{

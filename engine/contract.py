@@ -13,6 +13,7 @@
   $envelope | python contract.py                # 返回统一响应 JSON
   python contract.py --self-test                # 契约自测
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -102,6 +103,37 @@ def _normalize_decision(raw: str) -> str:
     return DECISION_ALLOW
 
 
+def action_memory(r: dict) -> tuple:
+    """tool_pre 行动时刻记忆：把命中规则的 action 正文压成注入文本（+去重键）。
+
+    为什么在这里做：规则正文原本在注入通道外——实测 91 条规则 8080 字符正文，
+    单轮可见约 150 字符（1.86%），AI 在动手那一刻看不到「该怎么做」。
+    顺序：block 类规则优先（引擎已排序），最多 3 条，每条压 140 字符防刷屏。
+
+    返回 (text, key)；无命中规则时返回 ("", "")。
+    """
+    lines = []
+    ids = set()
+    for a in (r.get("matched_actions") or [])[:3]:
+        if not isinstance(a, dict):
+            continue
+        aid = str(a.get("id") or "")
+        txt = " ".join(str(a.get("action") or "").split())
+        if not txt:
+            continue
+        lines.append("- %s: %s" % (aid or "?", txt))
+        ids.add(aid)
+    wid = str(r.get("winning_rule_id") or "")
+    win = " ".join(str(r.get("winning_action") or "").split())
+    if win and wid not in ids:
+        lines.insert(0, "- %s: %s" % (wid or "winning", win))
+    if not lines:
+        return "", ""
+    text = "[行动时刻记忆] 命中规则的行动正文（照做，勿凭印象）:\n" + "\n".join(lines)
+    key = hashlib.sha1("\n".join(lines).encode("utf-8")).hexdigest()[:12]
+    return text, key
+
+
 def _run(py, engine_py, mode, payload: dict, timeout=40) -> subprocess.CompletedProcess:
     """subprocess 复用 call_diegin.py 现有模式（stdin JSON，UTF-8）。"""
     return subprocess.run(
@@ -147,15 +179,18 @@ def dispatch(envelope: dict, py=None, engine_py=None) -> dict:
                                       reason="engine check non-json output",
                                       platform=platform,
                                       extra={"engine_exit": p.returncode, "raw": out[:200]})
+            _inj, _inj_key = action_memory(r)
             return build_response(
                 event,
                 decision=_normalize_decision(r.get("decision", DECISION_ALLOW)),
                 reason=r.get("reason", "") or "",
                 matched_count=r.get("matched_interceptions", 0) or 0,
                 winning_rule=r.get("winning_rule_id", "") or "",
+                inject=_inj or None,
                 suggestions=r.get("suggestions", []) or [],
                 platform=platform,
-                extra={"routing_suggestion": r.get("routing_suggestion") or {}},
+                extra={"routing_suggestion": r.get("routing_suggestion") or {},
+                       "inject_key": _inj_key},
             )
 
         if event == "prompt_pre":
@@ -302,6 +337,11 @@ def self_test() -> int:
 
     # 5. 5 事件枚举完整
     check("events cover 5 standard", set(EVENTS) == {"session_start", "prompt_pre", "tool_pre", "tool_post", "stop"})
+
+    # 6. 行动时刻记忆（tool_pre inject 来源）
+    _t, _k = action_memory({"matched_actions": [{"id": "r1", "action": "先A 后B"}], "winning_rule_id": "r1"})
+    check("inject: 命中规则正文可见", "r1" in _t and "先A 后B" in _t and bool(_k))
+    check("inject: 无命中不注入", action_memory({}) == ("", ""))
 
     print("---")
     print("  Result: %d/%d passed (%d failed)" % (ok, ok + fail, fail))

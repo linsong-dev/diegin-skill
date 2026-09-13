@@ -364,6 +364,75 @@ def _session_last_input_tokens(session_id: str) -> int:
         return 0
 
 
+def _toolchain_pressure(session_id: str, min_chars: int = 30000,
+                        tail_bytes: int = 512 * 1024) -> str:
+    """[§0-C:191 接线 2026-09-12] 工具链体量提示 —— 落实至高元则 §〇 0-C「写侧降噪」末条：
+    「大文件输出/逐字符 dump 不进会话转录（会永久留在每轮重发）」。
+
+    该条此前**零实现**（本引擎无任何输出体量守卫：interception_rules 无此规则、
+    hooks 无体量 grep 命中、post_tool 无输出通道）。此处只给**信号**，不代 LLM 选工具
+    （§0-D：只优化重复读取/全文重发/机器噪声，不削减决策质量）。
+
+    口径（真机实测选定）：
+      · 轮边界 = assistant message（token_count 每轮出现多次，粒度太细，不用）；
+      · 量测**上一轮**（pre_reply 时本轮工具尚未运行）的工具链字符量
+        = Σfunction_call_output + Σfunction_call，并给出调用条数与最大单条；
+      · 阈值默认 3 万字符/轮（L2 可调）—— 依据本机实测分布：单轮合计多在 1k–15k，
+        故仅在**重轮**（大量工具调用）时触发；低于阈值返回 ""（零注入成本）。
+    失败静默返回 ""。
+    """
+    try:
+        if not session_id:
+            return ""
+        _home = os.environ.get("CODEX_HOME", "")
+        if not _home:
+            return ""
+        import glob as _glob
+        _cands = _glob.glob(os.path.join(_home, "sessions", "**", "*" + session_id + "*.jsonl"),
+                            recursive=True)
+        if not _cands:
+            return ""
+        _f = max(_cands, key=os.path.getsize)
+        _sz = os.path.getsize(_f)
+        if _sz <= 0:
+            return ""
+        _tail = min(_sz, max(64 * 1024, int(tail_bytes)))
+        with open(_f, "r", encoding="utf-8", errors="replace") as _fh:
+            if _sz > _tail:
+                _fh.seek(_sz - _tail)
+                _fh.readline()
+            _rows = _fh.readlines()
+        _marks = []
+        for _i, _r in enumerate(_rows):
+            if '"role": "assistant"' not in _r and '"role":"assistant"' not in _r:
+                continue
+            if '"message"' in _r:
+                _marks.append(_i)
+        if len(_marks) < 2:
+            return ""
+        _seg = _rows[_marks[-2] + 1:_marks[-1] + 1]
+        _out_n = _out_s = _arg_n = _arg_s = 0
+        _max_one = 0
+        for _line in _seg:
+            _n = len(_line)
+            if '"function_call_output"' in _line:
+                _out_n += 1
+                _out_s += _n
+                if _n > _max_one:
+                    _max_one = _n
+            elif '"function_call"' in _line:
+                _arg_n += 1
+                _arg_s += _n
+        _chain = _out_s + _arg_s
+        if _chain < int(min_chars):
+            return ""
+        return ("\n[§0-C 工具链提示] 上一轮工具链 %s 万字符（调用 %d 次：输出 %s 万 / 参数 %s 万，"
+                "最大单条 %s 万）——这些**会永久留在每轮重发**；建议有界读（先 rg 定位再取片段 / 只留摘要）"
+                % (round(_chain / 10000.0, 1), _out_n + _arg_n, round(_out_s / 10000.0, 1),
+                   round(_arg_s / 10000.0, 1), round(_max_one / 10000.0, 1)))
+    except Exception:
+        return ""
+
 def _goal_budget_guard(session_id: str) -> str:
     """[TOKEN 治理] 目标模式预算护栏：读 thread_goals 当前会话的 token_budget，
     超预算（tokens_used > budget）强制提示新开会话；未设 budget 且已用 >50K 时提示一次补设。
@@ -444,6 +513,40 @@ def _goal_budget_guard(session_id: str) -> str:
         return ""
 
 
+def _touch_token_ratio(path, session_id: str, ratio: float, mb: float, tokens: int,
+                       cap_mb: float, cap_tokens: float) -> bool:
+    """[P0 2026-09-12] 刷新 token_budget_warn.json 的「负载占比」读数（ratio 等）。
+
+    背景（实测铁证）：本文件原先只写 session_id/level/mb/last_input_tokens/ts，
+    而读端 holder._token_ratio() 只认 ratio / token_ratio / occupancy（0..1），
+    缺则**硬编码返回 0.3** ⇒ 侧压系数里的 ×0.25 项恒为常数，会话涨到 2MB 也无感。
+    这里补写 ratio = min(1, max(mb/hard_mb, tokens/hard_tokens))（取两者较大者，
+    与「任一越线即升档」的哨兵语义一致）；只写本会话的记录，避免覆盖他会话的升档游标。
+    失败静默（不阻断业务）。"""
+    try:
+        d = {}
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as _fr:
+                    d = json.load(_fr) or {}
+            except Exception:
+                d = {}
+        _owner = str(d.get("session_id") or "")
+        if _owner and _owner != session_id:
+            return False
+        d.update({"session_id": session_id, "ratio": float(ratio),
+                  "ratio_mb": round(float(mb), 2), "ratio_tokens": int(tokens),
+                  "ratio_cap_mb": float(cap_mb), "ratio_cap_tokens": float(cap_tokens),
+                  "ratio_ts": datetime.now().isoformat()})
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _tmp = path + ".tmp"
+        with open(_tmp, "w", encoding="utf-8") as _fw:
+            json.dump(d, _fw, ensure_ascii=False)
+        os.replace(_tmp, path)
+        return True
+    except Exception:
+        return False
+
 def _session_size_guard(session_id: str, warn_mb: float = 0.8, hard_mb: float = 1.5,
                         hard_tokens: int = 150000) -> str:
     """[TOKEN 治理] 会话转录预算哨兵：按 session_id 定位会话 JSONL 大小，
@@ -477,7 +580,13 @@ def _session_size_guard(session_id: str, warn_mb: float = 0.8, hard_mb: float = 
             _new = 3
         else:
             _new = 2 if _mb >= hard_mb else (1 if _mb >= warn_mb else 0)
+        # [P0 2026-09-12] 负载占比（持行章 Token 分量真源）：任一越线即按 1.0 记（与升档语义一致）
+        _cap_mb = max(0.1, float(hard_mb))
+        _cap_tok = max(1.0, float(hard_tokens))
+        _ratio = round(min(1.0, max(_mb / _cap_mb, _last_in / _cap_tok)), 3)
         if _new <= _cur:
+            # 未升档：不注入提示，但仍刷新本会话的负载读数（否则 ratio 会停在上次升档时刻）
+            _touch_token_ratio(_st, session_id, _ratio, _mb, _last_in, _cap_mb, _cap_tok)
             return ""
         try:
             os.makedirs(os.path.dirname(_st), exist_ok=True)
@@ -491,6 +600,9 @@ def _session_size_guard(session_id: str, warn_mb: float = 0.8, hard_mb: float = 
                         pass
                 _d.update({"session_id": session_id, "level": _new,
                            "mb": round(_mb, 1), "last_input_tokens": _last_in,
+                           "ratio": _ratio, "ratio_mb": round(_mb, 2),
+                           "ratio_tokens": int(_last_in), "ratio_cap_mb": _cap_mb,
+                           "ratio_cap_tokens": _cap_tok,
                            "ts": datetime.now().isoformat()})
                 json.dump(_d, _f, ensure_ascii=False)
         except Exception:
@@ -1133,6 +1245,8 @@ def pre_check(context: dict) -> dict:
             "display_line": "[DGEN] PASS (止观门: 已封存事项，跳过)",
             "reason": "止观门: 该任务已封存，不再重复处理",
             "pace_result": pace_result,
+            "winning_action": "",
+            "matched_actions": [],
             "closure_skip": True,
             "constancy_recovery": constancy_recovery
         }
@@ -1490,6 +1604,38 @@ def pre_check(context: dict) -> dict:
     except Exception:
         pass
 
+    # ========== 第十章持行章·行动时刻记忆通道（2026-09-12）==========
+    # 病根（实测）：tool_pre 时刻只暴露规则 id 与命中条数，规则 action 正文对 AI 不可见
+    # ⇒ 记忆再准也无用：AI 在「动手那一刻」看不到「该怎么做」。
+    # 处置：把命中规则的 action 正文随 check 结果带出，由契约层放进 inject
+    #（不新增机制，走第十章「该用则用、该省则省」的既有通道）
+    matched_actions = []
+    winning_action = ""
+    try:
+        _sev_rank = {"critical": 0, "blocking": 0, "high": 1, "medium": 2, "low": 3}
+        _ma_rules = sorted(
+            rules["interceptions"],
+            key=lambda _r: (0 if str(getattr(_r, "action", "") or "").lower().startswith("block") else 1,
+                            _sev_rank.get(str(getattr(_r, "severity", "") or ""), 9),
+                            -float(getattr(_r, "confidence", 0.0) or 0.0)),
+        )
+        _win_id = str(result.get("winning_rule_id") or "")
+        for _r in _ma_rules:
+            _act = " ".join(str(getattr(_r, "action", "") or "").split())
+            if not _act:
+                continue
+            _rid = str(getattr(_r, "id", "") or "")
+            if _win_id and _rid == _win_id and not winning_action:
+                winning_action = _act[:300]
+            if len(matched_actions) < 3:
+                matched_actions.append({
+                    "id": _rid,
+                    "action": _act[:140],
+                    "severity": str(getattr(_r, "severity", "") or ""),
+                })
+    except Exception:
+        pass
+
     return {
         "matched_interceptions": len(rules["interceptions"]),
         "matched_patterns": len(rules["patterns"]),
@@ -1497,6 +1643,8 @@ def pre_check(context: dict) -> dict:
         "display_line": _display_line,
         "reason": result["reason"],
         "winning_rule_id": result.get("winning_rule_id"),
+        "winning_action": winning_action,
+        "matched_actions": matched_actions,
         "pace_result": pace_result,
         "routing_suggestion": routing_suggestion,
         "shalou_context": shalou_context if shalou_context else "",
@@ -2204,6 +2352,13 @@ if __name__ == "__main__":
             _goal_budget = _goal_budget_guard(session_id)
             if _goal_budget:
                 output_text += _goal_budget
+        except Exception:
+            pass
+        # [§0-C:191 接线 2026-09-12] 工具链体量大时给一行信号（低于阈值不产生任何字符）
+        try:
+            _tchain = _toolchain_pressure(session_id)
+            if _tchain:
+                output_text += _tchain
         except Exception:
             pass
         # 恒常门·恢复/主动推进提示（用户可见；恢复前用户确认，摘要≤50字）

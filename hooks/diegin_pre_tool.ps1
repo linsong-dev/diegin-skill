@@ -4,6 +4,54 @@
 try { $OutputEncoding = $script:utf8NoBOM } catch {}
 try { [Console]::OutputEncoding = $script:utf8NoBOM } catch {}
 
+# ============================================================
+# [平台契约适配层 2026-09-12] Codex PreToolUse 钩子输出契约（真机实测 + codex.exe 内嵌 schema）
+#   · stdout 必须是**单个 JSON 对象**才会被解析；裸文本 Write-Output 不会被注入模型上下文
+#   · 进入模型上下文的通道 = hookSpecificOutput.additionalContext
+#   · 阻断必须 permissionDecision="deny"（需非空 reason）或 exit 2（stderr 写理由）
+#   · exit 1 只是"非阻断性错误" ⇒ 旧写的 exit 1 阻断**根本拦不住**（实测：交付写命令照样落盘）
+#   ⇒ 迭进的"记忆注入"与"阻断门禁"过去在平台边界上是空管道，本层补上这条管道。
+# ============================================================
+$script:DgenMessages = New-Object System.Collections.ArrayList
+function Add-DgenMessage {
+    param([string]$Text)
+    if ($null -ne $Text -and ([string]$Text).Trim() -ne "") { [void]$script:DgenMessages.Add([string]$Text) }
+}
+function Write-DgenHookResponse {
+    param([string]$Decision = "allow", [string]$Reason = "")
+    # [契约校正 2026-09-13] 真机实测（codex exec 探针）：PreToolUse 只接受下面这些字段，
+    # 多写一个就整条被拒（引擎日志 hook: PreToolUse Failed，注入与阻断同时失效）：
+    #   · suppressOutput  → "PreToolUse hook returned unsupported suppressOutput"
+    #   · reason（顶层）  → "PreToolUse hook returned reason without decision"
+    #   · decision:approve / permissionDecision:allow|ask → unsupported
+    # 合法形态：{hookSpecificOutput:{hookEventName:"PreToolUse"[, permissionDecision:"deny",
+    #            permissionDecisionReason:"..."][, additionalContext:"..."]}}
+    $ctx = ([string]::Join("`n", $script:DgenMessages.ToArray()))
+    $hso = [ordered]@{ hookEventName = "PreToolUse" }
+    if ($Decision -eq "deny") {
+        if (-not $Reason) { $Reason = "迭进阻断（未提供理由）" }
+        $hso.permissionDecision = "deny"
+        $hso.permissionDecisionReason = $Reason
+    }
+    # [致命回归修复 2026-09-13 · 孤儿工具调用] PreToolUse 的 additionalContext 会被平台插成一条
+    # developer 消息，且落在 function_call 与其 function_call_output **之间**；上游 Responses API
+    # 据此判定「No tool output found for tool call ...」返回 400，整轮中断。
+    # 实测：当日 21 次（10:02-10:32，钩子启用期内），关闭钩子后归零。
+    # 铁证（KeySync logs.db 失败请求条目序）：call -> developer(迭进注入) -> output；
+    # 同期成功请求均为 call/output 紧邻。
+    # ⇒ PreToolUse 一律不再输出 additionalContext；阻断不受影响（仍走 permissionDecision=deny
+    #   + permissionDecisionReason）。若日后需恢复「动手那一刻可见」的注入，请改挂
+    #   UserPromptSubmit（pre_reply），该通道天然不夹在 call/output 之间。
+    # if ($ctx) { $hso.additionalContext = $ctx }   # 2026-09-13 停用，勿直接启用
+    $obj = [ordered]@{ hookSpecificOutput = $hso }
+    try {
+        [Console]::Out.Write(($obj | ConvertTo-Json -Compress -Depth 6))
+        [Console]::Out.Write("`n")
+        [Console]::Out.Flush()
+    } catch {}
+}
+
+
 function Write-AtomicFile {
     param([string]$Path,[string]$Content)
     # [C2] 原子写：tmp+Replace(真实备份) 防读半截；失败兜底 Delete+Move；任何情况清理 tmp 防残留
@@ -70,7 +118,7 @@ function Write-PhaseState {
 
 
 function Write-DGENContextAndExit {
-    param([int]$ExitCode=1)
+    param([int]$ExitCode=1, [string]$DenyReason="")
     $ctxTool = Join-Path $script:g_pr "var\state\diegin_pre_tool_context.json"
     $dc="unknown"; $dm=0; $tn="unknown"
     if (Test-Path $script:gateFile) {
@@ -79,6 +127,15 @@ function Write-DGENContextAndExit {
     try { $tn = $script:toolName } catch { }
     $toolCtxStr = '{"ts":"' + (Get-Date -Format "o") + '","decision":"' + $dc + '","matched_count":' + $dm + ',"tool_name":"' + $tn + '"}'
     try { [System.IO.File]::WriteAllText($ctxTool, $toolCtxStr, $script:utf8NoBOM) } catch { }
+    # [平台契约] ExitCode 1 / 带 DenyReason ⇒ 真阻断（JSON permissionDecision=deny；exit 0 即可）
+    if ($DenyReason -or $ExitCode -eq 1) {
+        $r = $DenyReason
+        if (-not $r) { $r = "迭进阻断（未提供理由）" }
+        Write-DgenHookResponse -Decision "deny" -Reason $r
+        try { [Console]::Error.Write($r + "`n") } catch {}
+        exit 0
+    }
+    Write-DgenHookResponse -Decision "allow"
     exit $ExitCode
 }
 
@@ -209,11 +266,10 @@ foreach ($entry in $overrideEntries) {
 if ($blockedType) {
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:OVERRIDE] BLOCK type=$blockedType strike=$strikeCount escalated=$escalated"
     Write-DGENStatusFile -Status "OVERRIDE_BLOCKED" -Rules "0" -Decision "block" -Matched "0"
-    Write-Output "[一二不过三] 阻断: 错误类型 '$blockedType' 已被系统拦截（已触发 ${strikeCount}次）"
-    Write-Output "  $reason"
-    Write-Output ""
-    Write-Output "[DGEN] OVERRIDE_BLOCK"
-    exit 1
+    Add-DgenMessage ("[一二不过三] 阻断: 错误类型 '" + $blockedType + "' 已被系统拦截（已触发 " + $strikeCount + "次）")
+    Add-DgenMessage ("  " + $reason)
+    Write-Error ("DGEN_BLOCK|reason=" + $reason + "|rule=ai_override")
+    Write-DGENContextAndExit -ExitCode 1 -DenyReason ("[一二不过三] 错误类型 '" + $blockedType + "' 已被系统拦截（已触发 " + $strikeCount + "次）: " + $reason)
 }
 
 # ============================================================
@@ -337,7 +393,7 @@ $replyState = Check-StateFile $replyFile
 if ($replyState) {
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK-RELAY] $($replyState.reason)"
     Write-Error ("DGEN_BLOCK|reason=" + $replyState.reason + "|rule=pre_reply_relay")
-    Write-DGENContextAndExit -ExitCode 1
+    Write-DGENContextAndExit -ExitCode 1 -DenyReason ("[迭进·pre_reply 阻断转达] " + $replyState.reason)
 }
 
 # 一二不过三：检查数组+旧格式（重用函数）
@@ -352,7 +408,7 @@ foreach ($entry in $overrideEntries) {
 }
 if ($blockedType) {
     Write-Error ("DGEN_BLOCK|reason=" + $overrideEntries[0].reason + "|rule=ai_override")
-    Write-DGENContextAndExit -ExitCode 1
+    Write-DGENContextAndExit -ExitCode 1 -DenyReason ("[一二不过三·override] " + $overrideEntries[0].reason)
 }
 
 # [A-1 攻七强制前置 2026-09-04] 人读交付文档(.md/.txt 写入 outputs/交付目录)的写命令必须带 A1_DELIVER_PRE 合规标记
@@ -370,8 +426,51 @@ if ($command) {
 }
 if ($isA1Delivery -and -not $command.Contains('A1_DELIVER_PRE')) {
     Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-BLOCK] delivery-write without A1_DELIVER_PRE"
-    Write-Error ("DGEN_BLOCK|reason=攻七A-1强制前置: 交付人读文档(.md/.txt)写命令必须带 A1_DELIVER_PRE 标记并实际执行(人读UTF8 BOM+CRLF/写后校验EF BB BF/检查扩展名关联/实测打开一次) |rule=rule_gongqi_delivery_precheck")
-    Write-DGENContextAndExit -ExitCode 1
+    $a1Reason = "攻七A-1强制前置: 交付人读文档(.md/.txt)写命令必须带 A1_DELIVER_PRE 标记并实际执行(人读UTF8 BOM+CRLF/写后校验EF BB BF/检查扩展名关联/实测打开一次)"
+    Write-Error ("DGEN_BLOCK|reason=" + $a1Reason + " |rule=rule_gongqi_delivery_precheck")
+    Write-DGENContextAndExit -ExitCode 1 -DenyReason $a1Reason
+}
+
+# [A-1H 交付环境自愈门 2026-09-12] 链接按「会话 cwd」解析 ⇒ 执行前自动校验并修复环境，不再事后告警
+# 病根（实测三度复发）：会话 cwd 漂到上层，cwd 下没有 outputs ⇒ [名](outputs/x.md) 点不开（右栏空白）。
+# 依据：凡「上次修过又复发」的故障，先查环境漂移，再查代码；把「靠人记住」换成「门自动做」。
+# 免误伤：目标在 cwd 之内（链接本就可解析）或交付目录尚未创建时不阻断，只记录。
+if ($isA1Delivery) {
+    try {
+        $wsRoot = (Get-Location).Path
+        $healScript = 'E:\项目\开发\TOOL\确保交付件可打开.ps1'
+        $deliverAbs = ""
+        $mPath = [regex]::Match([string]$command, '(?i)([A-Za-z]:[\\/][^\s"''<>|;)\],]*?\.(?:md|txt))')
+        if ($mPath.Success) { $deliverAbs = ($mPath.Groups[1].Value -replace '/', '\') }
+        if (-not $deliverAbs) {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] SKIP no_abs_path cwd=$wsRoot"
+        } elseif (-not (Test-Path -LiteralPath $healScript)) {
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] SKIP heal_script_missing"
+        } else {
+            $deliverDirAbs = Split-Path -Parent $deliverAbs
+            if (-not (Test-Path -LiteralPath $deliverDirAbs)) {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] SKIP dir_missing dir=$deliverDirAbs"
+            } else {
+                $underCwd = $deliverAbs.ToLower().StartsWith(($wsRoot.TrimEnd('\') + '\').ToLower())
+                $healOut = & powershell -NoProfile -ExecutionPolicy Bypass -File $healScript -DeliveryDir $deliverDirAbs -WorkspaceRoot $wsRoot 2>&1
+                $healCode = $LASTEXITCODE
+                $healTxt = (($healOut | Out-String) -replace '\r?\n', ' / ').Trim()
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] dir=$deliverDirAbs cwd=$wsRoot under_cwd=$underCwd exit=$healCode out=$healTxt"
+                if ($healCode -ne 0 -and -not $underCwd) {
+                    Add-DgenMessage ("🔗 [迭进] 交付环境自愈失败：链接按会话 cwd 解析，缺 outputs 即点不开")
+                    Add-DgenMessage ("  " + $healTxt)
+                    $healReason = "交付目录自愈失败(exit=$healCode): cwd=$wsRoot 下 outputs 解析不到本次交付目录 $deliverDirAbs；改用从 cwd 起的完整相对路径 2026-XX-XX/<task>/outputs/x.md，或人工处置联接后重发"
+                    Write-Error ("DGEN_BLOCK|reason=" + $healReason + " |rule=rule_delivery_dir_heal")
+                    Write-DGENContextAndExit -ExitCode 1 -DenyReason $healReason
+                }
+                if ($healTxt -match '已建立|已重建|断链') {
+                    Add-DgenMessage ("🔗 [迭进] 交付环境自愈 | " + (($healTxt -split ' / ')[0]))
+                }
+            }
+        }
+    } catch {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] ERROR $($_.Exception.Message)"
+    }
 }
 
 # ============================================================
@@ -452,12 +551,11 @@ try {
                 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-BLOCK] rule=$finalRule"
                 $blockRule = $finalRule
                 if ([string]::IsNullOrEmpty($blockRule)) { $blockRule = "unknown" }
-        Write-Output ("")
-        Write-Output ("⚠️ [迭进] 规则阻断 | 规则: " + $blockRule + " | 原因: " + $checkResult.reason)
-        Write-Output ("")
+        Add-DgenMessage ("⚠️ [迭进] 规则阻断 | 规则: " + $blockRule + " | 原因: " + $checkResult.reason)
+        if ($checkResult.inject) { Add-DgenMessage ([string]$checkResult.inject) }
                 Write-Error ("DGEN_BLOCK|reason=" + $checkResult.reason + "|rule=" + $blockRule)
                 Write-DGENStatusFile -Status "BLOCKED" -Rules $activeRules -Decision $finalDecision -Matched $finalMatched
-                Write-DGENContextAndExit -ExitCode 1
+                Write-DGENContextAndExit -ExitCode 1 -DenyReason ("[迭进] 规则阻断 规则:" + $blockRule + " | 原因: " + $checkResult.reason)
             }
             
             # 读取活跃规则数
@@ -512,21 +610,17 @@ try {
                 }
             } catch {}
             if ($finalMatched -gt 0) {
-                Write-Output ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行" + $sugText)
+                Add-DgenMessage ("ℹ️ [迭进] 预检完成 | 匹配 " + $finalMatched + " 条规则 | 放行" + $sugText)
             } elseif ($sugText) {
-                Write-Output ("ℹ️ [迭进] 预检放行" + $sugText)
+                Add-DgenMessage ("ℹ️ [迭进] 预检放行" + $sugText)
             }
             # 守三·应急触发 AI 可见性（定稿第二章）：触发时显式提示立即深度复盘
             if ($checkResult.deep_review_required) {
-                Write-Output ("")
-                Write-Output ("⚠️ [迭进] 守三应急复盘触发：连续3轮内≥2次阻断，建议立即执行深度复盘")
-                Write-Output ("")
+                Add-DgenMessage ("⚠️ [迭进] 守三应急复盘触发：连续3轮内≥2次阻断，建议立即执行深度复盘")
                 Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:DGEN-EMERGENCY-REVIEW] triggered=true"
             }
             if ($priorityText) {
-                Write-Output ("")
-                Write-Output ("✅ [迭进] 攻七·推荐优先采用: " + $priorityText)
-                Write-Output ("")
+                Add-DgenMessage ("✅ [迭进] 攻七·推荐优先采用: " + $priorityText)
                 # 攻七反馈闭环 Q4: 记录推荐 pattern_id（post_tool 工具成功时自动采纳）
                 if ($priorityPatternId) {
                     try {
@@ -563,11 +657,69 @@ if ($engineError) {
     Write-DGENStatusFile -Status "ENGINE_ERROR" -Rules "?" -Decision "unknown" -Matched "0"
     $toolCtxStr = '{"ts":"' + (Get-Date -Format "o") + '","decision":"engine_error","matched_count":0,"tool_name":"' + $toolName + '","error":"engine_unavailable"}'
     try { [System.IO.File]::WriteAllText((Join-Path $stateDir "diegin_pre_tool_context.json"), $toolCtxStr, $script:utf8NoBOM) } catch {}
-    Write-Output ("")
-    Write-Output ("⚠️ [迭进] 引擎异常（预检未执行），本次放行但状态未验证")
-    Write-Output ("")
-    exit 0
+    Add-DgenMessage ("⚠️ [迭进] 引擎异常（预检未执行），本次放行但状态未验证")
+    Write-DGENContextAndExit -ExitCode 0
 }
+
+# [行动时刻记忆 2026-09-12] 命中规则的 action 正文必须可见（原只暴露规则 id）
+# 病根实测：91 条规则 8080 字符正文，单轮可见约 150 字符（1.86%）⇒ AI 看不到「该怎么做」，自然记不住。
+# [投递迁移 2026-09-13] 投递点已从本钩子（PreToolUse）迁至 diegin_pre_reply.ps1（UserPromptSubmit）。
+# 原因：PreToolUse 的 additionalContext 会被平台插在 function_call 与 function_call_output 之间，
+# 上游判定「No tool output found for tool call」→ 400 → 整轮中断（当日实测 21 次）。
+# 本钩子职责保留：仍计算并把行动正文写入 pre_tool_inject_cache.json（供 pre_reply 读取投递）。
+# 去重：同一会话同一规则集只投递一次（规则集变化才再投递），避免每轮刷屏（该用则用，该省则省）。
+$injectText = ""
+$injectKey = ""
+try {
+    $injectCacheFile = Join-Path $stateDir "pre_tool_inject_cache.json"
+    if ($checkResult -and $checkResult.decision) {
+        # 引擎本轮跑了 → 以本轮为准刷新缓存（含「无命中」→ 清空，防快速通道复用陈旧记忆）
+        if ($checkResult.inject) { $injectText = [string]$checkResult.inject } else { $injectText = "" }
+        if ($checkResult.inject_key) { $injectKey = [string]$checkResult.inject_key } else { $injectKey = "" }
+        try {
+            $ic = @{session_id=$sessionId; inject=$injectText; inject_key=$injectKey; ts=(Get-Date -Format "o")}
+            [System.IO.File]::WriteAllText($injectCacheFile, ($ic | ConvertTo-Json -Compress), $script:utf8NoBOM)
+        } catch {}
+        # [迁移配套 2026-09-13] 持久化「最近一次非空行动记忆」供 pre_reply（UserPromptSubmit）投递。
+        # 独立于 injectCacheFile：后者在无命中时会被清空（原为防本钩子复用陈旧记忆），
+        # 若沿用它投递，行动记忆会在多数轮次消失。此处只在有命中时写入，ts 不随快速通道刷新，
+        # 由 pre_reply 侧 30 分钟陈旧门把关。
+        if ($injectText) {
+            try {
+                $lm = @{session_id=$sessionId; inject=$injectText; inject_key=$injectKey; ts=(Get-Date -Format "o")}
+                [System.IO.File]::WriteAllText((Join-Path $stateDir "action_memory_last.json"), ($lm | ConvertTo-Json -Compress), $script:utf8NoBOM)
+            } catch {}
+        }
+    } elseif ($fastPathUsed -and (Test-Path $injectCacheFile)) {
+        # 快速通道跳过引擎 → 复用缓存（否则 120 秒窗口内同一规则集会静默）
+        $ic = Get-Content $injectCacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($ic -and $ic.session_id -eq $sessionId) {
+            $injectText = [string]$ic.inject
+            $injectKey = [string]$ic.inject_key
+        }
+    }
+} catch {}
+if ($injectText) {
+    $injectSeenFile = Join-Path $stateDir "pre_tool_inject_seen.json"
+    $seenKey = ""
+    try {
+        if (Test-Path $injectSeenFile) {
+            $sj = Get-Content $injectSeenFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($sj -and $sj.session_id -eq $sessionId) { $seenKey = [string]$sj.key }
+        }
+    } catch {}
+    if ($injectKey -and $injectKey -eq $seenKey) {
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_tool] store_skip key=$injectKey"
+    } else {
+        Add-DgenMessage ($injectText)
+        Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_tool] store key=$injectKey len=$($injectText.Length)"
+        try {
+            $seenRec = @{session_id=$sessionId; key=$injectKey; ts=(Get-Date -Format "o")}
+            [System.IO.File]::WriteAllText($injectSeenFile, ($seenRec | ConvertTo-Json -Compress), $script:utf8NoBOM)
+        } catch {}
+    }
+}
+
 
 # 写状态文件供 AI 读取
 $st = $markerStatus
