@@ -9,6 +9,14 @@ from evo.constancy import _inst as _CONSTANCY_INST
 import evo.main as main
 
 
+def _goal(text):
+    """[2026-09-13 任务资格闸门·口径 A] 测试输入需带多轮目标语义才立项。
+    用显式任务声明「记为任务」补齐（与 CHANGELOG v3.10.6+ 判据②一致），
+    使本文件继续覆盖「写侧接线」本身，而非闸门判定（闸门见 test_all.test_constancy_goal_gate）。
+    """
+    return text + "（记为任务）"
+
+
 def _setup(monkeypatch, tmp_path):
     """重置单例并指向临时任务文件"""
     monkeypatch.setattr(constancy, "_get_tasks_path", lambda: os.path.join(str(tmp_path), "constancy_tasks.json"))
@@ -18,23 +26,23 @@ def _setup(monkeypatch, tmp_path):
 
 def test_new_intent_begins(monkeypatch, tmp_path):
     _setup(monkeypatch, tmp_path)
-    r = main.constancy_track_prompt("实现长任务持久化")
+    r = main.constancy_track_prompt(_goal("实现长任务持久化"))
     assert r["ok"] is True and r["action"] == "begin" and r["task_id"]
     assert len(constancy.get_constancy()._tasks) == 1
 
 
 def test_same_intent_dedup(monkeypatch, tmp_path):
     _setup(monkeypatch, tmp_path)
-    main.constancy_track_prompt("实现长任务持久化")
-    r = main.constancy_track_prompt("实现长任务持久化")
+    main.constancy_track_prompt(_goal("实现长任务持久化"))
+    r = main.constancy_track_prompt(_goal("实现长任务持久化"))
     assert r["action"] == "extend"
     assert len(constancy.get_constancy()._tasks) == 1
 
 
 def test_switch_suspends_old(monkeypatch, tmp_path):
     _setup(monkeypatch, tmp_path)
-    main.constancy_track_prompt("推进任务A的实现进度")
-    r = main.constancy_track_prompt("推进任务B的实现进度")
+    main.constancy_track_prompt(_goal("推进任务A的实现进度"))
+    r = main.constancy_track_prompt(_goal("推进任务B的实现进度"))
     assert r["action"] == "begin"
     reg = constancy.get_constancy()
     assert len(reg._tasks) == 2
@@ -54,7 +62,7 @@ def test_exception_safe(monkeypatch, tmp_path):
     def _boom(*a, **k):
         raise RuntimeError("boom")
     monkeypatch.setattr(main, "constancy_recoverable", _boom)
-    r = main.constancy_track_prompt("异常安全测试任务")
+    r = main.constancy_track_prompt(_goal("异常安全测试任务"))
     assert r["ok"] is False
 
 
@@ -69,7 +77,7 @@ def test_system_marker_filtered(monkeypatch, tmp_path):
 def test_resume_current_task_extend(monkeypatch, tmp_path):
     """恢复续接：current_task_id 传入 → extend 不新建、不切换"""
     _setup(monkeypatch, tmp_path)
-    r1 = main.constancy_track_prompt("长任务持久化实现")
+    r1 = main.constancy_track_prompt(_goal("长任务持久化实现"))
     tid = r1["task_id"]
     r2 = main.constancy_track_prompt("继续之前的长任务", current_task_id=tid)
     assert r2["action"] == "extend"
@@ -92,7 +100,7 @@ def test_criteria_derivation(monkeypatch, tmp_path):
 def test_complete_signal_status(monkeypatch, tmp_path):
     """完成自动信号：complete 后任务不再可恢复"""
     _setup(monkeypatch, tmp_path)
-    r = main.constancy_track_prompt("一个待完成任务")
+    r = main.constancy_track_prompt(_goal("一个待完成任务"))
     tid = r["task_id"]
     assert main.constancy_complete(tid) is True
     assert main.constancy_recoverable() == []
@@ -103,11 +111,11 @@ def test_precheck_order_excludes_current(monkeypatch, tmp_path):
     """P0-2: 恢复检查排除当前轮任务（pre_reply 顺序语义）"""
     _setup(monkeypatch, tmp_path)
     # 先有遗留任务
-    main.constancy_track_prompt("遗留任务甲")
+    main.constancy_track_prompt(_goal("遗留任务甲"))
     # 用户新输入 → 落库当前任务
-    cur = main.constancy_track_prompt("新任务乙")
+    cur = main.constancy_track_prompt(_goal("新任务乙"))
     rec = main.constancy_recoverable()
     assert len(rec) == 2  # 遗留 + 当前
     # pre_check 排除当前轮任务后 → 只剩遗留
     rec2 = [t for t in rec if t.get("task_id") != cur["task_id"]]
-    assert [t["intent_summary"] for t in rec2] == ["遗留任务甲"]
+    assert [t["intent_summary"] for t in rec2] == [_goal("遗留任务甲")]

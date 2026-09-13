@@ -2,7 +2,7 @@
 """定稿第七章·恒常门：Token 上限 16k + 冷存储指针 + 快照全集 30 + 原子写
 2026-08-13 完整终版细则
 """
-import os, sys, json
+import os, sys, json, datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "engine", "evo"))
 from evo import constancy
@@ -16,6 +16,9 @@ def _make_registry(tmp_path, monkeypatch):
 
 
 def _big_task(reg, rid="big", cjk=0, en=0):
+    # [2026-09-13] 时间戳改为「相对当前」：原硬编码 2026-08-13 已超出 30 天保留窗口，
+    # find_recoverable 先按超期过滤 → 测不到 Token 超限→冷存储指针这条路径。
+    _now = datetime.datetime.now().isoformat()
     t = {
         "task_id": rid,
         "intent_summary": "任务" + "大" * cjk,
@@ -23,8 +26,8 @@ def _big_task(reg, rid="big", cjk=0, en=0):
         "status": "paused",
         "pending_items": [],
         "blocker_report": "",
-        "created_at": "2026-08-13T00:00:00",
-        "updated_at": "2026-08-13T00:00:00",
+        "created_at": _now,
+        "updated_at": _now,
         "resume_count": 0,
     }
     reg._tasks[rid] = t

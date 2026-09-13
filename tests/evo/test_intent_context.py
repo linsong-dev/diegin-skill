@@ -18,6 +18,9 @@ import call_diegin
 _SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(call_diegin.__file__)))
 _SRC_STATE = os.path.join(_SRC_ROOT, "var", "state")
 _SNAP_FILES = ["current_intent.json", ".record_success_counter.json", "constancy_proactive.json",
+               # [2026-09-13] pre_reply 端到端会落库恒常门任务（引擎相对路径，非 CODEX_HOME）
+               # → 一并快照/还原，避免测试污染源码库本地台账
+               "constancy_tasks.json", "constancy_sessions.json",
                "self_mirror.json", "emergency_track.json", "rule_counter_deltas.json",
                "dgen_marker_pending.json", "dgen_last_reply.json", "dgen_verify_result.json",
                "last_check_result.json", "param_adjustments.json"]
@@ -71,10 +74,18 @@ def test_write_current_intent_truncate_and_null(snap_restore):
 
 
 def test_pre_reply_writes_intent_context(snap_restore, tmp_path):
-    """pre_reply 模式端到端：用户 prompt 落盘 current_intent.json（无论 allow/block 均在预检前写入）"""
+    """pre_reply 模式端到端：用户 prompt 落盘 current_intent.json（无论 allow/block 均在预检前写入）
+
+    [2026-09-13] 本用例自 08-14 起一直失败，暴露两件事：
+      ① 真实缺陷：pre_reply 实参 _user_negative 未定义 → NameError 被裸 except 吞掉（已修）；
+      ② 契约变更：任务资格闸门（口径 A）下单轮问答不立项，故 prompt 需带多轮目标语义
+         才断言得到 task_id（与 CHANGELOG v3.10.6+ 判据一致）。
+    """
     env = dict(os.environ)
     env["CODEX_HOME"] = str(tmp_path)
-    prompt = "测试意图上下文落盘：请列出当前目录文件"
+    prompt = ("测试意图上下文落盘：\n"
+              "1. pre_reply 落盘 current_intent.json\n"
+              "2. post_tool 读取并传入 record_success")
     payload = json.dumps({"prompt": prompt, "turn_id": "turn_t3"})
     r = subprocess.run(
         [sys.executable, os.path.join(_SRC_ROOT, "engine", "call_diegin.py"), "pre_reply"],

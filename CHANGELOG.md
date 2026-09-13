@@ -1,4 +1,31 @@
 # Changelog · Diegin 迭进
+## v3.10.7+ pre_reply 意图上下文落盘修复（真实缺陷）· 15 项既有测试失败清零（2026-09-13 · 审计遗留收口）
+
+- **fix(静默失败)**: `engine/call_diegin.py` 的 `pre_reply` 分支调用
+  `write_current_intent(prompt, task_id, turn_id, _user_negative)`，而 `_user_negative` 在该分支**从未定义**
+  （只有 `record_success` 分支有 `_rs_user_negative`）→ NameError 被裸 `except: pass` 吞掉
+  ⇒ `var/state/current_intent.json` 自 2026-08-14 接线起**从未落盘**，`hooks/diegin_post_tool.ps1`
+  的预策·③三重判定长期拿不到 `intent_summary`。改按契约传 `None`（pre_reply 阶段无用户负面观测；
+  钩子仅在非 null 时透传，保持单重兼容）。实测：rc=0、文件落盘、`task_id` 已绑定、60 分钟内可被钩子读取。
+- **测试契约对齐（15 项既有失败清零）**：
+  - `tests/evo/test_constancy_track.py`（7 项）+ `tests/evo/test_nine_chapters_integration.py`（3 项）：
+    输入补「（记为任务）」显式任务声明 → 满足 2026-09-13 任务资格闸门判据②（闸门本身另由
+    `test_all.test_constancy_goal_gate` 9 项守），断言语义不变。
+  - `tests/evo/test_intent_context.py`（1 项）：prompt 改为多步（口径 A 下单轮问答不立项），并把
+    `constancy_tasks.json` / `constancy_sessions.json` 纳入快照还原（pre_reply 端到端会落库任务，
+    路径是引擎相对而非 `CODEX_HOME`），避免污染源码库本地台账。
+  - `tests/evo/test_constancy_b3.py`（1 项）：`_big_task` 时间戳由硬编码 `2026-08-13` 改为相对当前
+    ——该值已超 30 天保留窗口，`find_recoverable` 先按超期过滤，测不到「Token 超限 → 冷存储指针」路径。
+  - `tests/evo/test_self_mirror.py`（2 项）：v3.10 起方向信号读 `持存趋势`（滑窗 ≥3 轮的趋势）而非
+    `持存.中断率` 水平值 → 用例喂入趋势快照；归档用例改为注入固定报告，与真实规则库 staging 池解耦。
+  - `tests/shalou/test_core.py`（1 项）：空间数 8 → 12（文档 11 核心空间 + 内部 raw_file 兜底），
+    补 `goal` / `anomaly_vault` / `verification` / `case_prototype` 断言，与沙漏权威测试对齐。
+- **验证**: `pytest tests` **283 passed / 0 failed**（改前 15 failed）；`test_all.py` 102/102（源码库 + 运行版）；
+  运行版 `diegin_self_check` status=ok、failed_checks=[]、dead_rule=0、fake_evidence=0、baseline_regressions=[]；
+  `sync.ps1 check` engine/config 四副本全绿（`call_diegin.py` = `129D7D6E9F77C01C` 五处一致）；改动文件混合行尾=0。
+- **说明**: 源码库自检的 `no_stale_staging` / `baseline_no_regression` 为**既有**本地规则数据差异
+  （`git stash` 基线比对逐条一致，非本次引入）；`plugin.json`/cachebuster 版本 bump 留待下次审推统一。
+
 ## v3.10.6+ 恒常门任务资格闸门 · 会话绑定与收口（2026-09-13 · 受权·口径 A）
 
 - **病根（实测）**：写侧每轮无条件 `constancy_begin` ⇒ **一条用户消息 = 一条任务**，且下一轮 `suspend` 上一条。

@@ -2197,8 +2197,11 @@ if __name__ == "__main__":
         ctx["constancy_current_task_id"] = constancy_current_task_id
 
         # 预策·③：用户意图上下文落盘（post_tool record_success 三重判定读取；异常不阻塞主流程）
+        # [2026-09-13 修复] 原实参 _user_negative 在本分支从未定义（仅 record_success 分支有
+        # _rs_user_negative）→ NameError 被裸 except 吞掉 ⇒ 该文件自 08-14 起从未落盘。
+        # pre_reply 阶段用户负面观测尚不存在，按契约传 None（post_tool 仅在非 null 时透传）。
         try:
-            write_current_intent(prompt, constancy_current_task_id, turn_id, _user_negative)
+            write_current_intent(prompt, constancy_current_task_id, turn_id, None)
         except Exception:
             pass
 

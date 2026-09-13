@@ -122,7 +122,8 @@ def test_chapter3_entry_three_strikes_escalate(nine_env):
 
 def test_chain_constancy_closure_mirror(nine_env):
     # 恒常门：任务落库
-    r = main.constancy_track_prompt("实现九章联动测试任务并整理归档")
+    # [2026-09-13 资格闸门·口径 A] 「记为任务」= 显式任务声明，满足立项判据
+    r = main.constancy_track_prompt("实现九章联动测试任务并整理归档（记为任务）")
     assert r["ok"] is True and r["action"] == "begin"
     task_id = r["task_id"]
     # 恒常门：可恢复检查
@@ -132,7 +133,7 @@ def test_chain_constancy_closure_mirror(nine_env):
     snap = {"block_records": ["block: x exit=1"], "tool_call_sequence": ["Bash: apply_patch"],
             "arbitration_log": "exit=0 decision=allow"}
     item = closure.get_closure().close(task_id, summary="联动测试完成",
-                                       intent_summary="实现九章联动测试任务并整理归档",
+                                       intent_summary="实现九章联动测试任务并整理归档（记为任务）",
                                        snapshot=snap)
     assert item["readonly_snapshot"]["tool_call_sequence"] == ["Bash: apply_patch"]
     assert closure.get_closure().is_closed(task_id)
@@ -145,7 +146,7 @@ def test_chain_constancy_closure_mirror(nine_env):
 
 def test_chain_constancy_suspend_resume(nine_env):
     """恒常门→预策 P3：任务挂起 → 恢复优先分流"""
-    r = main.constancy_track_prompt("推进九章联动场景链A")
+    r = main.constancy_track_prompt("推进九章联动场景链A（记为任务）")
     task_id = r["task_id"]
     main.constancy_suspend(task_id, reason="切换到任务B")
     assert main.constancy_recoverable()[0]["task_id"] == task_id
@@ -207,7 +208,7 @@ def test_full_nine_chapter_chain(nine_env):
     arb = main.arbitrate(eng.get_interceptions(active_only=True), eng.get_patterns(active_only=True))
     assert arb.get("decision") in ("allow", "block", "suggest")
     # 7恒常门：任务生命周期
-    r7 = main.constancy_track_prompt("九章全链闭环验证")
+    r7 = main.constancy_track_prompt("九章全链闭环验证（记为任务）")
     task_id = r7["task_id"]
     assert main.constancy_recoverable()
     # 8止观：封存

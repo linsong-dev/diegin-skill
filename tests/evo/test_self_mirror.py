@@ -69,10 +69,15 @@ def test_direction_calibration_conservative(tmp_path, monkeypatch):
 
 
 def test_direction_calibration_high_interrupt(tmp_path, monkeypatch):
-    """方向校准：中断率高 → 恢复优先信号"""
+    """方向校准：中断率趋势上升 → 恢复优先信号
+
+    [2026-09-13] 口径变更对齐：v3.10 起方向信号读 `持存趋势`（滑窗 ≥3 轮的趋势，
+    降低单轮噪声误报），不再是 `持存.中断率` 的水平值；本用例喂入趋势快照。
+    """
     m = _make_mirror(tmp_path, monkeypatch)
     report = {"攻七": {"入库模式数": 10, "平均置信度": 5.0},
-              "持存": {"中断率": 0.9},
+              "持存趋势": {"窗口": 5, "中断率趋势": 0.05, "完成率趋势": 0.0,
+                           "最近中断率": 0.9, "最近完成率": 0.1},
               "举一反三": {"staging池大小": 3},
               "自照镜": {"累计勇气事件": 1}}
     sig = m._build_direction_calibration(report)
@@ -112,7 +117,13 @@ def test_mirror_archives_direction_signal(tmp_path, monkeypatch):
     sys.modules["shalou.diegin_integration"] = _di
     m = _make_mirror(tmp_path, monkeypatch)
     m._state["round"] = 10
+    # [2026-09-13] 注入口径与数据源解耦：staging 池读真实规则库（不可控），
+    # 会导致「保守」信号偶发缺失。本用例只验证 mirror 的归档链路，故固定报告内容。
+    monkeypatch.setattr(SelfMirror, "generate_report", lambda self: {
+        "round": 10,
+        "direction_calibration": ["方向偏保守: 无冒险事件且无泛化候选在验，建议适度主动验证"],
+    })
     m.mirror()
     assert any(sp == "self_mirror" for sp, _ in calls)
-    # 保守环境应产生方向信号归档
+    # 方向信号非空 → 应归档
     assert any(sp == "direction_calibration" for sp, _ in calls)

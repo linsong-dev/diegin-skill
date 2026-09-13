@@ -39,9 +39,15 @@ def test_models():
 def test_core():
     clean()
     core = Shalou(storage_path=DB, persist=False)
-    assert len(core.space_stats()) == 8
+    # [2026-09-13] 与沙漏权威测试对齐（本地源码库\shalou\tests\shalou\test_core.py）：
+    # 文档 11 核心空间 + 内部 raw_file 兜底 = 12（2026-09-07 终稿对齐：goal/anomaly_vault/verification 已注册）
+    assert len(core.space_stats()) == 12
     assert "codex" in core.space_stats()
     assert "state" in core.space_stats()
+    assert "case_prototype" in core.space_stats()
+    assert "goal" in core.space_stats()
+    assert "anomaly_vault" in core.space_stats()
+    assert "verification" in core.space_stats()
     u1 = core.add_unit(text="test data 123", source="chat", uid="t1", space="codex")
     assert core.get_unit("t1") is not None
     r = core.retrieve("test", top_k=3)

@@ -74,3 +74,15 @@
   - 本机用户级环境变量 `DGEN_DEV_ROOT`、`DEV_ROOT`、`DGEN_DELIVER_HEAL_SCRIPT` 已设置，保证运行期行为与原硬编码等价。
   - 说明：`OpenAI.Codex`/`KeySync-Bridge` 位于便携版**根目录**下（而非 `.codex` 自身），故未套用 `%CODEX_HOME%`——那会把 `<便携版根>` 展开成错误的双重 `.codex` 层级
 - 推送结果（2026-09-13 完成）：提交 `528510e`，`origin/main` 已同步 **0/0**；远端 `hooks/diegin_pre_tool.ps1` 实测含 `DGEN_DELIVER_HEAL_SCRIPT`、**不含**个人路径。首次推送遇 `curl 55 Connection was reset`（直连抖动，本机无可用代理）；设 `http.postBuffer=500MB` + `http.version=HTTP/1.1` 后重试成功。- 待办（非本次范围）：源码库 `pytest` 有 **15 项既有失败**（与 `git stash` 后的 HEAD 基线逐条比对**完全一致**，非本次引入），集中在 `tests/evo/test_constancy_track.py`（旧行为断言，与 2026-09-13「任务资格闸门」新契约不符）、`test_self_mirror`、`test_nine_chapters_integration`、`tests/shalou/test_core.py`；另有 3 条 `GIT-HISTORY` 敏感串警告（需重写历史 + force push，人工决策）。。
+
+### ACC-OPS-008 — 15 项既有测试失败清零 + pre_reply 意图上下文落盘修复（2026-09-13 done）
+- 意图：收口 ACC-OPS-007「待办①」——源码库 `pytest` 15 项既有失败逐项定因并清零；期间暴露并修复一个**自 2026-08-14 起一直被静默吞掉**的真实缺陷。
+- 验收标准：① `pytest tests` 0 failed；② 15 项逐项给出根因归类（真实缺陷 / 契约变更 / 时间脆弱 / 数据源耦合 / 口径对齐），不得用 skip/xfail 掩盖；③ 真实缺陷修复后 `pre_reply` 端到端落盘 `current_intent.json` 且钩子可读；④ `test_all.py` 102/102、引擎自检 ok、engine/config 四副本一致。
+- 非目标：不改任务资格闸门口径（口径 A 已冻结）；不动规则数据面；不 bump 插件版本（留待下次审推统一）；不重写 git 历史（3 条 `GIT-HISTORY` 警告仍属人工决策）。
+- 实现任务：① `engine/call_diegin.py`：`pre_reply` 的 `write_current_intent` 实参 `_user_negative` → `None`（该名在该分支从未定义，NameError 被裸 except 吞掉）；② 六个测试文件按根因对齐（显式任务声明 / 多步 prompt + 状态快照 / 相对时间戳 / 持存趋势口径 + 固定报告注入 / 空间数 12）；③ `sync.ps1 sync-eng` 推 engine+config 至 runtime / skills-mirror / plugin-cache 两处；④ CHANGELOG v3.10.7+ 与本报告登记。
+- 验证证据：
+  - `pytest tests` = **283 passed / 0 failed**（改前 15 failed / 268 passed）；逐项归因见 `%DEV_ROOT%\文档\迭进_15项既有测试失败清零_2026-09-13.md` 第二节。
+  - 真实缺陷端到端实证：`pre_reply` 子进程 rc=0 → `var/state/current_intent.json` 落盘，含 `intent_summary` + `task_id` + `ts`（60 分钟内可被 `hooks/diegin_post_tool.ps1` 读取）；验证后已清理探针任务与探针文件。
+  - `test_all.py` **102/102**（源码库与运行版各跑一次）；运行版 `diegin_self_check` status=ok、failed_checks=[]、dead_rule_count=0、fake_evidence_count=0、baseline_regressions=[]；源码库自检的 `no_stale_staging`/`baseline_no_regression` 经 `git stash` 基线比对为**既有**差异（逐条一致，非本次引入）。
+  - 副本守卫：`sync.ps1 check` → engine/config 四副本（runtime / skills-mirror / plugin-cache / plugin-cache-skills）全绿；`engine/call_diegin.py` SHA256 前缀 `129D7D6E9F77C01C` 五处一致。
+  - 行尾卫生：改动文件「混合行尾」=0；`engine/call_diegin.py` CRLF=3882 / LF=0；六个测试文件维持 LF；均无 BOM。
