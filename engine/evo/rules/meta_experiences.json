@@ -24,5 +24,84 @@
     "source_review": "2026-08-09 接手会话",
     "created_at": "2026-08-09T18:16:03",
     "confidence": 4.8
+  },
+  {
+    "id": "meta_manual_pre_tool_injection_orphan_20260913",
+    "insight": "PreToolUse 钩子的 hookSpecificOutput.additionalContext 会被平台插成一条 developer 消息，位置落在 function_call 与其 function_call_output 之间；上游 Responses API 要求二者紧邻配对，否则报 400 invalid_request_error No tool output found for tool call，整轮中断。实测 21 次（10:02-10:32 钩子启用期内），关闭钩子后归零；KeySync logs.db 的 responses_input_history 条目序可见 call 到 developer(注入) 到 output 的插队。",
+    "applicable_contexts": [
+      "Codex 钩子开发",
+      "PreToolUse 注入",
+      "平台契约适配"
+    ],
+    "action_binding": "PreToolUse 一律不输出 additionalContext；需回合内注入时改挂 UserPromptSubmit（回合边界，天然不夹在 call/output 之间）。新增任何钩子 stdout 字段前，先查 logs.db/strip-proxy.log 实杀一轮，确认 call/output 仍紧邻。",
+    "source_review": "2026-09-13 会话（迭进钩子孤儿工具调用事故）",
+    "created_at": "2026-09-13T10:48:32",
+    "confidence": 5.0
+  },
+  {
+    "id": "meta_manual_sync_ps1_srcroot_noop_20260913",
+    "insight": "Diegin sync.ps1 内 srcRoot 取 PSScriptRoot。若从运行版目录 .codex/diegin 执行，src 与 runtime 解析为同一路径，全部文件报 consistent、退出码 0，实际零动作（假成功）；且 sync-hooks 是白名单单向（运行时到源码库，12 个文件），全量或双向会把运行版回退到旧版。",
+    "applicable_contexts": [
+      "迭进三端同步",
+      "sync.ps1 调用",
+      "规则与钩子漂移核验"
+    ],
+    "action_binding": "sync.ps1 必须 cd 到源码库 再执行；先跑 check，若 Src 与 RT 打印为同一路径即为踩坑信号，立即中止；只跑所需子命令 sync-hooks 或 sync-rules，不跑 sync-all。",
+    "source_review": "2026-09-13 会话（迭进钩子孤儿工具调用事故）",
+    "created_at": "2026-09-13T10:48:32",
+    "confidence": 5.0
+  },
+  {
+    "id": "meta_manual_injection_boundary_20260913",
+    "insight": "平台钩子的注入位置决定其安全性：UserPromptSubmit（回合边界）与 PostToolUse 的 additionalContext 安全；PreToolUse 的 additionalContext 会被插在 function_call 与 function_call_output 之间，必然触发上游 400 No tool output found。迁移注入点时，内容来源与投递点要解耦——PreToolUse 负责算（写专用状态文件），UserPromptSubmit 负责投递。",
+    "applicable_contexts": [
+      "Codex/Claude 钩子注入设计",
+      "行动时刻记忆",
+      "平台契约适配",
+      "记忆注入迁移"
+    ],
+    "action_binding": "需在回合内注入上下文的特征，一律把投递点放在 UserPromptSubmit；PreToolUse 只做判定与状态写入，绝不写 additionalContext。内容来源用专用持久的非空状态文件（如 action_memory_last.json），不要复用会被清空的快速通道缓存。",
+    "source_review": "2026-09-13 会话（行动时刻记忆迁移）",
+    "created_at": "2026-09-13T11:09:43",
+    "confidence": 5.0
+  },
+  {
+    "id": "meta_manual_hook_state_file_semantics_20260913",
+    "insight": "复用「会被有意清空的缓存」承载新特征会引入间歇性失效：pre_tool_inject_cache.json 在引擎无命中时被清空（原为防陈旧复用），若以其为行动记忆唯一来源，特征会在多数轮次消失。正确做法是新增只写非空值的专用状态文件，让两个语义（快速通道缓存 / 最近有效值）各自独立。",
+    "applicable_contexts": [
+      "钩子状态文件设计",
+      "缓存复用风险",
+      "特征间歇失效排查"
+    ],
+    "action_binding": "给新特征挑状态来源时，先确认该文件是否会被其他逻辑清空或覆盖；凡是「最近一次有效值」语义，必须用只写非空的专用文件，不复用会被清空的缓存。",
+    "source_review": "2026-09-13 会话（行动时刻记忆迁移）",
+    "created_at": "2026-09-13T11:09:43",
+    "confidence": 4.5
+  },
+  {
+    "id": "meta_manual_ps_null_arg_and_array_coercion_20260913",
+    "insight": "PowerShell 两个静默陷阱叠加可造成破坏性写入：① 把 $null 传给 .NET 的 [string] 形参会被转成空串——File.Replace(...,$null) 报 'The path is not of a legal form'；② 数组与标量相加类型不符时抛 InvalidOperation，若函数未随即中止，后续会以 $null 落盘，把目标文件写成 0 字节（sync.ps1 Apply-Merge 曾把 src/engine/evo/rules/success_patterns_archive.json 清空，靠 git checkout 才恢复）。",
+    "applicable_contexts": [
+      "PowerShell 工具脚本编写",
+      "文件写入与 JSON 合并",
+      "同步/回灌类批处理"
+    ],
+    "action_binding": "写文件前先断言内容非空（$null 或空串直接拒写并告警）；落盘走 tmp+原子替换，替换 API 的备份形参绝不可传 $null（传真实备份路径再删）；数组合并一律 @($a)+@($b) 强制成数组；跑完立刻校验文件非 0 字节 + JSON 可解析，发现被清空先用 git checkout 还原再修根因。",
+    "source_review": "2026-09-13 行动时刻记忆迁移收尾",
+    "created_at": "2026-09-13T11:32:00",
+    "confidence": 5.0
+  },
+  {
+    "id": "meta_manual_postcompact_cannot_inject_20260913",
+    "insight": "平台钩子各事件的输出契约并不一致，必须按事件查证：PostCompact（codex.exe 内嵌 schema post-compact.command.output）只允许 continue/stopReason/suppressOutput/systemMessage，没有 hookSpecificOutput，因此 PostCompact 根本无法注入模型上下文。压缩后要让既有注入复活，正确做法是 PostCompact 只重置投递闸门（清 pre_reply_action_memory_seen.json + 本会话 inject_fingerprint 条目），由下一个安全边界（UserPromptSubmit）补投——用「重置状态 + 到点补投」替代「就地注入」。",
+    "applicable_contexts": [
+      "平台钩子适配",
+      "上下文压缩后恢复",
+      "注入通道选型"
+    ],
+    "action_binding": "给钩子选注入点前先查该事件是否支持 hookSpecificOutput：读 codex.exe 内嵌 schema（搜「<事件>.command.output」）或跑 codex app-server generate-json-schema --out <dir>；不支持就改「重置状态 + 下一安全边界补投」。钩子信任哈希不必手算：跑 codex app-server 发 hooks/list（params {cwds:[...]}）拿 currentHash，再用 config/batchWrite 写 hooks.state（键「<hooks.json 绝对路径>:<event_snake>:<组号>:<项号>」）即变 trusted；实测 displayOrder 位移不改变既有钩子哈希。",
+    "source_review": "2026-09-13 PostCompact 接线",
+    "created_at": "2026-09-13T12:30:00",
+    "confidence": 5.0
   }
 ]

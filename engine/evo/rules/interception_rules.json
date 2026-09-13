@@ -1,2273 +1,3094 @@
 [
-  {
-    "id": "self_error_encoding_write_corruption",
-    "trigger_condition": "error_type=='encoding_write_corruption'",
-    "action": "self_check_and_avoid",
-    "severity": "high",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.5,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "alerting",
-    "created_at": "2026-07-22T16:02:16.567667",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [
-      "failure_ttl: 30天未复现降级 @ 2026-08-21T23:30:02.509719"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 0,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_session_image_protection",
-    "trigger_condition": "tool_name == 'view_image'",
-    "action": "suggest; 当前模型 deepseek-v4-flash 不支持图片输入，view_image 会把 image_url 写入会话导致下次请求反序列化失败。如需查看图片，请改用文件路径文本描述；或查看后立即移除会话中的 input_image 内容。",
-    "severity": "medium",
-    "tags": [
-      "session",
-      "image",
-      "keysync",
-      "bifrost",
-      "protection"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "human_override",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-03T00:35:16.642545+00:00",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T08:55:09.452390",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 21,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_reply_hook_retro_first",
-    "trigger_condition": "'reply' in context and 'rule' in context",
-    "action": "retrospect_key_rules_before_reply",
-    "severity": "medium",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 3.5,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T14:47:35.771423",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 77,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_check_before_conclude",
-    "trigger_condition": "'mismatch' in context or 'inconsistency' in context or 'conflict' in context",
-    "action": "audit_only; cross_validate_multi_source_before_conclusion",
-    "severity": "medium",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 3.8,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-07T11:00:00.000000",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:33:38.085146",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 164,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_dgen_marker_every_reply",
-    "trigger_condition": "task_type == 'user_prompt'",
-    "action": "audit_only; inject_display_line",
-    "severity": "low",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-11T01:08:50.659786",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:01:23.460142",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1188,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_dual_defense_state_relay",
-    "trigger_condition": "'dgen_last_reply' in context or 'dgen_override' in context or 'phase_state' in context",
-    "action": "state_relay_between_hooks; write_state_in_reply_read_in_tool",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:59:45.101757",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1329,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 19,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_hook_prepend_log",
-    "trigger_condition": "'audit_log' in context or 'diegin_audit' in context or 'log' in context",
-    "action": "use_prepend_write; not_append",
-    "severity": "medium",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:59:32.125144",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 2387,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 11,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_engine_bareword_guard",
-    "trigger_condition": "'trigger_condition' in context or 'rule_engine' in context",
-    "action": "audit_only; verify_field_exists_in_context",
-    "severity": "medium",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.5,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:03:42.674070",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 978,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_engine_ops_contains_fix",
-    "trigger_condition": "'rule_engine' in context or 'trigger_condition' in context",
-    "action": "audit_only; use_dot_contains_instead_of_bare_contains",
-    "severity": "medium",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:03:42.674575",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 978,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_marker_tool_block",
-    "trigger_condition": "task_type == 'pre_tool'",
-    "action": "audit_only; record_tool_marker_audit",
-    "severity": "low",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T10:00:00",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:05:04.275209",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 16765,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_fix_scan_same_class",
-    "trigger_condition": "'bom' in context and '修复' in context",
-    "action": "suggest; 修复一处 BOM/编码类漏洞后必须全库扫描同类 stdin/管道读取模式（本次 1 处发现 7 处同类）",
-    "severity": "low",
-    "tags": [
-      "举一反三",
-      "防再生"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.5,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-03T16:31:46.557782",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T13:23:20.733417",
-    "boundary_conditions": [
-      "同类模式 = stdin 读 JSON / 管道传参"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 25,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_test_no_pollution",
-    "trigger_condition": "'测试' in context and 'strikes' in context",
-    "action": "suggest; 测试不得污染生产状态文件(strikes_db/evidence_trail)，测试前后必须清理或隔离",
-    "severity": "medium",
-    "tags": [
-      "测试纪律",
-      "防再生"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-03T16:31:46.557782",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:05:04.278237",
-    "boundary_conditions": [
-      "引擎测试写入 strikes_db 时"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 36,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_seed_idempotent",
-    "trigger_condition": "'seed' in context and 'init' in context",
-    "action": "suggest; seed/初始化命令必须幂等：目标文件已存在时跳过或提示，禁止无条件覆盖已有数据",
-    "severity": "medium",
-    "tags": [
-      "幂等",
-      "防再生"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.2,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-03T16:31:46.557782",
-    "valid_until": "",
-    "last_triggered": "2026-08-09T11:08:17.669102",
-    "boundary_conditions": [
-      "初始化/seed 脚本"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 4,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_pat_ps_stdin_bom_flow",
-    "trigger_condition": "'stdin' in context and 'json' in context",
-    "action": "suggest_from_pattern; 先验字节再解码：sys.stdin.buffer.read() 检查 b'\\xef\\xbb\\xbf' 前缀并剥离，再 d",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-03T16:31:52.390941",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T14:47:35.774050",
-    "boundary_conditions": [
-      "字节级去BOM(3字节前缀)+utf-8解码，禁止裸 stdin.read()+json.loads"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 132,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_image_url_20260804_080935",
-    "trigger_condition": "op_contains(image_url)",
-    "action": "suggest_from_pattern; image_url操作已修复并验证通过，固化该路径",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-04T08:10:41.050568",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.551394",
-    "boundary_conditions": [
-      "检查image_url状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 125,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_windows_bom_audit",
-    "trigger_condition": "('bom' in command or 'BOM' in command) and ('-Encoding' in command or 'utf-8' in command)",
-    "action": "block; check_first_3_bytes_for_bom_before_deploy",
-    "severity": "high",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.3,
-    "source": "manual",
-    "source_review": "人工复核修正 2026-08-07: 删除宽泛 encoding 匹配，避免普通 -Encoding UTF8 读取被误伤",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-10T13:19:36.606107",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T13:23:20.733417",
-    "boundary_conditions": [
-      "仅显式含 BOM 字样的编码操作触发",
-      "普通读写不含 BOM 关键词不触发"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 1177,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 1,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_pre_deploy_encoding_audit",
-    "trigger_condition": "('deploy' in command or 'sync-all' in command) and ('encoding' in command or 'bom' in command or 'checkpush' in command or 'sync.ps1' in command)",
-    "action": "block; require_encoding_scan_before_deploy",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.8,
-    "source": "manual",
-    "source_review": "人工复核修正 2026-08-07: 原裸 deploy/sync/push 关键词误伤 git push",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-10T20:00:00.000000",
-    "valid_until": "",
-    "last_triggered": "2026-08-14T12:40:10.969184",
-    "boundary_conditions": [
-      "git push / 常规 sync 为日常操作不拦截",
-      "仅部署链路(sync.ps1 sync-all / deploy / checkpush)要求编码扫描"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 330,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 2,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_encoding_pre_check",
-    "trigger_condition": "('-Encoding' in command or '-encoding' in command) and not ('utf8' in command or 'utf-8' in command or 'UTF8' in command or 'UTF-8' in command)",
-    "action": "block; specify_utf8_or_detect_bom",
-    "severity": "high",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.3,
-    "source": "manual",
-    "source_review": "人工复核修正 2026-08-07: 原裸关键词 -Encoding 误伤 Get-Content -Encoding UTF8 正常读命令",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-07T11:00:00.000000",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T11:20:43.849625",
-    "boundary_conditions": [
-      "读取/写出时已显式指定 UTF-8/UTF8 编码则放行",
-      "仅拦截未指定 UTF-8 的编码读写（防乱码/BOM）"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 1274,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_state_expire_60s",
-    "trigger_condition": "'state_file' in context or 'dgen_last_reply' in context or 'dgen_override' in context",
-    "action": "check_timestamp_before_relay; expire_after_60s",
-    "severity": "medium",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 3.8,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T12:40:35.044584",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 92,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_clean_verify_layered",
-    "trigger_condition": "task_type == 'clean' or task_type == 'remove' or task_type == 'purge'",
-    "action": "block; enforce_3_layer_verify",
-    "severity": "high",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5,
-    "source": "manual",
-    "source_review": "人工复核修正 2026-08-07: 原 Remove-Item 命令级拦截误伤正常删除操作",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-07T11:00:00.000000",
-    "valid_until": "",
-    "last_triggered": "2026-08-07T14:53:18.204555",
-    "boundary_conditions": [
-      "用户明确要求的递归删除不再被命令级拦截",
-      "任务型清理(clean/remove/purge)仍需3层验证"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 80,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_json_no_bom",
-    "trigger_condition": "'json' in command and ('Set-Content' in command or 'set-content' in command) and ('.json' in command or 'ConvertTo-Json' in command or 'convertto-json' in command)",
-    "action": "block; require_bom_free_json_output",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "manual",
-    "source_review": "人工复核修正 2026-08-07: 原 json+Set-Content 误伤写临时脚本命令",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-10T13:19:36.606107",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T14:49:42.458674",
-    "boundary_conditions": [
-      "仅拦截写 .json 文件或用 ConvertTo-Json 落盘",
-      "写 .py/.md 等非 JSON 文件（即使内容含 json 字样）放行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 896,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 19,
-    "blocked_rules": [
-      "rule_json_no_bom"
-    ]
-  },
-  {
-    "id": "rule_powershell_set_content_bom",
-    "trigger_condition": "'Set-Content' in command or 'set-content' in command",
-    "action": "block; use [System.IO.File]::WriteAllText() instead of Set-Content to avoid UTF-8 BOM",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-11T01:38:06.074943",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T16:50:49.585806",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1944,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 34,
-    "blocked_rules": [
-      "rule_powershell_set_content_bom"
-    ]
-  },
-  {
-    "id": "rule_deploy_ps1_avoid_set_content",
-    "trigger_condition": "'Set-Content' in command or 'set-content' in command",
-    "action": "block; use_writealltext_not_set_content_nonewline",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T16:50:49.587808",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1944,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_encoding_no_bom_utf8",
-    "trigger_condition": "task_type == 'user_prompt' and ('encoding' in text or '编码' in text or 'bom' in text or 'BOM' in text)",
-    "action": "block_execution; require_utf8_nobom",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-10T20:00:00.000000",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T10:52:21.882346",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 7,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_ps_stdin_bom_guard",
-    "trigger_condition": "'stdin' in context and 'json' in context",
-    "action": "suggest; Python 从 PS 管道读 stdin JSON 前必须字节级去 BOM: b=b[3:] if b.startswith(b'\\xef\\xbb\\xbf') else b, 再 decode utf-8",
-    "severity": "medium",
-    "tags": [
-      "编码",
-      "防再生",
-      "stdin_bom_guard"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-03T16:31:46.557782",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T14:47:35.775809",
-    "boundary_conditions": [
-      "仅 PS 5.1 管道注入 UTF-8 BOM 场景",
-      "cmd echo 管道无 BOM"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 132,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 29,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_protect_diegin_hook_scripts",
-    "trigger_condition": "(('diegin_pre_tool.ps1' in command or 'diegin_post_tool.ps1' in command or 'diegin_pre_reply.ps1' in command or 'diegin_session_start.ps1' in command or 'diegin_stop.ps1' in command or 'diegin_notify.ps1' in command or 'diegin_session_image_clean.ps1' in command) and ('Set-Content' in command or 'set-content' in command or 'Remove-Item' in command or 'Move-Item' in command or 'Copy-Item' in command or 'Out-File' in command or 'WriteAllText' in command or 'Remove-ChildItem' in command or 'del ' in command or 'rm ' in command))",
-    "action": "block_execution; notify_protected_file",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "human_override",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-11T23:25:00",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T16:57:14.013481",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 216,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 22,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_protect_diegin_engine_rules",
-    "trigger_condition": "(('engine\\\\evo\\\\rules\\\\' in command or 'engine\\\\evo\\\\rule_engine' in command or 'engine\\\\evo\\\\arbiter' in command or 'engine\\\\call_diegin' in command or 'engine/evo/rules/' in command or 'engine/evo/rule_engine' in command or 'engine/call_diegin' in command) and ('Set-Content' in command or 'set-content' in command or 'Remove-Item' in command or 'Move-Item' in command or 'Copy-Item' in command or 'Out-File' in command or 'WriteAllText' in command or 'Remove-ChildItem' in command or 'del ' in command or 'rm ' in command))",
-    "action": "block_execution; notify_protected_file",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "human_override",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-11T23:25:00",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:04:47.862269",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 754,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 66,
-    "blocked_rules": [
-      "rule_protect_diegin_engine_rules"
-    ]
-  },
-  {
-    "id": "rule_protect_diegin_hooks_json",
-    "trigger_condition": "('hooks.json' in command and ('Set-Content' in command or 'set-content' in command or 'WriteAllText' in command or 'Out-File' in command or 'Move-Item' in command or 'Copy-Item' in command or 'Remove-Item' in command))",
-    "action": "block_execution; notify_protected_file",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "human_override",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-11T23:25:00",
-    "valid_until": "",
-    "last_triggered": "2026-08-19T13:33:33.992901",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 41,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 7,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_json_escape_check",
-    "trigger_condition": "('hooks.json' in command and ('Set-Content' in command or 'set-content' in command or 'WriteAllText' in command or 'Out-File' in command or 'ConvertTo-Json' in command))",
-    "action": "check_escape_before_write; use_json_dumps",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-19T13:33:33.992901",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 43,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_config_hash_sync",
-    "trigger_condition": "(('config.toml' in command or 'hooks.json' in command or 'trusted_hash' in command) and ('Set-Content' in command or 'set-content' in command or 'WriteAllText' in command or 'Out-File' in command or 'hash' in command or 'sync' in command))",
-    "action": "block; enforce_hash_sync_before_restart",
-    "severity": "critical",
-    "tags": [],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-07-12T01:01:43.198443",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:33:43.163645",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 80,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 6,
-    "blocked_rules": [
-      "rule_config_hash_sync"
-    ]
-  },
-  {
-    "id": "self_error_hooks_ps1_bom",
-    "trigger_condition": "error_type=='hooks_ps1_bom'",
-    "action": "self_check_and_avoid",
-    "severity": "high",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "blocking",
-    "created_at": "2026-08-03T14:30:44.684606",
-    "valid_until": "",
-    "last_triggered": "2026-08-09T11:44:39.944122",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 2,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_fix_hooks_ps1_bom_20260805_124836",
-    "trigger_condition": "op_contains(hooks_ps1_bom)",
-    "action": "suggest_from_pattern; hooks_ps1_bom操作前预检，避免同类错误",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T12:49:05.144186",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T14:42:37.824977",
-    "boundary_conditions": [
-      "检查hooks_ps1_bom状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 48,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_tool_error_Bash_20260805_145424",
-    "trigger_condition": "op_contains(tool_error_Bash)",
-    "action": "suggest_from_pattern; tool_error_Bash操作已修复并验证通过，固化该路径",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T14:55:03.204013",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.552387",
-    "boundary_conditions": [
-      "检查tool_error_Bash状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 55,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_fix_tool_error_Bash_20260805_165258",
-    "trigger_condition": "op_contains(tool_error_Bash)",
-    "action": "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T16:53:42.810175",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.552387",
-    "boundary_conditions": [
-      "检查tool_error_Bash状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 54,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_command_failure_20260805_145423",
-    "trigger_condition": "op_contains(command_failure)",
-    "action": "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T14:55:03.195990",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:57:10.498070",
-    "boundary_conditions": [
-      "检查command_failure状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 105,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_fix_command_failure_20260805_165257",
-    "trigger_condition": "op_contains(command_failure)",
-    "action": "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
-    "severity": "medium",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T16:53:42.801489",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:57:10.498070",
-    "boundary_conditions": [
-      "检查command_failure状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 105,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_hooks_ps1_bom_20260805_124836",
-    "trigger_condition": "op_contains(hooks_ps1_bom) AND NOT prechecked",
-    "action": "pre_check_before_hooks_ps1_bom; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "hooks_ps1_bom"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T12:48:36.180978",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T14:42:37.824977",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 48,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 3,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260805_145424",
-    "trigger_condition": "op_contains(tool_error_Bash) AND NOT prechecked",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T14:54:24.372251",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.554386",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 55,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260805_165258",
-    "trigger_condition": "op_contains(tool_error_Bash) AND NOT prechecked",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-05T16:52:58.299000",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.554386",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 56,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_pat_auto_tool_shell_command_1",
-    "trigger_condition": "task_type == 'pre_tool' and ('WriteAllText' in command or 'check_file' in command)",
-    "action": "suggest_from_pattern; PS 向迭进引擎传含中文的 JSON 参数会被乱码破坏(JSONDecodeError)；正确做法：先 [System.",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 4.1,
-    "outcome_score": 3.5,
-    "confidence": 4.1,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: pat_auto_tool_shell_command_1",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-08T09:25:02.029203",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:05:04.278237",
-    "boundary_conditions": [
-      "PS 向迭进引擎传含中文的 JSON 参数会被乱码破坏(JSONDecodeError)；正确做法：先 [System.IO.File]::WriteAllTe"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 1593,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_pat_manual_backup_before_remove_20260809",
-    "trigger_condition": "task_type == 'pre_tool' and 'Remove-Item' in command and 'backup' not in command",
-    "action": "suggest_from_pattern; 执行 Remove-Item 删除前先备份：Copy-Item 到同目录 .bak 或 backup 目录，或改用 Mo",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 4.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: pat_manual_backup_before_remove_20260809",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-09T11:43:16.605845",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T16:57:39.425136",
-    "boundary_conditions": [
-      "改前备份（Copy-Item .bak）"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 395,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_pat_manual_ps1_chinese_bom_20260809",
-    "trigger_condition": "task_type == 'pre_tool' and '.ps1' in command and ('WriteAllText' in command or 'Set-Content' in command or 'Out-File' in command)",
-    "action": "suggest_from_pattern; 写含中文的 .ps1 工具脚本时用 UTF-8 with BOM 编码（[System.IO.File]::WriteA",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 4.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: pat_manual_ps1_chinese_bom_20260809",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-09T16:02:25.466861",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T16:57:14.013481",
-    "boundary_conditions": [
-      "ps1中文脚本存UTF8 BOM"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 192,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "self_error_image_url",
-    "trigger_condition": "error_type=='image_url'",
-    "action": "self_check_and_avoid",
-    "severity": "high",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.5,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "critical",
-    "created_at": "2026-07-26T08:49:05.898828",
-    "valid_until": "",
-    "last_triggered": "2026-08-10T11:43:00.606955",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 3,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_image_url_20260810_114227",
-    "trigger_condition": "op_contains(image_url) AND NOT prechecked",
-    "action": "pre_check_before_image_url; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "image_url"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: image_url",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-10T11:42:27.472238",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.587387",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 97,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 15,
-    "blocked_rules": [
-      "shousan_review_image_url_20260810_114227"
-    ]
-  },
-  {
-    "id": "pat_rule_gongqi_fix_image_url_20260810_114227",
-    "trigger_condition": "op_contains(image_url)",
-    "action": "suggest_from_pattern; image_url操作前预检，避免同类错误",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_fix_image_url_20260810_114227",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-10T11:48:59.676390",
-    "valid_until": "",
-    "last_triggered": "2026-08-23T12:07:04.587387",
-    "boundary_conditions": [
-      "检查image_url状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 97,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_no_plan_no_trade",
-    "trigger_condition": "('买' in context or '建仓' in context or '打板' in context or '加仓' in context or '追进' in context or '上车' in context or '全仓' in context) AND NOT prechecked",
-    "action": "block_and_require_plan",
-    "severity": "high",
-    "tags": [
-      "domain_ashare_trading",
-      "discipline",
-      "pre_trade"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.5,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.422215",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T13:28:28.393470",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 313,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_position_cap",
-    "trigger_condition": "('仓位' in context or '重仓' in context or '满仓' in context)",
-    "action": "warn_and_suggest_reduce",
-    "severity": "high",
-    "tags": [
-      "domain_ashare_trading",
-      "risk_control"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.2,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.449822",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T13:23:20.733417",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 197,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_stop_loss_mandatory",
-    "trigger_condition": "('摊平' in context or '补仓' in context or '死扛' in context or '等反弹' in context or '拿住' in context or '不止损' in context)",
-    "action": "warn_and_suggest_confirm",
-    "severity": "high",
-    "tags": [
-      "domain_ashare_trading",
-      "risk_control",
-      "三错锁联动"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.8,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.485926",
-    "valid_until": "",
-    "last_triggered": "2026-08-19T18:37:46.887807",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 37,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_chase_limit_up_guard",
-    "trigger_condition": "('追涨' in context or '涨停' in context or '扫板' in context or '高位' in context or '追高' in context or '追进去' in context or '冲进去' in context)",
-    "action": "warn_and_require_rationale",
-    "severity": "medium",
-    "tags": [
-      "domain_ashare_trading",
-      "emotion_guard"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.0,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.505075",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:57:09.556465",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 270,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_data_double_source",
-    "trigger_condition": "('龙虎榜' in context or '资金流入' in context or '净买入' in context or '主力资金' in context or '涨停梯队' in context)",
-    "action": "warn_and_suggest_source",
-    "severity": "high",
-    "tags": [
-      "domain_ashare_trading",
-      "truth_gate",
-      "去伪存真"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.5,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.526107",
-    "valid_until": "",
-    "last_triggered": "2026-08-20T12:20:22.744583",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 20,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_losing_streak_cooldown",
-    "trigger_condition": "('连续亏损' in context or '连亏' in context or '亏麻' in context)",
-    "action": "block_and_require_cooldown",
-    "severity": "critical",
-    "tags": [
-      "domain_ashare_trading",
-      "emotion_guard",
-      "一二不过三"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.7,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.545697",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T08:37:05.212094",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 28,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_drawdown_circuit_breaker",
-    "trigger_condition": "('回撤' in context or '熔断' in context or '爆亏' in context)",
-    "action": "block_and_require_risk_reset",
-    "severity": "critical",
-    "tags": [
-      "domain_ashare_trading",
-      "risk_control",
-      "circuit_breaker"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.8,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.565008",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T08:54:44.055237",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 117,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_no_event_gambling",
-    "trigger_condition": "('押注' in context or '埋伏' in context or '赌' in context or '梭哈' in context or '重仓押' in context)",
-    "action": "warn_and_require_event_plan",
-    "severity": "high",
-    "tags": [
-      "domain_ashare_trading",
-      "event_driven"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.3,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.587166",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T16:25:17.715229",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 17,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_daily_closing_check",
-    "trigger_condition": "('收盘' in context or '复盘' in context or '盘后' in context)",
-    "action": "require_closing_checklist",
-    "severity": "medium",
-    "tags": [
-      "domain_ashare_trading",
-      "daily_loop",
-      "恒常门"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.0,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.607801",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:04:15.561629",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 635,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_knowledge_archival",
-    "trigger_condition": "('平仓' in context or '清仓' in context or '经验沉淀' in context)",
-    "action": "require_archive",
-    "severity": "low",
-    "tags": [
-      "domain_ashare_trading",
-      "memory",
-      "Shalou"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.2,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 install ashare domain pack",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T14:53:08.627522",
-    "valid_until": "",
-    "last_triggered": "2026-08-24T12:50:02.201476",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 64,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "domain_ashare_break_stop_hold",
-    "trigger_condition": "('跌破' in context or '破位' in context or '跌停' in context) AND ('拿住' in context or '等反弹' in context or '死扛' in context or '扛一扛' in context or '不止损' in context or '装死' in context)",
-    "action": "block_and_remind_stop_loss",
-    "severity": "critical",
-    "tags": [
-      "domain_ashare_trading",
-      "risk_control",
-      "止损纪律"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 4.8,
-    "source": "domain:ashare_trading",
-    "source_review": "2026-08-14 A股完整演示守三修正",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T15:21:03.783690",
-    "valid_until": "",
-    "last_triggered": "2026-08-19T18:37:46.902519",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 17,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_pat_ashare_rebound_low_buy_20260814",
-    "trigger_condition": "('回踩' in context and '炸板' in context and '低吸' in context)",
-    "action": "suggest_from_pattern; 标的当日涨停后炸板回落 + 前一日大跌 + 高换手时，次日不追高，等回踩 5 日线/关键支撑轻仓 10% 试错，止损 -",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 5.0,
-    "confidence": 4.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: pat_ashare_rebound_low_buy_20260814",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-14T15:22:11.368593",
-    "valid_until": "",
-    "last_triggered": "2026-08-17T16:42:03.068674",
-    "boundary_conditions": [
-      "回踩{支撑}轻仓{仓位}%，止损{止损价}，目标{目标价}，盈亏比≥2:1"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 2,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_cost_economy_all_tasks",
-    "trigger_condition": "task_type == 'pre_tool' and ('省' in command or 'token' in command.lower() or 'ds_peak' in command.lower())",
-    "action": "suggest; 全局Token经济原则(该用的用该省的省)：①高峰时段(09:00-12:00/14:00-18:00)非紧急、非盘口必要的LLM调用一律延迟/合并/降级，改用确定性脚本；②优先合并命令、避免重复读文件、避免长输出；③批处理/深度分析/数据回填等重活挪到空闲时段；④一切以减小token消费为目的。",
-    "severity": "low",
-    "tags": [
-      "token",
-      "成本",
-      "该用的用该省的省",
-      "principle:守三"
-    ],
-    "logic_score": 4.5,
-    "outcome_score": 4.0,
-    "confidence": 4.5,
-    "source": "human_override",
-    "source_review": "2026-08-20 会话",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-20T08:38:38.940785",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 0,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_pat_auto_tool_Bash_1",
-    "trigger_condition": "tool_name == 'Bash'",
-    "action": "suggest_from_pattern; $OutputEncoding = [Console]::OutputEncoding = [System.Text.E",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: pat_auto_tool_Bash_1",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-23T11:11:31.384580",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:05:04.278237",
-    "boundary_conditions": [
-      "$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n# 场景2: 命令失败 fail 误标 ok:true 防护"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 1402,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "self_error_engine_integrity",
-    "trigger_condition": "error_type=='engine_integrity'",
-    "action": "self_check_and_avoid",
-    "severity": "high",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.0,
-    "confidence": 4.0,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "alerting",
-    "created_at": "2026-08-24T14:43:24.104852",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_engine_edit_requires_selfcheck",
-    "trigger_condition": "task_type == 'pre_tool' and (('call_diegin.py' in command or 'rule_engine.py' in command or 'evo\\\\main.py' in command or 'evo/main.py' in command or 'diegin_self_check.py' in command) and ('apply_patch' in command or 'Set-Content' in command or 'set-content' in command or 'WriteAllText' in command or 'WriteAllBytes' in command or 'Out-File' in command))",
-    "action": "suggest; 修改迭进核心引擎文件后必须立即运行 diegin_self_check.py，确认 status=ok 且 engine_integrity=true（语法+关键锚点）再继续，防编辑事故",
-    "severity": "low",
-    "tags": [
-      "self_protect",
-      "防再生",
-      "engine_integrity"
-    ],
-    "logic_score": 4.5,
-    "outcome_score": 4.0,
-    "confidence": 4.2,
-    "source": "human_override",
-    "source_review": "2026-08-24 引擎结构完整性防护：编辑事故（护栏插错位置破坏缩进）复盘",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-24T14:44:59.087937",
-    "valid_until": "",
-    "last_triggered": "2026-08-25T09:04:47.864244",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 54,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "self_error_command_failure",
-    "trigger_condition": "error_type=='command_failure'",
-    "action": "self_check_and_avoid",
-    "severity": "medium",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "critical",
-    "created_at": "2026-08-03T16:08:05.095922",
-    "valid_until": "",
-    "last_triggered": "2026-08-27T12:06:43.445784",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 3,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "self_error_tool_error_Bash",
-    "trigger_condition": "error_type=='tool_error_Bash'",
-    "action": "self_check_and_avoid",
-    "severity": "high",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "critical",
-    "created_at": "2026-08-05T14:38:22.775302",
-    "valid_until": "",
-    "last_triggered": "2026-08-27T12:01:51.331909",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 3,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260825_120349",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: tool_error_Bash",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-25T12:03:49.143558",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.441067",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 11,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_fix_tool_error_Bash_20260825_120349",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_fix_tool_error_Bash_20260825_120349",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-25T12:04:20.071552",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.441067",
-    "boundary_conditions": [
-      "检查tool_error_Bash状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 11,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260825_124621",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: tool_error_Bash",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-25T12:46:21.282271",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.441067",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 9,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_command_failure_20260825_124621",
-    "trigger_condition": "blocked_error_type == \"command_failure\"",
-    "action": "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_verified_command_failure_20260825_124621",
-    "lifecycle_status": "staging",
-    "created_at": "2026-08-25T12:46:24.315376",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [
-      "检查command_failure状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 0,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_tool_error_Bash_20260825_124621",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "suggest_from_pattern; tool_error_Bash操作已修复并验证通过，固化该路径",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_verified_tool_error_Bash_20260825_124621",
-    "lifecycle_status": "staging",
-    "created_at": "2026-08-25T12:46:24.328890",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [
-      "检查tool_error_Bash状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 0,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260825_163802",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: tool_error_Bash",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-25T16:38:02.358037",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.442198",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 7,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_fix_tool_error_Bash_20260825_163802",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_fix_tool_error_Bash_20260825_163802",
-    "lifecycle_status": "staging",
-    "created_at": "2026-08-25T16:38:29.188022",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [
-      "检查tool_error_Bash状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 0,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260825_164441",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: tool_error_Bash",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-25T16:44:41.165911",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.442198",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 7,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_image_url_20260826_084735",
-    "trigger_condition": "blocked_error_type == \"image_url\"",
-    "action": "pre_check_before_image_url; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "image_url"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: image_url",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-26T08:47:35.244944",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.442198",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 4,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_fix_image_url_20260826_084735",
-    "trigger_condition": "blocked_error_type == \"image_url\"",
-    "action": "suggest_from_pattern; image_url操作前预检，避免同类错误",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_fix_image_url_20260826_084735",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-26T08:47:36.155824",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.464377",
-    "boundary_conditions": [
-      "检查image_url状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 4,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260826_090421",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: tool_error_Bash",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-26T09:04:21.451981",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.462958",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 3,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_image_url_20260826_114554",
-    "trigger_condition": "blocked_error_type == \"image_url\"",
-    "action": "pre_check_before_image_url; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "image_url"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: image_url",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-26T11:45:54.552353",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.462958",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "shousan_review_tool_error_Bash_20260826_114555",
-    "trigger_condition": "blocked_error_type == \"tool_error_Bash\"",
-    "action": "pre_check_before_tool_error_Bash; verify_result",
-    "severity": "high",
-    "tags": [
-      "shousan",
-      "auto_generated",
-      "yierbuguosao->shousan",
-      "tool_error_Bash"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "auto_generated_by_shousan: tool_error_Bash",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-26T11:45:55.314954",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.464005",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_image_url_20260826_114554",
-    "trigger_condition": "blocked_error_type == \"image_url\"",
-    "action": "suggest_from_pattern; image_url操作已修复并验证通过，固化该路径",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_verified_image_url_20260826_114554",
-    "lifecycle_status": "staging",
-    "created_at": "2026-08-26T11:46:22.884016",
-    "valid_until": "",
-    "last_triggered": "2026-08-26T11:46:57.464377",
-    "boundary_conditions": [
-      "检查image_url状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 1,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_fix_tdxclaw_model_chain_20260826",
-    "trigger_condition": "op_contains(tdxclaw) and (op_contains(openrouter) or (op_contains(unknown) and op_contains(model)))",
-    "action": "suggest_from_pattern; 1) 双处同删：openclaw.json + chrome-data/tdxclaw-providers.json（必",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 5.0,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: fix_tdxclaw_model_chain_20260826",
-    "lifecycle_status": "active",
-    "created_at": "2026-08-26T13:50:00.456476",
-    "valid_until": "",
-    "last_triggered": "2026-08-27T09:01:55.193822",
-    "boundary_conditions": [
-      "双处删配置+清sessions锁定+完整重启TdxClaw"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 3,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "self_error_silent_cmd",
-    "trigger_condition": "error_type=='silent_cmd'",
-    "action": "self_check_and_avoid",
-    "severity": "medium",
-    "tags": [
-      "self_error",
-      "一二不过三",
-      "warning"
-    ],
-    "logic_score": 4.0,
-    "outcome_score": 3.0,
-    "confidence": 4.0,
-    "source": "auto_self_error",
-    "source_review": "",
-    "lifecycle_status": "alerting",
-    "created_at": "2026-08-27T12:52:56.553781",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [],
-    "invalid_conditions": [],
-    "triggered_count": 1,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "pat_rule_gongqi_verified_hooks_ps1_bom_20260831_070155",
-    "trigger_condition": "blocked_error_type == \"hooks_ps1_bom\"",
-    "action": "suggest_from_pattern; hooks_ps1_bom操作已修复并验证通过，固化该路径",
-    "severity": "low",
-    "tags": [
-      "attack",
-      "举一反三",
-      "from_pattern"
-    ],
-    "logic_score": 5.0,
-    "outcome_score": 3.5,
-    "confidence": 5.0,
-    "source": "learned",
-    "source_review": "generalize_from_patterns: gongqi_verified_hooks_ps1_bom_20260831_070155",
-    "lifecycle_status": "staging",
-    "created_at": "2026-08-31T07:02:29.859030",
-    "valid_until": "",
-    "last_triggered": "",
-    "boundary_conditions": [
-      "检查hooks_ps1_bom状态，确认无误后执行"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 0,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  },
-  {
-    "id": "rule_doc_utf8_bom_crlf",
-    "trigger_condition": "('.md' in command and ('io.open' in command or 'WriteAllText' in command or 'Set-Content' in command)) and not ('NoBOM' in command or 'nobom' in command or 'Get-Content' in command or 'read' in command)",
-    "action": "audit; 交付给人读的 .md 文档必须 UTF-8 with BOM + CRLF(Windows 记事本可直接打开); 写完校验前3字节 EF BB BF; 程序读的数据文件(JSON/CSV)保持 UTF-8 NoBOM",
-    "severity": "medium",
-    "tags": [
-      "编码",
-      "防再生",
-      "文档交付"
-    ],
-    "logic_score": 4.5,
-    "outcome_score": 5.0,
-    "confidence": 4.8,
-    "source": "learned",
-    "source_review": "2026-09-01 md 打不开事件(3次同类): 补 Python 写交付文档盲区; 与 pat_manual_ps_write_utf8nobom 分界=人读文档BOM/程序读数据NoBOM",
-    "lifecycle_status": "active",
-    "created_at": "2026-09-01T11:22:14.310769",
-    "valid_until": "",
-    "last_triggered": "2026-09-03T12:41:17.640081",
-    "boundary_conditions": [
-      "仅写 .md 交付/报告文档触发",
-      "程序读的数据文件(JSON/CSV/日线) 保持 NoBOM",
-      "只读命令(Get-Content/read) 不触发"
-    ],
-    "invalid_conditions": [],
-    "triggered_count": 2,
-    "ignored_count": 0,
-    "override_count": 0,
-    "last_ignored": "",
-    "block_count": 0,
-    "blocked_rules": []
-  }
+    {
+        "id":  "self_error_encoding_write_corruption",
+        "trigger_condition":  "error_type==\u0027encoding_write_corruption\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "high",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "alerting",
+        "created_at":  "2026-07-22T16:02:16.567667",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "failure_ttl: 30天未复现降级 @ 2026-08-21T23:30:02.509719"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_session_image_protection",
+        "trigger_condition":  "tool_name == \u0027view_image\u0027",
+        "action":  "suggest; 当前模型 deepseek-v4-flash 不支持图片输入，view_image 会把 image_url 写入会话导致下次请求反序列化失败。如需查看图片，请改用文件路径文本描述；或查看后立即移除会话中的 input_image 内容。",
+        "severity":  "medium",
+        "tags":  [
+                     "session",
+                     "image",
+                     "keysync",
+                     "bifrost",
+                     "protection"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "human_override",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-03T00:35:16.642545+00:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T08:55:09.452390",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  21,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_reply_hook_retro_first",
+        "trigger_condition":  "\u0027reply\u0027 in context and \u0027rule\u0027 in context",
+        "action":  "retrospect_key_rules_before_reply",
+        "severity":  "medium",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  3.5,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T14:47:35.771423",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  77,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_check_before_conclude",
+        "trigger_condition":  "\u0027mismatch\u0027 in context or \u0027inconsistency\u0027 in context or \u0027conflict\u0027 in context",
+        "action":  "audit_only; cross_validate_multi_source_before_conclusion",
+        "severity":  "medium",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  3.8,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-07T11:00:00.000000",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:33:38.085146",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  164,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_dgen_marker_every_reply",
+        "trigger_condition":  "task_type == \u0027user_prompt\u0027",
+        "action":  "audit_only; inject_display_line",
+        "severity":  "low",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-11T01:08:50.659786",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:01:23.460142",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1188,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_dual_defense_state_relay",
+        "trigger_condition":  "\u0027dgen_last_reply\u0027 in context or \u0027dgen_override\u0027 in context or \u0027phase_state\u0027 in context",
+        "action":  "state_relay_between_hooks; write_state_in_reply_read_in_tool",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:59:45.101757",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1329,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  19,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_hook_prepend_log",
+        "trigger_condition":  "\u0027audit_log\u0027 in context or \u0027diegin_audit\u0027 in context or \u0027log\u0027 in context",
+        "action":  "use_prepend_write; not_append",
+        "severity":  "medium",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:59:32.125144",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  2387,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  11,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_engine_bareword_guard",
+        "trigger_condition":  "\u0027trigger_condition\u0027 in context or \u0027rule_engine\u0027 in context",
+        "action":  "audit_only; verify_field_exists_in_context",
+        "severity":  "medium",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:03:42.674070",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  978,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_engine_ops_contains_fix",
+        "trigger_condition":  "\u0027rule_engine\u0027 in context or \u0027trigger_condition\u0027 in context",
+        "action":  "audit_only; use_dot_contains_instead_of_bare_contains",
+        "severity":  "medium",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:03:42.674575",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  978,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_marker_tool_block",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027",
+        "action":  "audit_only; record_tool_marker_audit",
+        "severity":  "low",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T10:00:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:05:04.275209",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  16765,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_fix_scan_same_class",
+        "trigger_condition":  "\u0027bom\u0027 in context and \u0027修复\u0027 in context",
+        "action":  "suggest; 修复一处 BOM/编码类漏洞后必须全库扫描同类 stdin/管道读取模式（本次 1 处发现 7 处同类）",
+        "severity":  "low",
+        "tags":  [
+                     "举一反三",
+                     "防再生"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-03T16:31:46.557782",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T13:23:20.733417",
+        "boundary_conditions":  [
+                                    "同类模式 = stdin 读 JSON / 管道传参"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  25,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_test_no_pollution",
+        "trigger_condition":  "\u0027测试\u0027 in context and \u0027strikes\u0027 in context",
+        "action":  "suggest; 测试不得污染生产状态文件(strikes_db/evidence_trail)，测试前后必须清理或隔离",
+        "severity":  "medium",
+        "tags":  [
+                     "测试纪律",
+                     "防再生"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-03T16:31:46.557782",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:05:04.278237",
+        "boundary_conditions":  [
+                                    "引擎测试写入 strikes_db 时"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  36,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_seed_idempotent",
+        "trigger_condition":  "\u0027seed\u0027 in context and \u0027init\u0027 in context",
+        "action":  "suggest; seed/初始化命令必须幂等：目标文件已存在时跳过或提示，禁止无条件覆盖已有数据",
+        "severity":  "medium",
+        "tags":  [
+                     "幂等",
+                     "防再生"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.2,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-03T16:31:46.557782",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-09T11:08:17.669102",
+        "boundary_conditions":  [
+                                    "初始化/seed 脚本"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  4,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_pat_ps_stdin_bom_flow",
+        "trigger_condition":  "\u0027stdin\u0027 in context and \u0027json\u0027 in context",
+        "action":  "suggest_from_pattern; 先验字节再解码：sys.stdin.buffer.read() 检查 b\u0027\\xef\\xbb\\xbf\u0027 前缀并剥离，再 d",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-03T16:31:52.390941",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T14:47:35.774050",
+        "boundary_conditions":  [
+                                    "字节级去BOM(3字节前缀)+utf-8解码，禁止裸 stdin.read()+json.loads"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  132,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_image_url_20260804_080935",
+        "trigger_condition":  "op_contains(image_url)",
+        "action":  "suggest_from_pattern; image_url操作已修复并验证通过，固化该路径",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-04T08:10:41.050568",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.551394",
+        "boundary_conditions":  [
+                                    "检查image_url状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  125,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_windows_bom_audit",
+        "trigger_condition":  "(\u0027bom\u0027 in command or \u0027BOM\u0027 in command) and (\u0027-Encoding\u0027 in command or \u0027utf-8\u0027 in command)",
+        "action":  "block; check_first_3_bytes_for_bom_before_deploy",
+        "severity":  "high",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.3,
+        "source":  "manual",
+        "source_review":  "人工复核修正 2026-08-07: 删除宽泛 encoding 匹配，避免普通 -Encoding UTF8 读取被误伤",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-10T13:19:36.606107",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T13:23:20.733417",
+        "boundary_conditions":  [
+                                    "仅显式含 BOM 字样的编码操作触发",
+                                    "普通读写不含 BOM 关键词不触发"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1177,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  1,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_pre_deploy_encoding_audit",
+        "trigger_condition":  "(\u0027deploy\u0027 in command or \u0027sync-all\u0027 in command) and (\u0027encoding\u0027 in command or \u0027bom\u0027 in command or \u0027checkpush\u0027 in command or \u0027sync.ps1\u0027 in command)",
+        "action":  "block; require_encoding_scan_before_deploy",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.8,
+        "source":  "manual",
+        "source_review":  "人工复核修正 2026-08-07: 原裸 deploy/sync/push 关键词误伤 git push",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-10T20:00:00.000000",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-14T12:40:10.969184",
+        "boundary_conditions":  [
+                                    "git push / 常规 sync 为日常操作不拦截",
+                                    "仅部署链路(sync.ps1 sync-all / deploy / checkpush)要求编码扫描"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  330,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  2,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_encoding_pre_check",
+        "trigger_condition":  "(\u0027-Encoding\u0027 in command or \u0027-encoding\u0027 in command) and not (\u0027utf8\u0027 in command or \u0027utf-8\u0027 in command or \u0027UTF8\u0027 in command or \u0027UTF-8\u0027 in command)",
+        "action":  "block; specify_utf8_or_detect_bom",
+        "severity":  "high",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.3,
+        "source":  "manual",
+        "source_review":  "人工复核修正 2026-08-07: 原裸关键词 -Encoding 误伤 Get-Content -Encoding UTF8 正常读命令",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-07T11:00:00.000000",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T11:20:43.849625",
+        "boundary_conditions":  [
+                                    "读取/写出时已显式指定 UTF-8/UTF8 编码则放行",
+                                    "仅拦截未指定 UTF-8 的编码读写（防乱码/BOM）"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1274,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_state_expire_60s",
+        "trigger_condition":  "\u0027state_file\u0027 in context or \u0027dgen_last_reply\u0027 in context or \u0027dgen_override\u0027 in context",
+        "action":  "check_timestamp_before_relay; expire_after_60s",
+        "severity":  "medium",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  3.8,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T12:40:35.044584",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  92,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_clean_verify_layered",
+        "trigger_condition":  "task_type == \u0027clean\u0027 or task_type == \u0027remove\u0027 or task_type == \u0027purge\u0027",
+        "action":  "block; enforce_3_layer_verify",
+        "severity":  "high",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5,
+        "source":  "manual",
+        "source_review":  "人工复核修正 2026-08-07: 原 Remove-Item 命令级拦截误伤正常删除操作",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-07T11:00:00.000000",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-07T14:53:18.204555",
+        "boundary_conditions":  [
+                                    "用户明确要求的递归删除不再被命令级拦截",
+                                    "任务型清理(clean/remove/purge)仍需3层验证"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  80,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_json_no_bom",
+        "trigger_condition":  "\u0027json\u0027 in command and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command) and (\u0027.json\u0027 in command or \u0027ConvertTo-Json\u0027 in command or \u0027convertto-json\u0027 in command)",
+        "action":  "block; require_bom_free_json_output",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "manual",
+        "source_review":  "人工复核修正 2026-08-07: 原 json+Set-Content 误伤写临时脚本命令",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-10T13:19:36.606107",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T14:49:42.458674",
+        "boundary_conditions":  [
+                                    "仅拦截写 .json 文件或用 ConvertTo-Json 落盘",
+                                    "写 .py/.md 等非 JSON 文件（即使内容含 json 字样）放行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  896,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  19,
+        "blocked_rules":  [
+                              "rule_json_no_bom"
+                          ]
+    },
+    {
+        "id":  "rule_powershell_set_content_bom",
+        "trigger_condition":  "\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command",
+        "action":  "block; use [System.IO.File]::WriteAllText() instead of Set-Content to avoid UTF-8 BOM",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-11T01:38:06.074943",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T16:50:49.585806",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1944,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  34,
+        "blocked_rules":  [
+                              "rule_powershell_set_content_bom"
+                          ]
+    },
+    {
+        "id":  "rule_deploy_ps1_avoid_set_content",
+        "trigger_condition":  "\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command",
+        "action":  "block; use_writealltext_not_set_content_nonewline",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T16:50:49.587808",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1944,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_encoding_no_bom_utf8",
+        "trigger_condition":  "task_type == \u0027user_prompt\u0027 and (\u0027encoding\u0027 in text or \u0027编码\u0027 in text or \u0027bom\u0027 in text or \u0027BOM\u0027 in text)",
+        "action":  "block_execution; require_utf8_nobom",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-10T20:00:00.000000",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T10:52:21.882346",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  7,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_ps_stdin_bom_guard",
+        "trigger_condition":  "\u0027stdin\u0027 in context and \u0027json\u0027 in context",
+        "action":  "suggest; Python 从 PS 管道读 stdin JSON 前必须字节级去 BOM: b=b[3:] if b.startswith(b\u0027\\xef\\xbb\\xbf\u0027) else b, 再 decode utf-8",
+        "severity":  "medium",
+        "tags":  [
+                     "编码",
+                     "防再生",
+                     "stdin_bom_guard"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-03T16:31:46.557782",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T14:47:35.775809",
+        "boundary_conditions":  [
+                                    "仅 PS 5.1 管道注入 UTF-8 BOM 场景",
+                                    "cmd echo 管道无 BOM"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  132,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  29,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_protect_diegin_hook_scripts",
+        "trigger_condition":  "((\u0027diegin_pre_tool.ps1\u0027 in command or \u0027diegin_post_tool.ps1\u0027 in command or \u0027diegin_pre_reply.ps1\u0027 in command or \u0027diegin_session_start.ps1\u0027 in command or \u0027diegin_stop.ps1\u0027 in command or \u0027diegin_notify.ps1\u0027 in command or \u0027diegin_session_image_clean.ps1\u0027 in command) and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027Remove-Item\u0027 in command or \u0027Move-Item\u0027 in command or \u0027Copy-Item\u0027 in command or \u0027Out-File\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Remove-ChildItem\u0027 in command or \u0027del \u0027 in command or \u0027rm \u0027 in command))",
+        "action":  "block_execution; notify_protected_file",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "human_override",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-11T23:25:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T16:57:14.013481",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  216,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  22,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_protect_diegin_engine_rules",
+        "trigger_condition":  "((\u0027engine\\\\evo\\\\rules\\\\\u0027 in command or \u0027engine\\\\evo\\\\rule_engine\u0027 in command or \u0027engine\\\\evo\\\\arbiter\u0027 in command or \u0027engine\\\\call_diegin\u0027 in command or \u0027engine/evo/rules/\u0027 in command or \u0027engine/evo/rule_engine\u0027 in command or \u0027engine/call_diegin\u0027 in command) and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027Remove-Item\u0027 in command or \u0027Move-Item\u0027 in command or \u0027Copy-Item\u0027 in command or \u0027Out-File\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Remove-ChildItem\u0027 in command or \u0027del \u0027 in command or \u0027rm \u0027 in command))",
+        "action":  "block_execution; notify_protected_file",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "human_override",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-11T23:25:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:04:47.862269",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  754,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  66,
+        "blocked_rules":  [
+                              "rule_protect_diegin_engine_rules"
+                          ]
+    },
+    {
+        "id":  "rule_protect_diegin_hooks_json",
+        "trigger_condition":  "(\u0027hooks.json\u0027 in command and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Out-File\u0027 in command or \u0027Move-Item\u0027 in command or \u0027Copy-Item\u0027 in command or \u0027Remove-Item\u0027 in command))",
+        "action":  "block_execution; notify_protected_file",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "human_override",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-11T23:25:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-19T13:33:33.992901",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  41,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  7,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_json_escape_check",
+        "trigger_condition":  "(\u0027hooks.json\u0027 in command and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Out-File\u0027 in command or \u0027ConvertTo-Json\u0027 in command))",
+        "action":  "check_escape_before_write; use_json_dumps",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-19T13:33:33.992901",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  43,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_config_hash_sync",
+        "trigger_condition":  "((\u0027config.toml\u0027 in command or \u0027hooks.json\u0027 in command or \u0027trusted_hash\u0027 in command) and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Out-File\u0027 in command or \u0027hash\u0027 in command or \u0027sync\u0027 in command))",
+        "action":  "block; enforce_hash_sync_before_restart",
+        "severity":  "critical",
+        "tags":  [
+
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-07-12T01:01:43.198443",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:33:43.163645",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  80,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  6,
+        "blocked_rules":  [
+                              "rule_config_hash_sync"
+                          ]
+    },
+    {
+        "id":  "self_error_hooks_ps1_bom",
+        "trigger_condition":  "error_type==\u0027hooks_ps1_bom\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "high",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "blocking",
+        "created_at":  "2026-08-03T14:30:44.684606",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-09T11:44:39.944122",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  2,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_hooks_ps1_bom_20260805_124836",
+        "trigger_condition":  "op_contains(hooks_ps1_bom)",
+        "action":  "suggest_from_pattern; hooks_ps1_bom操作前预检，避免同类错误",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T12:49:05.144186",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T14:42:37.824977",
+        "boundary_conditions":  [
+                                    "检查hooks_ps1_bom状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  48,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_tool_error_Bash_20260805_145424",
+        "trigger_condition":  "op_contains(tool_error_Bash)",
+        "action":  "suggest_from_pattern; tool_error_Bash操作已修复并验证通过，固化该路径",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T14:55:03.204013",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.552387",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  55,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_tool_error_Bash_20260805_165258",
+        "trigger_condition":  "op_contains(tool_error_Bash)",
+        "action":  "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T16:53:42.810175",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.552387",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  54,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_command_failure_20260805_145423",
+        "trigger_condition":  "op_contains(command_failure)",
+        "action":  "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T14:55:03.195990",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:57:10.498070",
+        "boundary_conditions":  [
+                                    "检查command_failure状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  105,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_command_failure_20260805_165257",
+        "trigger_condition":  "op_contains(command_failure)",
+        "action":  "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
+        "severity":  "medium",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T16:53:42.801489",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:57:10.498070",
+        "boundary_conditions":  [
+                                    "检查command_failure状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  105,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_hooks_ps1_bom_20260805_124836",
+        "trigger_condition":  "op_contains(hooks_ps1_bom) AND NOT prechecked",
+        "action":  "pre_check_before_hooks_ps1_bom; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "hooks_ps1_bom"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T12:48:36.180978",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T14:42:37.824977",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  48,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  3,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260805_145424",
+        "trigger_condition":  "op_contains(tool_error_Bash) AND NOT prechecked",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T14:54:24.372251",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.554386",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  55,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260805_165258",
+        "trigger_condition":  "op_contains(tool_error_Bash) AND NOT prechecked",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-05T16:52:58.299000",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.554386",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  56,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_pat_auto_tool_shell_command_1",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027WriteAllText\u0027 in command or \u0027check_file\u0027 in command)",
+        "action":  "suggest_from_pattern; PS 向迭进引擎传含中文的 JSON 参数会被乱码破坏(JSONDecodeError)；正确做法：先 [System.",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  4.1,
+        "outcome_score":  3.5,
+        "confidence":  4.1,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: pat_auto_tool_shell_command_1",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-08T09:25:02.029203",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:05:04.278237",
+        "boundary_conditions":  [
+                                    "PS 向迭进引擎传含中文的 JSON 参数会被乱码破坏(JSONDecodeError)；正确做法：先 [System.IO.File]::WriteAllTe"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1593,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_pat_manual_backup_before_remove_20260809",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and \u0027Remove-Item\u0027 in command and \u0027backup\u0027 not in command",
+        "action":  "suggest_from_pattern; 执行 Remove-Item 删除前先备份：Copy-Item 到同目录 .bak 或 backup 目录，或改用 Mo",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: pat_manual_backup_before_remove_20260809",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T11:43:16.605845",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T16:57:39.425136",
+        "boundary_conditions":  [
+                                    "改前备份（Copy-Item .bak）"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  395,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_pat_manual_ps1_chinese_bom_20260809",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and \u0027.ps1\u0027 in command and (\u0027WriteAllText\u0027 in command or \u0027Set-Content\u0027 in command or \u0027Out-File\u0027 in command)",
+        "action":  "suggest_from_pattern; 写含中文的 .ps1 工具脚本时用 UTF-8 with BOM 编码（[System.IO.File]::WriteA",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  4.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: pat_manual_ps1_chinese_bom_20260809",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-09T16:02:25.466861",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T16:57:14.013481",
+        "boundary_conditions":  [
+                                    "ps1中文脚本存UTF8 BOM"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  192,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "self_error_image_url",
+        "trigger_condition":  "error_type==\u0027image_url\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "high",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "critical",
+        "created_at":  "2026-07-26T08:49:05.898828",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-10T11:43:00.606955",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_image_url_20260810_114227",
+        "trigger_condition":  "op_contains(image_url) AND NOT prechecked",
+        "action":  "pre_check_before_image_url; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "image_url"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: image_url",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-10T11:42:27.472238",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.587387",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  97,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  15,
+        "blocked_rules":  [
+                              "shousan_review_image_url_20260810_114227"
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_image_url_20260810_114227",
+        "trigger_condition":  "op_contains(image_url)",
+        "action":  "suggest_from_pattern; image_url操作前预检，避免同类错误",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_image_url_20260810_114227",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-10T11:48:59.676390",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-23T12:07:04.587387",
+        "boundary_conditions":  [
+                                    "检查image_url状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  97,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_no_plan_no_trade",
+        "trigger_condition":  "(\u0027买\u0027 in context or \u0027建仓\u0027 in context or \u0027打板\u0027 in context or \u0027加仓\u0027 in context or \u0027追进\u0027 in context or \u0027上车\u0027 in context or \u0027全仓\u0027 in context) AND NOT prechecked",
+        "action":  "block_and_require_plan",
+        "severity":  "high",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "discipline",
+                     "pre_trade"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.422215",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T13:28:28.393470",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  313,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_position_cap",
+        "trigger_condition":  "(\u0027仓位\u0027 in context or \u0027重仓\u0027 in context or \u0027满仓\u0027 in context)",
+        "action":  "warn_and_suggest_reduce",
+        "severity":  "high",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "risk_control"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.2,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.449822",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T13:23:20.733417",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  197,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_stop_loss_mandatory",
+        "trigger_condition":  "(\u0027摊平\u0027 in context or \u0027补仓\u0027 in context or \u0027死扛\u0027 in context or \u0027等反弹\u0027 in context or \u0027拿住\u0027 in context or \u0027不止损\u0027 in context)",
+        "action":  "warn_and_suggest_confirm",
+        "severity":  "high",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "risk_control",
+                     "三错锁联动"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.8,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.485926",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-19T18:37:46.887807",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  37,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_chase_limit_up_guard",
+        "trigger_condition":  "(\u0027追涨\u0027 in context or \u0027涨停\u0027 in context or \u0027扫板\u0027 in context or \u0027高位\u0027 in context or \u0027追高\u0027 in context or \u0027追进去\u0027 in context or \u0027冲进去\u0027 in context)",
+        "action":  "warn_and_require_rationale",
+        "severity":  "medium",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "emotion_guard"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.0,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.505075",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:57:09.556465",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  270,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_data_double_source",
+        "trigger_condition":  "(\u0027龙虎榜\u0027 in context or \u0027资金流入\u0027 in context or \u0027净买入\u0027 in context or \u0027主力资金\u0027 in context or \u0027涨停梯队\u0027 in context)",
+        "action":  "warn_and_suggest_source",
+        "severity":  "high",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "truth_gate",
+                     "去伪存真"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.526107",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-20T12:20:22.744583",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  20,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_losing_streak_cooldown",
+        "trigger_condition":  "(\u0027连续亏损\u0027 in context or \u0027连亏\u0027 in context or \u0027亏麻\u0027 in context)",
+        "action":  "block_and_require_cooldown",
+        "severity":  "critical",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "emotion_guard",
+                     "一二不过三"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.7,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.545697",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T08:37:05.212094",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  28,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_drawdown_circuit_breaker",
+        "trigger_condition":  "(\u0027回撤\u0027 in context or \u0027熔断\u0027 in context or \u0027爆亏\u0027 in context)",
+        "action":  "block_and_require_risk_reset",
+        "severity":  "critical",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "risk_control",
+                     "circuit_breaker"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.8,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.565008",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T08:54:44.055237",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  117,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_no_event_gambling",
+        "trigger_condition":  "(\u0027押注\u0027 in context or \u0027埋伏\u0027 in context or \u0027赌\u0027 in context or \u0027梭哈\u0027 in context or \u0027重仓押\u0027 in context)",
+        "action":  "warn_and_require_event_plan",
+        "severity":  "high",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "event_driven"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.3,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.587166",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T16:25:17.715229",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  17,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_daily_closing_check",
+        "trigger_condition":  "(\u0027收盘\u0027 in context or \u0027复盘\u0027 in context or \u0027盘后\u0027 in context)",
+        "action":  "require_closing_checklist",
+        "severity":  "medium",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "daily_loop",
+                     "恒常门"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.0,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.607801",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:04:15.561629",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  635,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_knowledge_archival",
+        "trigger_condition":  "(\u0027平仓\u0027 in context or \u0027清仓\u0027 in context or \u0027经验沉淀\u0027 in context)",
+        "action":  "require_archive",
+        "severity":  "low",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "memory",
+                     "Shalou"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.2,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 install ashare domain pack",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T14:53:08.627522",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-24T12:50:02.201476",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  64,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_ashare_break_stop_hold",
+        "trigger_condition":  "(\u0027跌破\u0027 in context or \u0027破位\u0027 in context or \u0027跌停\u0027 in context) AND (\u0027拿住\u0027 in context or \u0027等反弹\u0027 in context or \u0027死扛\u0027 in context or \u0027扛一扛\u0027 in context or \u0027不止损\u0027 in context or \u0027装死\u0027 in context)",
+        "action":  "block_and_remind_stop_loss",
+        "severity":  "critical",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "risk_control",
+                     "止损纪律"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.8,
+        "source":  "domain:ashare_trading",
+        "source_review":  "2026-08-14 A股完整演示守三修正",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T15:21:03.783690",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-19T18:37:46.902519",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  17,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_pat_ashare_rebound_low_buy_20260814",
+        "trigger_condition":  "(\u0027回踩\u0027 in context and \u0027炸板\u0027 in context and \u0027低吸\u0027 in context)",
+        "action":  "suggest_from_pattern; 标的当日涨停后炸板回落 + 前一日大跌 + 高换手时，次日不追高，等回踩 5 日线/关键支撑轻仓 10% 试错，止损 -",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  5.0,
+        "confidence":  4.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: pat_ashare_rebound_low_buy_20260814",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-14T15:22:11.368593",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-17T16:42:03.068674",
+        "boundary_conditions":  [
+                                    "回踩{支撑}轻仓{仓位}%，止损{止损价}，目标{目标价}，盈亏比≥2:1"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  2,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_cost_economy_all_tasks",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and (\u0027省\u0027 in command or \u0027token\u0027 in command.lower() or \u0027ds_peak\u0027 in command.lower())",
+        "action":  "suggest; 全局Token经济原则(该用的用该省的省)：①高峰时段(09:00-12:00/14:00-18:00)非紧急、非盘口必要的LLM调用一律延迟/合并/降级，改用确定性脚本；②优先合并命令、避免重复读文件、避免长输出；③批处理/深度分析/数据回填等重活挪到空闲时段；④一切以减小token消费为目的。",
+        "severity":  "low",
+        "tags":  [
+                     "token",
+                     "成本",
+                     "该用的用该省的省",
+                     "principle:守三"
+                 ],
+        "logic_score":  4.5,
+        "outcome_score":  4.0,
+        "confidence":  4.5,
+        "source":  "human_override",
+        "source_review":  "2026-08-20 会话",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-20T08:38:38.940785",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_pat_auto_tool_Bash_1",
+        "trigger_condition":  "tool_name == \u0027Bash\u0027",
+        "action":  "suggest_from_pattern; $OutputEncoding = [Console]::OutputEncoding = [System.Text.E",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: pat_auto_tool_Bash_1",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-23T11:11:31.384580",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:05:04.278237",
+        "boundary_conditions":  [
+                                    "$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n# 场景2: 命令失败 fail 误标 ok:true 防护"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1402,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "self_error_engine_integrity",
+        "trigger_condition":  "error_type==\u0027engine_integrity\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "high",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.0,
+        "confidence":  4.0,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "alerting",
+        "created_at":  "2026-08-24T14:43:24.104852",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_engine_edit_requires_selfcheck",
+        "trigger_condition":  "task_type == \u0027pre_tool\u0027 and ((\u0027call_diegin.py\u0027 in command or \u0027rule_engine.py\u0027 in command or \u0027evo\\\\main.py\u0027 in command or \u0027evo/main.py\u0027 in command or \u0027diegin_self_check.py\u0027 in command) and (\u0027apply_patch\u0027 in command or \u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027WriteAllBytes\u0027 in command or \u0027Out-File\u0027 in command))",
+        "action":  "suggest; 修改迭进核心引擎文件后必须立即运行 diegin_self_check.py，确认 status=ok 且 engine_integrity=true（语法+关键锚点）再继续，防编辑事故",
+        "severity":  "low",
+        "tags":  [
+                     "self_protect",
+                     "防再生",
+                     "engine_integrity"
+                 ],
+        "logic_score":  4.5,
+        "outcome_score":  4.0,
+        "confidence":  4.2,
+        "source":  "human_override",
+        "source_review":  "2026-08-24 引擎结构完整性防护：编辑事故（护栏插错位置破坏缩进）复盘",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-24T14:44:59.087937",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-25T09:04:47.864244",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  54,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "self_error_command_failure",
+        "trigger_condition":  "error_type==\u0027command_failure\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "medium",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "critical",
+        "created_at":  "2026-08-03T16:08:05.095922",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-27T12:06:43.445784",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "self_error_tool_error_Bash",
+        "trigger_condition":  "error_type==\u0027tool_error_Bash\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "high",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "critical",
+        "created_at":  "2026-08-05T14:38:22.775302",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-27T12:01:51.331909",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260825_120349",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: tool_error_Bash",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-25T12:03:49.143558",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.441067",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  11,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_tool_error_Bash_20260825_120349",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_tool_error_Bash_20260825_120349",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-25T12:04:20.071552",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.441067",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  11,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260825_124621",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: tool_error_Bash",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-25T12:46:21.282271",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.441067",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  9,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_command_failure_20260825_124621",
+        "trigger_condition":  "blocked_error_type == \"command_failure\"",
+        "action":  "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_verified_command_failure_20260825_124621",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-08-25T12:46:24.315376",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查command_failure状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_tool_error_Bash_20260825_124621",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "suggest_from_pattern; tool_error_Bash操作已修复并验证通过，固化该路径",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_verified_tool_error_Bash_20260825_124621",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-08-25T12:46:24.328890",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260825_163802",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: tool_error_Bash",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-25T16:38:02.358037",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.442198",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  7,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_tool_error_Bash_20260825_163802",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_tool_error_Bash_20260825_163802",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-08-25T16:38:29.188022",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260825_164441",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: tool_error_Bash",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-25T16:44:41.165911",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.442198",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  7,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_image_url_20260826_084735",
+        "trigger_condition":  "blocked_error_type == \"image_url\"",
+        "action":  "pre_check_before_image_url; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "image_url"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: image_url",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-26T08:47:35.244944",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.442198",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  4,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_image_url_20260826_084735",
+        "trigger_condition":  "blocked_error_type == \"image_url\"",
+        "action":  "suggest_from_pattern; image_url操作前预检，避免同类错误",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_image_url_20260826_084735",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-26T08:47:36.155824",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.464377",
+        "boundary_conditions":  [
+                                    "检查image_url状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  4,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260826_090421",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: tool_error_Bash",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-26T09:04:21.451981",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.462958",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_image_url_20260826_114554",
+        "trigger_condition":  "blocked_error_type == \"image_url\"",
+        "action":  "pre_check_before_image_url; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "image_url"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: image_url",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-26T11:45:54.552353",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.462958",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "shousan_review_tool_error_Bash_20260826_114555",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "pre_check_before_tool_error_Bash; verify_result",
+        "severity":  "high",
+        "tags":  [
+                     "shousan",
+                     "auto_generated",
+                     "yierbuguosao-\u003eshousan",
+                     "tool_error_Bash"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "auto_generated_by_shousan: tool_error_Bash",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-26T11:45:55.314954",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.464005",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_image_url_20260826_114554",
+        "trigger_condition":  "blocked_error_type == \"image_url\"",
+        "action":  "suggest_from_pattern; image_url操作已修复并验证通过，固化该路径",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_verified_image_url_20260826_114554",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-08-26T11:46:22.884016",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-26T11:46:57.464377",
+        "boundary_conditions":  [
+                                    "检查image_url状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_fix_tdxclaw_model_chain_20260826",
+        "trigger_condition":  "op_contains(tdxclaw) and (op_contains(openrouter) or (op_contains(unknown) and op_contains(model)))",
+        "action":  "suggest_from_pattern; 1) 双处同删：openclaw.json + chrome-data/tdxclaw-providers.json（必",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: fix_tdxclaw_model_chain_20260826",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-08-26T13:50:00.456476",
+        "valid_until":  "",
+        "last_triggered":  "2026-08-27T09:01:55.193822",
+        "boundary_conditions":  [
+                                    "双处删配置+清sessions锁定+完整重启TdxClaw"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "self_error_silent_cmd",
+        "trigger_condition":  "error_type==\u0027silent_cmd\u0027",
+        "action":  "self_check_and_avoid",
+        "severity":  "medium",
+        "tags":  [
+                     "self_error",
+                     "一二不过三",
+                     "warning"
+                 ],
+        "logic_score":  4.0,
+        "outcome_score":  3.0,
+        "confidence":  4.0,
+        "source":  "auto_self_error",
+        "source_review":  "",
+        "lifecycle_status":  "alerting",
+        "created_at":  "2026-08-27T12:52:56.553781",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_hooks_ps1_bom_20260831_070155",
+        "trigger_condition":  "blocked_error_type == \"hooks_ps1_bom\"",
+        "action":  "suggest_from_pattern; hooks_ps1_bom操作已修复并验证通过，固化该路径",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_verified_hooks_ps1_bom_20260831_070155",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-08-31T07:02:29.859030",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查hooks_ps1_bom状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_doc_utf8_bom_crlf",
+        "trigger_condition":  "(\u0027.md\u0027 in command and (\u0027io.open\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Set-Content\u0027 in command)) and not (\u0027NoBOM\u0027 in command or \u0027nobom\u0027 in command or \u0027Get-Content\u0027 in command or \u0027read\u0027 in command)",
+        "action":  "audit; 交付给人读的 .md 文档必须 UTF-8 with BOM + CRLF(Windows 记事本可直接打开); 写完校验前3字节 EF BB BF; 程序读的数据文件(JSON/CSV)保持 UTF-8 NoBOM",
+        "severity":  "medium",
+        "tags":  [
+                     "编码",
+                     "防再生",
+                     "文档交付"
+                 ],
+        "logic_score":  4.5,
+        "outcome_score":  5.0,
+        "confidence":  4.8,
+        "source":  "learned",
+        "source_review":  "2026-09-01 md 打不开事件(3次同类): 补 Python 写交付文档盲区; 与 pat_manual_ps_write_utf8nobom 分界=人读文档BOM/程序读数据NoBOM",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-01T11:22:14.310769",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-03T12:41:17.640081",
+        "boundary_conditions":  [
+                                    "仅写 .md 交付/报告文档触发",
+                                    "程序读的数据文件(JSON/CSV/日线) 保持 NoBOM",
+                                    "只读命令(Get-Content/read) 不触发"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  2,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_gongqi_delivery_precheck",
+        "trigger_condition":  "(\u0027.md\u0027 in command or \u0027.txt\u0027 in command) and (\u0027outputs\u0027 in command or \u0027deliver\u0027 in command or \u0027Deliver\u0027 in command or \u0027DELIVER\u0027 in command or \u0027交付\u0027 in command) and (\u0027Set-Content\u0027 in command or \u0027set-content\u0027 in command or \u0027Out-File\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027io.open\u0027 in command or \u0027open(\u0027 in command or \u0027Add File\u0027 in command or \u0027Update File\u0027 in command) and not (\u0027Get-Content\u0027 in command or \u0027read(\u0027 in command or \u0027A1_DELIVER_PRE\u0027 in command)",
+        "action":  "block; [守三警戒型·行前门] 攻七A-1(交付一次做对): 人读交付文档(.md/.txt写入outputs或交付目录)的写命令必须带合规标记 A1_DELIVER_PRE 并实际执行——人读→UTF-8 BOM+CRLF(写后校验前3字节 EF BB BF); 程序读→NoBOM; 先查扩展名关联(assoc .md/.txt)缺失则先注册或同步交付.txt; 交付前用 explorer/Start-Process 实测打开一次。优先级定位=行前安全闸(类比P1 override通道), 非攻七事后强化; 未带标记即被拦下, 按清单补齐后重发。【2026-09-11 追加·链接可解析】交付件链接按**会话 cwd**解析：[名](outputs/xxx.md) 只在 cwd 下 outputs 可解析时点得开；交付前置清单再补两条——(a) 确认当前 cwd 下 outputs 可解析（缺则跑 outputs\\确保交付件可打开.ps1 建目录联接）；(b) 用相对路径实测解析一次；禁用绝对路径链接（被当 URL scheme）。",
+        "severity":  "high",
+        "tags":  [
+                     "守三警戒型",
+                     "行前门",
+                     "交付自检",
+                     "A-1",
+                     "强制前置",
+                     "文档编码",
+                     "首次做对"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "manual",
+        "source_review":  "2026-09-04 硬化完成: audit-\u003ehigh/block; 平台PreToolUse钩子层新增A-1硬门(先于引擎/快速通道, 规避P3恒常门短路); 合规标记A1_DELIVER_PRE豁免; e2e实测 BAD=exit1/GOOD=exit0+全量引擎建议 | 2026-09-11 强化：UI 打不开 md 复发（换会话工作目录致相对路径失配），并入『链接可解析』要求，配套 rule_doc_link_cwd_resolvable",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-04T14:05:26.595855",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-12T22:17:16.181313",
+        "boundary_conditions":  [
+                                    "仅人读交付文档(.md/.txt写outputs/交付目录)触发",
+                                    "带A1_DELIVER_PRE合规标记的写命令豁免",
+                                    "程序读数据文件(JSON/CSV)不触发",
+                                    "只读命令(Get-Content/read)不触发",
+                                    "钩子层exit 1硬拦, 引擎层high/block兜底",
+                                    "2026-09-11 补：『能打开』含两件事——文件编码不坏(BOM/CRLF) + 链接按会话 cwd 可解析；两者缺一仍打不开"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  11,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  4,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_command_failure_20260825_163812",
+        "trigger_condition":  "blocked_error_type == \"command_failure\"",
+        "action":  "suggest_from_pattern; 执行命令前先dry-run或验证参数正确性",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_command_failure_20260825_163812",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-09-08T18:54:29.320997",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查command_failure状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_verified_tool_error_Bash_20260825_164441",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "suggest_from_pattern; tool_error_Bash操作已修复并验证通过，固化该路径",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_verified_tool_error_Bash_20260825_164441",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-09-08T18:54:29.354319",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "pat_rule_gongqi_fix_tool_error_Bash_20260826_090421",
+        "trigger_condition":  "blocked_error_type == \"tool_error_Bash\"",
+        "action":  "suggest_from_pattern; tool_error_Bash操作前预检，避免同类错误",
+        "severity":  "low",
+        "tags":  [
+                     "attack",
+                     "举一反三",
+                     "from_pattern"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  3.5,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "generalize_from_patterns: gongqi_fix_tool_error_Bash_20260826_090421",
+        "lifecycle_status":  "staging",
+        "created_at":  "2026-09-08T18:54:29.381371",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+                                    "检查tool_error_Bash状态，确认无误后执行"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_doc_link_cwd_resolvable",
+        "trigger_condition":  "((\u0027outputs\u0027 in command and \u0027.md\u0027 in command and (\u0027io.open\u0027 in command or \u0027WriteAllText\u0027 in command or \u0027Set-Content\u0027 in command or \u0027Out-File\u0027 in command or \u0027Add File\u0027 in command or \u0027Update File\u0027 in command)) or (\u0027确保交付件可打开\u0027 in command)) and not (\u0027Get-Content\u0027 in command or \u0027ReadAllText\u0027 in command)",
+        "action":  "audit; 交付件的『链接能否点开』是按**会话 cwd** 解析的，不是按文件真实位置：UI 里 [名](outputs/xxx.md) 只有在 cwd 下能解析到 outputs 时才点得开。写完交付件后必须做两步：① 确认当前 cwd 下 outputs 可解析（缺则跑 outputs\\确保交付件可打开.ps1 幂等建立目录联接）；② 用相对路径实测解析一次。绝对路径链接 [x](E:\\...) 会被当 URL scheme，禁用。2026-09-05 只改了『写法』、2026-09-11 因换会话工作目录复发 ⇒ 修写法≠修环境：凡『上次修过又复发』的故障，先查环境漂移（会话 cwd / 目录联接 / 路径形态），再查代码。 【2026-09-12 三度复发·环境级处置】当日实测根因：会话 cwd 漂到上层 `...\\projectless-tasks`（而交付目录在其下 `2026-09-12\\\u003ctask\u003e\\outputs`），故 cwd 下无 outputs ⇒ [名](outputs/xxx.md) 打不开。已建目录联接 `\u003ccwd\u003e\\outputs` → 本会话交付目录（幂等脚本：E:\\项目\\开发\\TOOL\\确保交付件可打开.ps1，通用版，已带『联接指向其它会话则报 MISMATCH 不擅改』的防误伤守卫）。★ 修法优先级（三度复发后定）：① 首选「从 cwd 起的完整相对路径」`2026-09-12/\u003ctask\u003e/outputs/x.md`（无冲突、无副作用，实测可解析）；② 次选联接 + 短链 `outputs/x.md`（会指向单一会话，跨会话需换指向）。禁止绝对路径链接（被当 URL scheme）。【2026-09-12 平台级硬化·不再依赖『人记住』】PreToolUse 钩子已新增交付环境自愈门(A-1H)：交付 .md/.txt 写命令执行前自动校验并幂等修复（必要时跑 确保交付件可打开.ps1），修复失败才阻断——本条从『事后告警』变为『行前自动做』，无需人工先查环境。",
+        "severity":  "medium",
+        "tags":  [
+                     "文档交付",
+                     "链接可解析",
+                     "会话cwd",
+                     "环境漂移",
+                     "防再生",
+                     "domain_dev_data"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "learned",
+        "source_review":  "2026-09-11 UI 打不开 md 交付件复发（此前 2026-09-05 已按相对路径修过一次）；同日已入库元经验 meta_ui_doc_link_needs_cwd_junction_20260911",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-11T16:31:57.684285",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-13T10:47:31.723919",
+        "boundary_conditions":  [
+                                    "仅在写交付文档(.md 写入 outputs/交付目录)或运行交付件可打开自愈脚本时触发",
+                                    "只读命令(Get-Content/ReadAllText)不触发",
+                                    "程序读数据文件(JSON/CSV)不触发",
+                                    "本规则只管『链接可解析』；文件本身被打开时的乱码/编码问题由 rule_doc_utf8_bom_crlf 管",
+                                    "2026-09-12 三度复发：cwd 漂移是根因；处置首选『完整相对路径』，联接为次选并需防跨会话误指向"
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  17,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "domain_trade_broker_gate_no_bypass",
+        "trigger_condition":  "\u0027热键\u0027 in context or \u0027闪电\u0027 in context or \u0027高端交易权限\u0027 in context or \u0027验证码\u0027 in context or \u0027反外挂\u0027 in context",
+        "action":  "通达信交易热键(闪电买入 21 / 闪电卖出 23 / 一键全撒 24 / 格线交易 261-269 等) **不构成对闸门的突破** (2026-09-12 实测定论): 帮助页原文「部分交易热键需高端交易权限」、本机用户级别 0；且闪电买卖仍走 TC 委托通道, 仍撞「每次委托前进行确认」框 + 反外挂验证码。 热键只是“更快走到同一道闸门”，不是“绕开闸门”。 **反外挂验证码是券商有意设置的人工闸门 → 不得绕过**，已由 blockers()/GUARD_WORDS 前置识别并明确拒绝。 真正卡点在券商侧(通达信官方: 实盘下单需客户端确认; 自动下单需开户券商开通支持 TQ 的版本)。 处置: 热键路线已关闭，不再投入; 下单走 --channel tc，撒单走 TQ。 官方依据: help.tdx.com.cn/quant 交易函数 order_stock (“实盘交易账户的自动下单请联系你的开户券商, 开通并使用对应的支持 TQ 的版本”; 返回 Value 1=待用户确认) + FAQ(“市价下单, 需要手动确认”). TQ 无绕过入口; 唯一官方途径=券商开通支持 TQ 的版本. 固化 2026-09-12: 唯一活通道 = TC 原生界面 (--channel tc); order_executor 的 --channel tq 在 live 下**已硬封**(报错直指唯一活通道); run() 程序默认通道也已改为 tc(与 CLI 一致)。",
+        "severity":  "high",
+        "tags":  [
+                     "domain_ashare_trading",
+                     "domain_trade",
+                     "domain_risk_compliance",
+                     "redline",
+                     "no_bypass",
+                     "一类二过三"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "human_override",
+        "source_review":  "DGEN-TRADE-L1-20260912",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-12T11:00:00",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-12T11:16:41.083833",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  1,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  1,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_gui_driver_single_instance",
+        "trigger_condition":  "\u0027串单\u0027 in context or \u0027单实例\u0027 in context or \u0027重叠轮\u0027 in context or \u0027同一界面\u0027 in context or \u0027定时重发\u0027 in context",
+        "action":  "驱动**同一个 GUI** 的自动化必须单实例锁。 实例(2026-09-12 实盘执行节点): 任务每 5 分钟触发, 而执行一轮(填值-\u003e点单-\u003e等确认框-\u003e点确认-\u003e反查) 可能超过 5 分钟 -\u003e 两轮**同时驱动同一个 TC 界面** -\u003e 代码/价格可能串单(真金白银)。 形式: 锁文件写 PID+时间戳; 上一轮还活着则跳过本轮; 进程已消失或超龄(防 PID 复用)则自清; 取锁后 **try/finally 必释放**; 锁本身**不得产生输出**(会污染空转判定)。 推广: 任何驱动单一有状态界面/端口/硬件的任务同理。",
+        "severity":  "high",
+        "tags":  [
+                     "domain_core",
+                     "automation",
+                     "reliability",
+                     "gui_driver",
+                     "domain_trade"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  4.5,
+        "source":  "learned",
+        "source_review":  "DGEN-TRADE-L1-20260912",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-12T11:20:00",
+        "valid_until":  "",
+        "last_triggered":  "",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  0,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_daemon_needs_task_and_probe",
+        "trigger_condition":  "\u0027守护\u0027 in context or \u0027采集\u0027 in context or \u0027daemon\u0027 in context or \u0027无人值守\u0027 in context or \u0027断链\u0027 in context or \u0027计划任务\u0027 in context",
+        "action":  "无人值守的**守护进程**(daemon)必须三条齐备才算落地, 缺一条就是「静默断链」: (1) 有**计划任务**托管拉起 —— 不能只靠会话/人工, 人不拉就断; (2) 拉起动作**幂等** —— 守卫脚本先查状态, 已在跑则 no-op, 绝不产生第二个实例; (3) 巡检里有**检查项**(pid 是否活着 + 今日是否真采过 + 拉起任务在不在挂), 否则断了没人报。 取证(2026-09-12, 实测非推测): collector_daemon.py 自述「跟随 Codex 会话启动, 无 Windows 计划任务」; 2026-09-11 16:01 之后无人拉起 -\u003e pid 13908 已死, data\\\\intraday 最近产物停在 20260904; 且每日链路巡检**完全没有采集检查项** ⇒ 采集链断掉整整一周, 一份告警都没出。 修法: outputs\\\\采集守护_守卫.ps1(-Mode on/off, 内含 Tdxw 前置与幂等) + 计划任务 Codex_A股_采集守护_on(工作日 09:00) 与 _off(工作日 16:05) + 巡检 probe_collector_state/probe_collector。 判红口径: 交易日工作窗口(09:00-16:05)内未运行 = 红; 窗口外或非交易日 = 环境事实(不刷红)。 边界: 「进程活着」不等于「在干活」—— 必须同时看今日是否真有产出, 活着没干活同样是断链。",
+        "severity":  "high",
+        "tags":  [
+                     "domain_core",
+                     "automation",
+                     "reliability",
+                     "observability",
+                     "domain_trade"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "2026-09-12 采集链断链取证",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-12T13:28:33.037206",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-12T18:04:46.251513",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  13,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  11,
+        "blocked_rules":  [
+                              "rule_daemon_needs_task_and_probe"
+                          ]
+    },
+    {
+        "id":  "rule_nontrade_day_no_false_red",
+        "trigger_condition":  "\u0027巡检\u0027 in context or \u0027判红\u0027 in context or \u0027告警\u0027 in context or \u0027非交易日\u0027 in context or \u0027休市\u0027 in context or \u0027假红\u0027 in context",
+        "action":  "**告警/判红必须先判「今天该不该有这件事」**, 再判「有没有」; 否则每个周末、每个节假日都刷假红, 真红点被淹没 = 告警疲劳(本仓反复踩)。 取证(2026-09-12 周六复跑实测, 非推测): 原 check() 只看「已过约定时点且文件不在」⇒ 一次性刷出 09:15 晨核裁决 / 09:16 晨核分流 / 09:16 环境策略映射 / 09:26 竞价看门狗 / 持仓状态 共 5 项「异常」且 rc=1, 全部是「该节点只挂工作日任务」; probe_session 同类: 周末白天关屏上锁 -\u003e 每个周末中午一条红。 修法(已落地): 新增 is_trade_day() 前置; 仅交易日产出的节点带 trade_day_only -\u003e 非交易日记【按设计跳过】(ok=None, 不计异常); **只在文件确实不在时才跳过**(真件照常判定); 工作日缺件照旧判红(真故障不被掩盖); 每日任务(18:30/18:45)不豁免; 会话锁屏判定加 same_day+trade_day 门。 实证: 测试_链路巡检非交易日.py 30/30 通过(含「拆闸门即暴露」负例), 复跑巡检 rc=0。 边界: 节假日表暂无 -\u003e 目前只认周一~周五; 日后加节假日表按同口径收敛, 绝不反向放宽工作日的判红。",
+        "severity":  "medium",
+        "tags":  [
+                     "domain_core",
+                     "observability",
+                     "alerting",
+                     "reliability"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "2026-09-12 链路巡检周末假红取证",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-12T13:28:33.046814",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-12T18:04:46.270734",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  8,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  2,
+        "blocked_rules":  [
+
+                          ]
+    },
+    {
+        "id":  "rule_cloud_fallback_when_dll_dead",
+        "trigger_condition":  "\u0027DLL\u0027 in context or \u0027tqcenter\u0027 in context or \u0027本地通道\u0027 in context or \u0027专有通道\u0027 in context or \u0027等价通道\u0027 in context or \u0027降级\u0027 in context or \u0027兜底通道\u0027 in context",
+        "action":  "本地**专有通道**(DLL / 进程内 SDK / 需人工在界面授权的网关)一死, **先去找等价的云端只读通道**, 而不是让整条链路静默停摆、只能干等人来修。 取证(2026-09-12, 实测非推测): 盘中 1 分钟 bar 原靠 tqcenter DLL 直连逐笔合成, 该通道自 **09-07** 起一直返回 `{\"Error\":\"初始化错误：请确认是否通过网关客户端\",\"ErrorId\":\"11\"}`(需在通达信界面人工启用 PY/TQ 网关, 至今未做) ⇒ `data\\intraday` 停在 20260904 —— 断了整整一周没人知道, 因为巡检里根本没有这一项。 而同一份数据的**云端**只读通道一直好用: `tdx.mjs kline --period 7` 就是 1 分钟(实测 600362.SH 回溯 300 条 = 09-10 14:01 起 60 条 + 09-11 全天 240 条, 与本地逐笔分毫不差), 且**不依赖任何 DLL**。 修法: 采集默认改走云端(period=7 落 `data\\cloud\\\u003cYYYYMMDD\u003e\\\u003ccode\u003e_1m.csv`), 旧 DLL 路径改名保留、`TDX_COLLECT_DLL=1` 可回切; 巡检新增 `probe_cloud1m` 让「没在采」可见(判红口径: 交易日 09:35-16:05 + 确有采集标的 + 今日无落盘 = 红; 无标的 = 按设计退化 pools-only, 只记 ℹ; 非交易窗口不判红)。 边界: **只读替代可自动降级, 交易/下单通道绝不允许「换个等价通道」** —— 涉资金/通道变更必须人工拍板; 降级发生必须留痕 + 巡检可见, 不允许静默。 推广: 任何「本地专有依赖」都先问一句「有没有等价的云端/标准只读替代」。",
+        "severity":  "high",
+        "tags":  [
+                     "domain_core",
+                     "reliability",
+                     "observability",
+                     "domain_trade"
+                 ],
+        "logic_score":  5.0,
+        "outcome_score":  5.0,
+        "confidence":  5.0,
+        "source":  "learned",
+        "source_review":  "2026-09-12 云端 1 分钟兜底取证(采集链恢复)",
+        "lifecycle_status":  "active",
+        "created_at":  "2026-09-12T14:06:54.318008",
+        "valid_until":  "",
+        "last_triggered":  "2026-09-12T18:04:46.270734",
+        "boundary_conditions":  [
+
+                                ],
+        "invalid_conditions":  [
+
+                               ],
+        "triggered_count":  3,
+        "ignored_count":  0,
+        "override_count":  0,
+        "last_ignored":  "",
+        "block_count":  0,
+        "blocked_rules":  [
+
+                          ]
+    }
 ]

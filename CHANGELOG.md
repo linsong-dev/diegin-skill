@@ -1,5 +1,64 @@
 # Changelog · Diegin 迭进
 
+## v3.10.4+ PostCompact 接线 · 压缩后补投行动时刻记忆 (2026-09-13, 事故驱动续)
+
+- feat(新钩子): 新增 `hooks/diegin_post_compact.ps1`，注册到 `CODEX_HOME\hooks.json` 的 `PostCompact` 事件
+  （matcher `.*`，timeout 30）。压缩会清掉回合内注入（实测：会话 01a0989b 的 rollout 中 `compacted` 记录
+  @11:10:22 把 11:05 那条注入摘要掉），本钩子即为此场景而设。
+- 关键约束(实测查证): 平台各事件的输出契约**并不一致**。codex.exe 内嵌 schema `post-compact.command.output`
+  只允许 `continue / stopReason / suppressOutput / systemMessage` —— **没有 `hookSpecificOutput`**，
+  即 PostCompact **无法**注入模型上下文。故本钩子不做注入。
+- 设计(重置而非就地注入): PostCompact 只做三件本地状态操作 —— ① 清除 `pre_reply_action_memory_seen.json`
+  → 下一次 UserPromptSubmit(diegin_pre_reply.ps1) 重新投递行动记忆；② 清除本会话在 `inject_fingerprint.json`
+  的条目 → 防 600 秒指纹去重把补投折叠成「未变化，跳过重复注入」；③ 写 `action_memory_rearm.json` 留痕。
+  即「重置状态 + 下一安全边界补投」，替代「就地注入」——避开 PreToolUse 那个会 400 的位置。
+- chore(信任): `config.toml` 增 `[hooks.state.'...:post_compact:0:0']`（enabled=true + trusted_hash）。
+  实测既有 5 个钩子的 currentHash **未被扰动**（displayOrder 位移不影响哈希），6 个钩子现全部 trusted。
+- chore(工具): `sync.ps1` 白名单纳入 `diegin_post_compact.ps1`（SH-Check / SH-Sync 两处）；
+  `deploy/hooks-template.json` 增 PostCompact（新装即带）。
+- 方法(可复用): ① 钩子信任哈希不必手算——跑 `codex app-server` 发 `hooks/list`（params `{cwds:[...]}`）
+  即得 `currentHash`，再用 `config/batchWrite` 写 `hooks.state` 即变 trusted；
+  ② 某事件能否注入上下文，读 `codex app-server generate-json-schema --out <dir>` 或直接在 codex.exe 里搜
+  `<事件>.command.output` 的 schema 即可定论。
+- 验证: 隔离复跑（伪造 seen+fingerprint）→ exit 0、stdout `{"continue":true,"suppressOutput":true}`（schema 内字段）、
+  seen 与 fingerprint 条目均被清除、rearm 落盘、审计日志四行齐全；`sync.ps1 check` all hooks consistent。
+## v3.10.3+ 行动时刻记忆迁移 PreToolUse → UserPromptSubmit (2026-09-13, 事故驱动)
+
+- fix(致命): PreToolUse 的 hookSpecificOutput.additionalContext 会被平台插成 developer 消息，且落在
+  function_call 与其 function_call_output **之间** ⇒ 上游 Responses API 判定「No tool output found
+  for tool call ...」返回 400，整轮中断。当日实测 21 次（10:02-10:32，钩子启用期内），关闭钩子后归零。
+- fix: diegin_pre_tool.ps1 停用 additionalContext 输出（阻断通道 permissionDecision=deny 不受影响）。
+  铁证：KeySync logs.db 的 responses_input_history 中，失败请求条目序为 call → developer(迭进注入) → output；
+  同期成功请求均为 call/output 紧邻。
+- feat(迁移): 行动时刻记忆改由 diegin_pre_reply.ps1（UserPromptSubmit，回合边界）投递。回合边界天然
+  不夹在 call/output 之间，是平台契约上唯一安全的注入位。
+- feat: 新增 var/state/action_memory_last.json —— 由 pre_tool 在「有命中」时写入最近一次非空行动记忆，
+  独立于 pre_tool_inject_cache.json（后者无命中即清空，若沿用它投递会让特征在多数轮次消失）。
+- feat: pre_reply 侧三重把关——同会话同 inject_key 只投递一次（规则集变化才再投递）、超 30 分钟视为陈旧
+  不投递、按「注入前文本」判重以保持既有 600 秒指纹去重的省 token 语义（行动记忆不击穿缓存）。
+- fix: pre_reply 引擎异常告警由裸文本 Write-Output 改为 hookSpecificOutput.additionalContext（桌面版丢弃
+  纯文本 stdout，原写法等于 AI 看不到该告警）。
+- 验证: contract 自检 17/17；engine test_all 77/77（含行动记忆 6 项）；diegin_self_check 全绿；
+  隔离复跑 pre_reply 实测 additionalContext 含 [行动时刻记忆] 段；陈旧门与去重门分别单测通过；
+  迁移后实时回归零新增 400（含两条并发 PreToolUse 场景）。
+- 同步: hooks（pre_tool/pre_reply）经 sync.ps1 sync-hooks；engine（contract.py/call_diegin.py/test_all.py）
+  经差异核验为运行版严格超集后同步（源码库 test_all 77/77 复现）。
+- fix(sync·破坏性): sync.ps1 Apply-Merge 对「单元素数组」源文件失败——$src + $extra 抛 InvalidOperation 后
+  未中止，以 $null 落盘把 src/engine/evo/rules/success_patterns_archive.json 写成 **0 字节**（已 git checkout 还原）。
+  修：① 合并一律 @($src) + @($extra) 强制成数组；② Write-JsonPretty 增 $null/空串拒写 + tmp→Replace 原子写；
+  ③ Replace 第三参不可传 $null（PS 会转空串 → "The path is not of a legal form"），改传真实备份路径。
+- chore(回灌): 运行版规则 → 源码库。interception 81→91（+10；剔除 1 条含机器路径垃圾 id）、
+  interception-archive 206→207、success_patterns-archive 1→12、meta_experiences 2→6（含本次事故 4 条元经验）。
+  逐条与 HEAD 语义比对：零丢失、零改动。规则仍余 2 条有意排除的机器路径条目（src 保持干净）。
+- chore(同步): 插件缓存副本 3.9.11+codex.20260827043233 与源码库对齐，35 个文件
+  （hooks×2 / engine×12 / references×8 / skills/diegin×10 / 顶层×3），排除 __pycache__、var/ 运行态与备份件。
+- feat(可观测): ACTION-MEMORY 审计日志加钩子前缀（[pre_tool] store/store_skip；[pre_reply]
+  deliver/skip_seen/skip_stale）——原先两钩子共用同一标签，投递证据无法分辨（本次排查即被误导）；
+  pre_reply 的 seen 文件写失败由静默 catch 改为可见日志。
+- 验证(收尾): 用 call_id 精确配对审计 logs.db 前后对比——修复前 21 次夹断全部为 message(developer)，
+  修复后 0 次（135+ 请求）；会话 rollout 实测 4 次 UserPromptSubmit 注入送达；隔离复跑 pre_reply 的
+  additionalContext 尾部确含「[行动时刻记忆] 命中规则的行动正文」段。
+- 说明: 11:05 那次注入未进上下文系**会话压缩**（rollout 中 compacted 记录 @11:10:22）所致，非行动记忆缺陷。
 ## v3.10.2+ L1 沙漏流动模型·翻转/360停驻/读写平衡 (2026-09-06, 人工受权实施)
 
 - feat: shalou.flip 新模块——翻转机制(自然/逆向/方向/蓄势/主动)、360度任意角度停驻(0正放/90侧放/180倒放/任意角度混合)、读写平衡协议(读写在内核 add_unit/retrieve 打点，写>读→自然翻转、读>写→逆向翻转、沙量失衡/规则沉积/方向漂移触发)
