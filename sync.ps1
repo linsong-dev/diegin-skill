@@ -416,6 +416,97 @@ function SKILL-Sync {
     }
     if ($copied -eq 0) { OK "nothing to copy" }
 }
+# ──────────────────────────────────────────────────
+# [2026-09-13 新增] 代码/配置副本守卫（修复「读写旧内容」根因）
+# 病根：同一份代码存在多份副本（运行版 / 插件缓存 / 技能镜像）且无一致性闸门
+# → 修复写在一份、读取走另一份 → 反复崩溃。此处做全树 hash 比对。
+# ──────────────────────────────────────────────────
+function Get-DieginRoots {
+    $codexHome = Split-Path $dieginRoot -Parent
+    $r = [ordered]@{}
+    $r["runtime"] = $dieginRoot
+    $r["skills-mirror"] = (Join-Path $srcRoot "skills\diegin")
+    $cacheBase = Join-Path $codexHome "plugins\cache\personal\diegin"
+    if (Test-Path $cacheBase) {
+        $latest = Get-ChildItem $cacheBase -Directory -EA 0 | Sort-Object Name -Descending | Select-Object -First 1
+        if ($latest) { $r["plugin-cache"] = $latest.FullName }
+    }
+    return $r
+}
+
+function Test-TreeDiff {
+    param($relDir, $skipPattern, $excludeSub)
+    $ref = Join-Path $srcRoot $relDir
+    if (-not (Test-Path $ref)) { WARN ("src missing: " + $relDir); return 1 }
+    $refFiles = Get-ChildItem $ref -Recurse -File -EA 0 | Where-Object {
+        if ($_.FullName -match $skipPattern) { return $false }
+        foreach ($x in $excludeSub) { if ($_.FullName -match $x) { return $false } }
+        return $true
+    }
+    $refHash = @{}
+    foreach ($f in $refFiles) { $refHash[$f.FullName.Substring($ref.Length)] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash }
+    $bad = 0
+    foreach ($k in (Get-DieginRoots).Keys) {
+        $dst = Join-Path (Get-DieginRoots)[$k] $relDir
+        if (-not (Test-Path $dst)) { DIF ($relDir + " missing at " + $k); $bad++; continue }
+        $n = 0
+        foreach ($rel in $refHash.Keys) {
+            $df = Join-Path $dst $rel
+            if (-not (Test-Path $df)) { DIF ($k + " missing: " + $rel); $bad++; $n++; continue }
+            if ((Get-FileHash -LiteralPath $df -Algorithm SHA256).Hash -ne $refHash[$rel]) { DIF ($k + " differs: " + $rel); $bad++; $n++ }
+        }
+        if ($n -eq 0) { OK ($relDir + " consistent @ " + $k) }
+    }
+    return $bad
+}
+
+# 只守「代码 + 配置」。排除：
+#   engine/evo/rules  — 规则数据面（运行版合法拥有独有条目，由 SR-Check 按设计处理）
+#   engine/workspace · engine/var — 运行时数据
+#   engine/config    — 运行时可调配置
+#   .pre_/.bak/.tmp  — 临时备份
+$script:ENG_SKIP = "\.pre_|\.bak|\.tmp|~$|__pycache__|\.pyc$"
+$script:ENG_EXCL = @("engine.evo.rules", "engine.workspace", "engine.var", "engine.config")
+
+function ENG-Check {
+    INF "Engine code/config: src→all copies (hash)"
+    $bad = 0
+    $bad += Test-TreeDiff "engine" $script:ENG_SKIP $script:ENG_EXCL
+    $bad += Test-TreeDiff "config" $script:ENG_SKIP @()
+    if ($bad -eq 0) { OK "engine + config consistent across all copies" }
+}
+
+function ENG-Sync {
+    INF "Engine/Config: src → copies (mirror)"
+    $targets = @()
+    foreach ($k in (Get-DieginRoots).Keys) { $targets += ,@($k, (Get-DieginRoots)[$k]) }
+    $n = 0
+    foreach ($pair in $targets) {
+        $k = $pair[0]; $root = $pair[1]
+        foreach ($sub in @("engine", "config", "hooks")) {
+            $s = Join-Path $srcRoot $sub; $d = Join-Path $root $sub
+            if (-not (Test-Path $s)) { continue }
+            $excl = if ($sub -eq "engine") { $script:ENG_EXCL } else { @() }
+            Get-ChildItem $s -Recurse -File -EA 0 | Where-Object {
+                if ($_.FullName -match $script:ENG_SKIP) { return $false }
+                foreach ($x in $excl) { if ($_.FullName -match $x) { return $false } }
+                return $true
+            } | ForEach-Object {
+                $rel = $_.FullName.Substring($s.Length)
+                $df = Join-Path $d $rel
+                $dd = Split-Path $df -Parent
+                if (-not (Test-Path $dd)) { New-Item -ItemType Directory -Path $dd -Force | Out-Null }
+                $need = $true
+                if (Test-Path $df) {
+                    if ((Get-FileHash -LiteralPath $df -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash) { $need = $false }
+                }
+                if ($need) { Copy-Item $_.FullName $df -Force; ACT ($k + ": " + $sub + $rel); $n++ }
+            }
+        }
+    }
+    if ($n -eq 0) { OK "engine/config/hooks already in sync" }
+}
+
 # ===== Main =====
 Write-Host "=== DGEN Sync v3 ===" -ForegroundColor Cyan
 Write-Host ("  Action: " + $Action)
@@ -424,13 +515,14 @@ Write-Host ("  RT:     " + $dieginRoot)
 Write-Host ""
 
 switch ($Action) {
-    "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check }
+    "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check; Write-Host ""; ENG-Check }
     "self-test"   { if (-not (Self-Test)) { exit 1 } }
     "sync-rules"  { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync }
     "sync-hooks"  { SH-Sync }
     "sync-refs"   { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; REF-Sync }
     "sync-skill"  { SKILL-Sync }
-    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync; Write-Host ""; SKILL-Sync }
+    "sync-eng"    { ENG-Sync }
+    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check; Write-Host ""; ENG-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync; SKILL-Sync; ENG-Sync }
     default {
         Write-Host "Usage: .\sync.ps1 <action>" -ForegroundColor Yellow
         Write-Host "  check       — 仅检查差异（默认）" -ForegroundColor Cyan
@@ -438,6 +530,7 @@ switch ($Action) {
         Write-Host "  sync-hooks  — 同步运行时钩子 → 源码库" -ForegroundColor Cyan
         Write-Host "  sync-refs   — 同步源码库参考资料 → 运行时（src→rt 单向）" -ForegroundColor Cyan
         Write-Host "  sync-skill  — 同步 SKILL.md 单一真源 → 运行时/市场源/插件缓存" -ForegroundColor Cyan
+        Write-Host "  sync-eng    — 同步 engine/config/hooks → 各副本" -ForegroundColor Cyan
         Write-Host "  sync-all    — 先检查，再同步全部" -ForegroundColor Cyan
         Write-Host "  self-test   — 自检（回归守卫：防破坏性写入）" -ForegroundColor Cyan
     }

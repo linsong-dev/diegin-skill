@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 import difflib
 import json
 import os
@@ -229,11 +230,7 @@ class TaskRegistry:
         for tid, t in self._tasks.items():
             if t.get("status") not in _RECOVERABLE_STATUSES:
                 continue
-            updated = t.get("updated_at", "")
-            try:
-                age = (now - datetime.datetime.fromisoformat(updated)).days
-            except Exception:
-                age = 0
+            age = self.task_age_days(tid, t, now)
             if age > SNAPSHOT_RETENTION_DAYS:
                 continue
             t_copy = dict(t)
@@ -461,17 +458,43 @@ class TaskRegistry:
         self._save()
         return True
 
+    @staticmethod
+    def task_age_days(tid: str, t: Dict[str, Any],
+                      now: "datetime.datetime | None" = None) -> int:
+        """任务年龄（天）—— 清理与归档共用口径。
+
+        [2026-09-13 修复] 原实现只读 updated_at 且解析失败即 age=0
+        ⇒ 实测 205 条无 updated_at、900 条无 created_at，这批任务被**永久豁免**清理，
+        清理机制接了线却从不生效。现三级回退：updated_at → created_at → task_id 内嵌日期。
+        """
+        if now is None:
+            now = datetime.datetime.now()
+        for key in ("updated_at", "created_at"):
+            v = t.get(key) or ""
+            if not v:
+                continue
+            try:
+                return (now - datetime.datetime.fromisoformat(v)).days
+            except Exception:
+                continue
+        m = re.match(r"task_(\d{8})_", str(tid or ""))
+        if m:
+            try:
+                return (now - datetime.datetime.strptime(m.group(1), "%Y%m%d")).days
+            except Exception:
+                pass
+        return 0
+
     def cleanup_expired(self, max_days: int = SNAPSHOT_RETENTION_DAYS) -> int:
-        """封存包保留30天，超时自动清理（completed/abandoned 与超时的 paused/blocked）"""
+        """封存包保留30天，超时自动清理（completed/abandoned 与超时的 paused/blocked）
+
+        [2026-09-13] 年龄口径改走 task_age_days（三级回退）。
+        """
         now = datetime.datetime.now()
         before = len(self._tasks)
         keep: Dict[str, Dict[str, Any]] = {}
         for tid, t in self._tasks.items():
-            updated = t.get("updated_at", t.get("created_at", ""))
-            try:
-                age = (now - datetime.datetime.fromisoformat(updated)).days
-            except Exception:
-                age = 0
+            age = self.task_age_days(tid, t, now)
             if age <= max_days or t.get("status") in _TERMINAL_STATUSES:
                 keep[tid] = t
         removed = before - len(keep)

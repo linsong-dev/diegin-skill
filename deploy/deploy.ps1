@@ -128,6 +128,37 @@ if ($config -notmatch 'marketplace.*personal') {
 Write-NoBOM -Path $configPath -Content $config
 Write-Step "  config.toml 已更新" "OK"
 
+# ── 6.5 刷新技能镜像（修复「读写旧内容」）──
+# [2026-09-13] 插件安装会把市场源（=本仓库）整份拷贝到缓存，
+# 而模型实际加载的是缓存里的 skills\diegin\SKILL.md。
+# 若 skills\diegin \u91cc的 engine/config/hooks 是旧副本 ⇒ 模型读到旧代码。
+# 故在安装前先把本仓库的 engine/config/hooks 镜像进去。
+$skillMirror = Join-Path $srcRoot "skills\diegin"
+if (Test-Path $skillMirror) {
+    $mirrored = 0
+    foreach ($sub in @("engine", "config", "hooks")) {
+        $s = Join-Path $srcRoot $sub; $dd = Join-Path $skillMirror $sub
+        if (-not (Test-Path $s)) { continue }
+        Get-ChildItem $s -Recurse -File -EA 0 | Where-Object {
+            $_.FullName -notmatch "\.pre_|\.bak|\.tmp|__pycache__|\.pyc$" -and
+            $_.FullName -notmatch "engine\\evo\\rules|engine\\workspace|engine\\var"
+        } | ForEach-Object {
+            $rel = $_.FullName.Substring($s.Length)
+            $df = Join-Path $dd $rel
+            $dp = Split-Path $df -Parent
+            if (-not (Test-Path $dp)) { New-Item -ItemType Directory -Path $dp -Force | Out-Null }
+            $need = $true
+            if (Test-Path $df) {
+                if ((Get-FileHash -LiteralPath $df -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash) { $need = $false }
+            }
+            if ($need) { Copy-Item $_.FullName $df -Force; $mirrored++ }
+        }
+    }
+    Write-Step ("  技能镜像已刷新: " + $mirrored + " 个文件") "OK"
+} else {
+    Write-Step "  未找到 skills\diegin，跳过镜像" "WARN"
+}
+
 # ── 7. 安装插件 ──
 Write-Step "阶段 7/7: 安装插件" "STEP"
 # Portable-aware codex CLI detection

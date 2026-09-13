@@ -481,6 +481,36 @@ def test_l1_user_flip_text():
     finally:
         _h._memory_db_path = _orig
 
+def test_constancy_age_fallback():
+    """恒常门年龄口径（2026-09-13 修复后回归锁）。
+
+    病根：cleanup_expired() 只读 updated_at，解析失败就 age=0
+    ⇒ 实测 205 条任务无 updated_at 被**永久豁免**清理；
+    "清理"机制接了线却从不生效。
+    现三级回退：updated_at → created_at → task_id 内嵌日期。
+    """
+    import datetime as _dt
+    import evo.constancy as _c
+    now = _dt.datetime(2026, 9, 13, 12, 0, 0)
+    TR = _c.TaskRegistry.task_age_days
+    # 1) updated_at 可用
+    a1 = TR("task_x", {"updated_at": "2026-09-10T00:00:00"}, now)
+    c1 = check("年龄·updated_at 优先", a1 == 3, str(a1))
+    # 2) updated_at 缺失 → created_at 回退（原实现在此返回 0）
+    a2 = TR("task_x", {"created_at": "2026-08-13T00:00:00"}, now)
+    c2 = check("年龄·回退 created_at", a2 == 31, str(a2))
+    # 3) 两者都无 → task_id 内嵌日期（原实现在此返回 0 ⇒ 永久豁免）
+    a3 = TR("task_20260813_101612_9e91a8", {}, now)
+    c3 = check("年龄·回退 task_id 日期", a3 == 31, str(a3))
+    # 4) 字段坏值（不是 ISO）也能走回退
+    a4 = TR("task_20260813_101612_9e91a8", {"updated_at": "not-a-date"}, now)
+    c4 = check("年龄·坏值不致永久豁免", a4 == 31, str(a4))
+    # 5) 真无法定年（无时间戳且 id 不含日期）→ 保守保留
+    a5 = TR("weird_id", {}, now)
+    c5 = check("年龄·无法定年则保守保留", a5 == 0, str(a5))
+    return c1 and c2 and c3 and c4 and c5
+
+
 def test_action_memory_channel():
     """行动时刻记忆（2026-09-12 第1项）：tool_pre 必须把命中规则的 action 正文带进 inject 通道
 
@@ -577,6 +607,8 @@ def main():
     test_l1_user_flip_text()
     print(f"\n--- 行动时刻记忆 (2026-09-12 第1项 受权实施) ---", flush=True)
     test_action_memory_channel()
+    print(f"\n--- 恒常门年龄口径 (2026-09-13 修复) ---", flush=True)
+    test_constancy_age_fallback()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

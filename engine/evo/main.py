@@ -2640,6 +2640,11 @@ def run_maintenance():
         _removed = _cg.cleanup_expired()
         if _removed:
             print(f"  [CLEAN] 恒常门超时任务快照清理: {_removed} 条")
+        # [2026-09-13 修复] 定稿第七章「快照全集保留 30 个、更早转冷存储」。
+        # 原实现 archive_old_snapshots() **全仓无调用方**，从未自动执行 ⇒ 压缩机制形同虚设。
+        _arch = _cg.archive_old_snapshots()
+        if _arch:
+            print(f"  [CLEAN] 快照全集超额转冷存储: {_arch} 条")
     except Exception as _ce:
         print(f"  [CLEAN] 恒常门清理跳过: {_ce}")
 
