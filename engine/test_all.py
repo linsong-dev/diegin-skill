@@ -595,6 +595,43 @@ def test_constancy_session_close():
             pass
 
 
+def test_constancy_cold_not_recoverable():
+    """恒常门·冷存储不再作为「未完成待办」（2026-09-13 修复）回归锁。
+
+    病根：archive_old_snapshots 把超出 30 条活跃窗口的任务压缩入冷库后，status 仍为
+    paused/blocked ⇒ find_recoverable 仍把它当待办返回，而入口只显示前 3 条
+    ⇒ 清完 3 条又冒 3 条（实测池 44 条 / 窗口 3 条），观感为「越用越多」。
+    本锁保证：① 未冷存的 paused 任务照常可恢复
+              ② 已冷存（归档）的任务不再出现在待办池
+              ③ 归档任务仍可按意图检索（归档 ≠ 丢失）
+    """
+    import tempfile, os as _os
+    import evo.constancy as _c
+    _orig = _c._TASKS_PATH
+    _dir = tempfile.mkdtemp(prefix="diegin_cold_")
+    try:
+        _c._TASKS_PATH = _os.path.join(_dir, "constancy_tasks.json")
+        reg = _c.TaskRegistry()
+        a = reg.begin("冷存回归锁任务", context={})
+        c1 = check("冷存·未归档任务照常可恢复",
+                   any(t.get("task_id") == a["task_id"] for t in reg.find_recoverable()))
+        reg._tasks[a["task_id"]]["cold_stored"] = True
+        reg._save()
+        c2 = check("冷存·归档任务不再进入待办池",
+                   not any(t.get("task_id") == a["task_id"] for t in reg.find_recoverable()))
+        c3 = check("冷存·归档任务仍可按意图检索",
+                   any(t.get("task_id") == a["task_id"]
+                       for t in reg.find_by_intent("冷存回归锁任务", top_k=5,
+                                                   shalou_fallback=False)))
+        return all([c1, c2, c3])
+    finally:
+        _c._TASKS_PATH = _orig
+        try:
+            import shutil as _sh
+            _sh.rmtree(_dir, ignore_errors=True)
+        except Exception:
+            pass
+
 def test_action_memory_channel():
     """行动时刻记忆（2026-09-12 第1项）：tool_pre 必须把命中规则的 action 正文带进 inject 通道
 
@@ -696,6 +733,7 @@ def main():
     print(f"\n--- 恒常门任务资格闸门/会话收口 (2026-09-13 受权·口径 A) ---", flush=True)
     test_constancy_goal_gate()
     test_constancy_session_close()
+    test_constancy_cold_not_recoverable()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

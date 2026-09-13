@@ -334,6 +334,14 @@ class TaskRegistry:
         for tid, t in self._tasks.items():
             if t.get("status") not in _RECOVERABLE_STATUSES:
                 continue
+            # [2026-09-13] 冷存储=已归档，不再作为「未完成待办」返回。
+            # 病根：archive_old_snapshots 把超出 30 条活跃窗口的任务压缩入冷库后，status 仍为
+            # paused/blocked ⇒ find_recoverable 仍把它当待办返回，而入口只显示前 3 条
+            # ⇒ 清完 3 条又冒 3 条（实测池 44 条 / 窗口 3 条），观感为「越用越多」。
+            # 注：只跳**原始** cold_stored（归档）；超长快照经 _cold_pointer 转指针者不受影响
+            #     （_cold_pointer 作用于副本 t_copy，不写回 self._tasks）。
+            if t.get("cold_stored"):
+                continue
             age = self.task_age_days(tid, t, now)
             if age > SNAPSHOT_RETENTION_DAYS:
                 continue

@@ -11,7 +11,7 @@ $codexHome  = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USE
 $dieginRoot = Join-Path $codexHome 'diegin'
 $auditLog   = Join-Path $dieginRoot 'var\logs\diegin_audit.log'
 $proxyLog   = Join-Path (Split-Path $codexHome -Parent) 'KeySync-Bridge\strip-proxy.log'
-if (-not (Test-Path $proxyLog)) { $proxyLog = 'E:\项目\Codex_便携版\KeySync-Bridge\strip-proxy.log' }
+# [2026-09-13] 原此处硬编码个人路径回退，但其值与上一行 Join-Path 推导完全相同（重复），删除。
 
 $since = (Get-Date).AddMinutes(-1 * $Minutes)
 function Emit { param([string]$Tag,[string]$Msg,[string]$Color='Gray') Write-Host ("  [" + $Tag + "] " + $Msg) -ForegroundColor $Color }

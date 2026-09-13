@@ -7,7 +7,7 @@ function WARN { param([string]$m) Write-Host ("  [WARN] " + $m) -ForegroundColor
 function INF { param([string]$m) Write-Host ("  ...  " + $m) -ForegroundColor Cyan }
 function ACT { param([string]$m) Write-Host ("  [>>>] " + $m) -ForegroundColor Magenta }
 # [2026-09-13] 已知「有意不发布」的运行时独有条目：id 内嵌机器绝对路径的自动生成垃圾条目
-# （形如 $py='c:\users\administrator\.cache\...'）。它们留在运行版、不进源码库
+# （形如 $py='$env:USERPROFILE\.cache\...'）。它们留在运行版、不进源码库
 # （沿用 2026-09-03「剔除含路径垃圾条目」做法）。登记在此后，check 会标为「已知排除」
 # 而非差异，防止未来把长期漂移误判为新异常。
 $script:KnownExcludedIdPattern = '\$py='
@@ -218,61 +218,59 @@ function SH-Sync {
 # ──────────────────────────────────────────────────
 # References: 源码库参考资料 → 运行时（src→rt 单向，源码库为权威）
 # ──────────────────────────────────────────────────
+# [2026-09-13] REF 盲区修复：原实现只比对/同步 <runtime>\references，镜像
+# （srcRoot\skills\diegin、插件缓存根与内嵌 skills\diegin）永不同步 ⇒ 与 ENG 同类漂移
+# （实测 references\ACCEPTANCE_REGISTER.md 在 src 镜像落后一版）。现按 Get-DieginRoots 遍历。
 function REF-Check {
-    INF "References: src→runtime (diff)"
-    $sd = Join-Path $srcRoot "references"; $rd = Join-Path $dieginRoot "references"
+    INF "References: src → all copies (diff)"
+    $sd = Join-Path $srcRoot "references"
     $sf = Get-ChildItem $sd -Filter "*.md" -EA 0
-    $rf = Get-ChildItem $rd -Filter "*.md" -EA 0
-    $rn = @{}
-    foreach ($f in $rf) { $rn[$f.Name] = $true }
-    $diffCount = 0
-    foreach ($f in $sf) {
-        if (-not $rn.ContainsKey($f.Name)) { DIF ("missing in rt: " + $f.Name); $diffCount++; continue }
-        $rfPath = Join-Path $rd $f.Name
-        $rc = [System.IO.File]::ReadAllBytes($rfPath)
-        $sc = [System.IO.File]::ReadAllBytes($f.FullName)
-        if ($rc.Length -ne $sc.Length) { DIF ($f.Name + " content differs"); $diffCount++ }
-        else {
-            $same = $true
-            for ($i = 0; $i -lt $rc.Length; $i++) { if ($rc[$i] -ne $sc[$i]) { $same = $false; break } }
-            if (-not $same) { DIF ($f.Name + " content differs"); $diffCount++ }
-            else { OK ($f.Name + " consistent") }
+    $bad = 0
+    foreach ($k in (Get-DieginRoots).Keys) {
+        $rd = Join-Path (Get-DieginRoots)[$k] "references"
+        $n = 0
+        foreach ($f in $sf) {
+            $dp = Join-Path $rd $f.Name
+            if (-not (Test-Path -LiteralPath $dp)) { DIF ($k + " missing: " + $f.Name); $bad++; $n++; continue }
+            $rc = [System.IO.File]::ReadAllBytes($dp)
+            $sc = [System.IO.File]::ReadAllBytes($f.FullName)
+            if ($rc.Length -ne $sc.Length) { DIF ($k + " differs: " + $f.Name); $bad++; $n++; continue }
+            $sm = $true
+            for ($i = 0; $i -lt $rc.Length; $i++) { if ($rc[$i] -ne $sc[$i]) { $sm = $false; break } }
+            if (-not $sm) { DIF ($k + " differs: " + $f.Name); $bad++; $n++ }
         }
+        if ($n -eq 0) { OK ($k + ": references consistent") }
     }
-    if ($diffCount -eq 0) { OK "all references consistent" }
+    if ($bad -eq 0) { OK "all references consistent across copies" }
 }
 
 function REF-Sync {
-    INF "References: runtime ← src (sync)"
-    $sd = Join-Path $srcRoot "references"; $rd = Join-Path $dieginRoot "references"
-    if (-not (Test-Path $rd)) { New-Item -ItemType Directory -Path $rd -Force | Out-Null }
+    INF "References: all copies ← src (sync)"
+    $sd = Join-Path $srcRoot "references"
     $sf = Get-ChildItem $sd -Filter "*.md" -EA 0
     $copied = 0
-    foreach ($f in $sf) {
-        $rf = Join-Path $rd $f.Name
-        $needsCopy = $false
-        if (-not (Test-Path $rf)) { $needsCopy = $true }
-        else {
-            $rc = [System.IO.File]::ReadAllBytes($rf)
-            $sc = [System.IO.File]::ReadAllBytes($f.FullName)
-            if ($rc.Length -ne $sc.Length) { $needsCopy = $true }
-            else {
-                for ($i = 0; $i -lt $rc.Length; $i++) { if ($rc[$i] -ne $sc[$i]) { $needsCopy = $true; break } }
+    foreach ($k in (Get-DieginRoots).Keys) {
+        $rd = Join-Path (Get-DieginRoots)[$k] "references"
+        if (-not (Test-Path $rd)) { New-Item -ItemType Directory -Path $rd -Force | Out-Null }
+        foreach ($f in $sf) {
+            $dp = Join-Path $rd $f.Name
+            $need = $true
+            if (Test-Path -LiteralPath $dp) {
+                $rc = [System.IO.File]::ReadAllBytes($dp)
+                $sc = [System.IO.File]::ReadAllBytes($f.FullName)
+                if ($rc.Length -eq $sc.Length) {
+                    $sm = $true
+                    for ($i = 0; $i -lt $rc.Length; $i++) { if ($rc[$i] -ne $sc[$i]) { $sm = $false; break } }
+                    if ($sm) { $need = $false }
+                }
             }
-        }
-        if ($needsCopy) {
-            Copy-Item $f.FullName $rf -Force
-            ACT ("references: " + $f.Name + " → runtime")
-            $copied++
-        } else {
-            OK ($f.Name + " consistent")
+            if ($need) { Copy-Item -LiteralPath $f.FullName -Destination $dp -Force; ACT ($k + ": references/" + $f.Name); $copied++ }
         }
     }
-    if ($copied -gt 0) { Write-Host ("  synced " + $copied + " files to runtime") -ForegroundColor Green }
+    if ($copied -gt 0) { Write-Host ("  synced " + $copied + " reference file(s)") -ForegroundColor Green }
+    else { OK "references already in sync across copies" }
 }
 
-# [P4-20260806] 发布门禁：变更-验证绑定（ACC-QRY-004/005）
-# 变更日志存在且含 verification=failed/error → 中止同步（无验证变更不得流入发布）
 function Test-PublishGate {
     param([string]$StateDir)
     $cl = Join-Path $StateDir "dgen_change_log.json"
@@ -344,7 +342,7 @@ function Self-Test {
         Chk "T3 无 bak 残留" ($bakLeft -eq 0) ("left=" + $bakLeft)
 
         # T4: 已知排除分类器
-        $isExcluded = ('pat_rule_x_$py=c:\users\administrator\.cache\y' -match $script:KnownExcludedIdPattern)
+        $isExcluded = ('pat_rule_x_$py=$env:USERPROFILE\.cache\y' -match $script:KnownExcludedIdPattern)
         $notExcluded = -not ('rule_normal_abc' -match $script:KnownExcludedIdPattern)
         Chk "T4 机器路径条目被判为已知排除" $isExcluded
         Chk "T4 正常条目不被误判" $notExcluded
@@ -429,7 +427,14 @@ function Get-DieginRoots {
     $cacheBase = Join-Path $codexHome "plugins\cache\personal\diegin"
     if (Test-Path $cacheBase) {
         $latest = Get-ChildItem $cacheBase -Directory -EA 0 | Sort-Object Name -Descending | Select-Object -First 1
-        if ($latest) { $r["plugin-cache"] = $latest.FullName }
+        if ($latest) {
+            $r["plugin-cache"] = $latest.FullName
+            # [2026-09-13] 插件缓存内的嵌套技能镜像。模型加载的正是 <ver>\skills\diegin\SKILL.md，
+            # 而 SKILL.md 用相对路径引用 engine/evo/rules 等 ⇒ 此处陈旧时模型会读到旧引擎/旧钩子。
+            # 实测 2026-09-13：cache 根已最新，此镜像落后 3 小时（engine/hooks 共 59 个文件漂移）。
+            $nested = Join-Path $latest.FullName "skills\diegin"
+            if (Test-Path $nested) { $r["plugin-cache-skills"] = $nested }
+        }
     }
     return $r
 }
@@ -465,7 +470,7 @@ function Test-TreeDiff {
 #   engine/workspace · engine/var — 运行时数据
 #   engine/config    — 运行时可调配置
 #   .pre_/.bak/.tmp  — 临时备份
-$script:ENG_SKIP = "\.pre_|\.bak|\.tmp|~$|__pycache__|\.pyc$"
+$script:ENG_SKIP = "\.pre_|\.bak|\.tmp|~$|__pycache__|\.pyc$|\\\.venv\\"
 $script:ENG_EXCL = @("engine.evo.rules", "engine.workspace", "engine.var", "engine.config")
 
 function ENG-Check {
@@ -483,7 +488,8 @@ function ENG-Sync {
     $n = 0
     foreach ($pair in $targets) {
         $k = $pair[0]; $root = $pair[1]
-        foreach ($sub in @("engine", "config", "hooks")) {
+        # bin 亦纳入（自带 确保交付件可打开.ps1 供交付环境自愈门使用）；ENG_SKIP 已排除 .venv。
+        foreach ($sub in @("engine", "config", "hooks", "bin")) {
             $s = Join-Path $srcRoot $sub; $d = Join-Path $root $sub
             if (-not (Test-Path $s)) { continue }
             $excl = if ($sub -eq "engine") { $script:ENG_EXCL } else { @() }
@@ -507,6 +513,60 @@ function ENG-Sync {
     if ($n -eq 0) { OK "engine/config/hooks already in sync" }
 }
 
+# [2026-09-13] 本地缓存对齐：运行版 → 插件缓存（版本根 + 其内 skills\diegin 镜像）
+# 为什么需要：模型加载的是 <cache>\<ver>\skills\diegin\SKILL.md，而 SKILL.md 用**相对路径**
+#   引用 engine/evo/rules 等 ⇒ 该镜像陈旧时模型会读到旧引擎/旧规则（实测 2026-09-13：
+#   镜像落后运行版 3 小时；engine/hooks/config 23 个文件漂移，references/rules 亦不同步）。
+# 不变量：本地插件缓存 ≡ 运行版（缓存是本地派生物）。
+# ★ 故意不碰 skills-mirror（= 源码库 skills\diegin）——那在**发布库**里，须遵守脱敏要求，
+#   不得回灌运行时独有内容（如含个人路径的 archive\HANDOVER、运行时 trail）。
+function CACHE-Sync {
+    INF "Plugin cache mirrors: runtime → cache (root + skills\diegin)"
+    $codexHome = Split-Path $dieginRoot -Parent
+    $cacheBase = Join-Path $codexHome "plugins\cache\personal\diegin"
+    if (-not (Test-Path $cacheBase)) { DIF "cache base missing"; return }
+    $latest = Get-ChildItem $cacheBase -Directory -EA 0 | Sort-Object Name -Descending | Select-Object -First 1
+    if (-not $latest) { DIF "cache version dir missing"; return }
+    $targets = @($latest.FullName)
+    $nested = Join-Path $latest.FullName "skills\diegin"
+    if (Test-Path $nested) { $targets += $nested }
+    # bin 亦随插件同步（自带 确保交付件可打开.ps1 供交付环境自愈门使用）；.venv 为可重装依赖，排除。
+    $skip = "\.pre_|\.bak|\.tmp|~$|__pycache__|\.pyc$|\\\.venv\\"
+    $subs = @("engine", "hooks", "config", "references", "agents", "bin")
+    $rootFiles = @("SKILL.md", "AGENTS.md", "CHANGELOG.md", "README.md", "README.en.md")
+    $n = 0
+    foreach ($t in $targets) {
+        $label = $t.Replace($cacheBase, "cache")
+        foreach ($sub in $subs) {
+            $s = Join-Path $dieginRoot $sub
+            if (-not (Test-Path $s)) { continue }
+            Get-ChildItem $s -Recurse -File -EA 0 | Where-Object {
+                if ($_.FullName -match $skip) { return $false }
+                if ($_.FullName -match "engine.workspace|engine.var") { return $false }
+                return $true
+            } | ForEach-Object {
+                $rel = $_.FullName.Substring($dieginRoot.Length)
+                $df = Join-Path $t $rel
+                $dd = Split-Path $df -Parent
+                if (-not (Test-Path $dd)) { New-Item -ItemType Directory -Path $dd -Force | Out-Null }
+                $need = $true
+                if (Test-Path $df) {
+                    if ((Get-FileHash -LiteralPath $df -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash) { $need = $false }
+                }
+                if ($need) { Copy-Item $_.FullName $df -Force; ACT ($label + ": " + $rel); $n++ }
+            }
+        }
+        foreach ($rf in $rootFiles) {
+            $s = Join-Path $dieginRoot $rf
+            if (-not (Test-Path $s)) { continue }
+            $df = Join-Path $t $rf
+            $need = $true
+            if (Test-Path $df) { if ((Get-FileHash -LiteralPath $df -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $s -Algorithm SHA256).Hash) { $need = $false } }
+            if ($need) { Copy-Item $s $df -Force; ACT ($label + ": " + $rf); $n++ }
+        }
+    }
+    if ($n -eq 0) { OK "cache mirrors already in sync" } else { Write-Host ("  synced " + $n + " files to cache mirrors") -ForegroundColor Green }
+}
 # ===== Main =====
 Write-Host "=== DGEN Sync v3 ===" -ForegroundColor Cyan
 Write-Host ("  Action: " + $Action)
@@ -522,7 +582,8 @@ switch ($Action) {
     "sync-refs"   { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; REF-Sync }
     "sync-skill"  { SKILL-Sync }
     "sync-eng"    { ENG-Sync }
-    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check; Write-Host ""; ENG-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync; SKILL-Sync; ENG-Sync }
+    "sync-cache"  { CACHE-Sync }
+    "sync-all"    { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check; Write-Host ""; SKILL-Check; Write-Host ""; ENG-Check; Write-Host ""; if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync; SH-Sync; REF-Sync; SKILL-Sync; ENG-Sync; CACHE-Sync }
     default {
         Write-Host "Usage: .\sync.ps1 <action>" -ForegroundColor Yellow
         Write-Host "  check       — 仅检查差异（默认）" -ForegroundColor Cyan
@@ -531,6 +592,7 @@ switch ($Action) {
         Write-Host "  sync-refs   — 同步源码库参考资料 → 运行时（src→rt 单向）" -ForegroundColor Cyan
         Write-Host "  sync-skill  — 同步 SKILL.md 单一真源 → 运行时/市场源/插件缓存" -ForegroundColor Cyan
         Write-Host "  sync-eng    — 同步 engine/config/hooks → 各副本" -ForegroundColor Cyan
+        Write-Host "  sync-cache  — 运行版 → 插件缓存镜像（本地缓存对齐，含 rules/references）" -ForegroundColor Cyan
         Write-Host "  sync-all    — 先检查，再同步全部" -ForegroundColor Cyan
         Write-Host "  self-test   — 自检（回归守卫：防破坏性写入）" -ForegroundColor Cyan
     }

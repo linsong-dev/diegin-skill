@@ -54,3 +54,22 @@
 - 非目标：不侵入 checkpush 本体（独立工具）；不改既有验证命令。
 - 实现任务：sync.ps1 新增 Test-PublishGate 函数并接入 sync-rules/sync-all；修复 PS 5.1 无 BOM UTF-8 中文解码坑（给 sync.ps1 加 UTF-8 BOM，与 hooks/*.ps1 约定一致）。
 - 验证证据：门禁三场景测试通过（无日志→true / 全 passed→true / 含 failed→false）；sync.ps1 语法 0 错误。
+
+### ACC-OPS-007 — 运行态审计与三端对齐（2026-09-13 done）
+- 意图：收敛「运行中的迭进/沙漏一片混乱」的真实病灶——三端副本漂移（AI 反复读到旧引擎）、交付目录指向废弃目录、每夜维护停摆 10 天、恒常门待办只进不出；并补上会长期复发的守卫，避免下次再漂。
+- 验收标准：① 模型加载的技能目录 `plugins\cache\personal\diegin\<ver>\skills\diegin` 与运行版在 engine/hooks/config/references/SKILL.md 上一致（rules 允许仅即时字段不同）；② 会话 cwd 下 `outputs` 可解析、交付环境自愈门 exit=0；③ `find_recoverable()` 不再把已冷存（归档）任务当未完成待办返回；④ 每夜批处理有承载且实测成功；⑤ 运行版无 `.pre_/.bak` 残留；引擎自检 status=ok、failed_checks=[]；test_all 全过。
+- 非目标：不改规则数据面（`engine/evo/rules` 运行版独有条目仍走 SR-Sync 既有合并设计）；不破坏源码库镜像的脱敏约束；**不推送含个人绝对路径的提交**（见下「遗留」）。
+- 实现任务：① `sync.ps1` 补盲区——`Get-DieginRoots` 纳入插件缓存内嵌 `skills\diegin`，并新增 `sync-cache` 动作（运行版 → 插件缓存根 + skill 镜像，含 rules/references）；② 重指会话 `outputs` 目录联接到 `%DEV_ROOT%\文档`（原指向 2026-08-14 legacy 僵尸目录）；③ `constancy.py`：`find_recoverable` 跳过**原始** `cold_stored`（归档 ≠ 待办；超长快照经 `_cold_pointer` 的不受影响），并补 3 条回归锁；④ 重建 `DGEN-Cron-Batch` 计划任务（本地工具脚本 `diegin_cron_batch.ps1`，含计划任务上下文控制台编码修正）；⑤ 清理运行版 102 个 `.pre_/.bak`（9.3MB）与沙漏旧库备份（释放 32.5MB，保留最新回滚点）。
+- 验证证据：
+  - 五副本哈希一致 —— `engine/evo/constancy.py` = `44FDB069`、`engine/test_all.py` = `2F1DE82E`、`sync.ps1` = `E7DD89EC`（runtime = src-repo = src(skills) = cache(root) = cache(skills)）。
+  - `outputs` → `%DEV_ROOT%\文档`；相对路径实测可解析；`确保交付件可打开.ps1` 返回 exit=0（幂等）。
+  - `find_recoverable()` 44 条 → 0 条；`test_all.py` 102/102 通过（含新增冷存回归锁 3 条：未归档可恢复 / 归档不进待办池 / 归档仍可意图检索）。
+  - `Get-ScheduledTask DGEN-Cron-Batch` State=Ready、每日 23:30、`Start-ScheduledTask` 实测 LastTaskResult=0；`diegin_cron` 三项作业（downtime_maintenance / deep_review / health_report）当日补跑成功，failures={}。
+  - 运行版 `.pre_/.bak` 残留=0；`diegin_self_check` status=ok、failed_checks=[]、dead_rule_count=0、fake_evidence_count=0、baseline_regressions=[]。
+- 遗留处置（同日按「运行期路径外置」方案收敛，`checkpush audit` 由 10 处阻断 → **0**）：
+
+  - `hooks/diegin_pre_tool.ps1`（交付环境自愈门 A-1H）：脚本路径外置为 `$env:DGEN_DELIVER_HEAL_SCRIPT` → `$env:DGEN_DEV_ROOT`/`$env:DEV_ROOT` 推导 → 均未设则跳过（仅记录不阻断）。
+  - `bin/dgen-hook-verify.ps1`：删除与上一行 `Join-Path` 推导**完全重复**的硬编码回退（语义等价）。
+  - `sync.ps1` / `config/requirements.toml` / `engine/evo/rules/interception_rules.json` / `references/钩子事件契约与注入位置矩阵_2026-09-13.md`：改为 `%DEV_ROOT%` / `$env:USERPROFILE` 占位，或改用 `Join-Path (Split-Path $env:CODEX_HOME -Parent) ...` 等**可解析写法**。
+  - 本机用户级环境变量 `DGEN_DEV_ROOT`、`DEV_ROOT`、`DGEN_DELIVER_HEAL_SCRIPT` 已设置，保证运行期行为与原硬编码等价。
+  - 说明：`OpenAI.Codex`/`KeySync-Bridge` 位于便携版**根目录**下（而非 `.codex` 自身），故未套用 `%CODEX_HOME%`——那会把 `<便携版根>` 展开成错误的双重 `.codex` 层级。

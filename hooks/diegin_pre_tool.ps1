@@ -438,13 +438,32 @@ if ($isA1Delivery -and -not $command.Contains('A1_DELIVER_PRE')) {
 if ($isA1Delivery) {
     try {
         $wsRoot = (Get-Location).Path
-        $healScript = 'E:\项目\开发\TOOL\确保交付件可打开.ps1'
+        # [2026-09-13] 路径外置 + 插件自带：发布体不得内嵌个人绝对路径（checkpush audit SENSITIVE 阻断），
+        # 同时让插件自包含、可移植。解析顺序（取第一个实际存在者）：
+        #   ① $env:DGEN_DELIVER_HEAL_SCRIPT（显式指定，用于覆盖）
+        #   ② $env:DGEN_DEV_ROOT / $env:DEV_ROOT + TOOL\确保交付件可打开.ps1（开发机共享工具）
+        #   ③ <插件根>\bin\确保交付件可打开.ps1（随插件发布；便携、无个人路径依赖）
+        # 三者皆无 → 保持空 → 下游记 SKIP heal_script_missing（仅记录，不阻断）。
+        # 注：2026-09-13 实测，若此处解析为空而下游直接 Test-Path，会抛
+        #     "Cannot bind argument to parameter 'LiteralPath' because it is null" ⇒ 下游已加空值短路。
+        $healScript = $env:DGEN_DELIVER_HEAL_SCRIPT
+        if (-not $healScript) {
+            $devRoot = if ($env:DGEN_DEV_ROOT) { $env:DGEN_DEV_ROOT } else { $env:DEV_ROOT }
+            if ($devRoot) {
+                $cand = Join-Path $devRoot 'TOOL\确保交付件可打开.ps1'
+                if (Test-Path -LiteralPath $cand) { $healScript = $cand }
+            }
+        }
+        if (-not $healScript) {
+            $cand = Join-Path $g_pr 'bin\确保交付件可打开.ps1'
+            if (Test-Path -LiteralPath $cand) { $healScript = $cand }
+        }
         $deliverAbs = ""
         $mPath = [regex]::Match([string]$command, '(?i)([A-Za-z]:[\\/][^\s"''<>|;)\],]*?\.(?:md|txt))')
         if ($mPath.Success) { $deliverAbs = ($mPath.Groups[1].Value -replace '/', '\') }
         if (-not $deliverAbs) {
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] SKIP no_abs_path cwd=$wsRoot"
-        } elseif (-not (Test-Path -LiteralPath $healScript)) {
+        } elseif (-not $healScript -or -not (Test-Path -LiteralPath $healScript)) {
             Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:A1-HEAL] SKIP heal_script_missing"
         } else {
             $deliverDirAbs = Split-Path -Parent $deliverAbs
