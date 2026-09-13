@@ -72,4 +72,5 @@
   - `bin/dgen-hook-verify.ps1`：删除与上一行 `Join-Path` 推导**完全重复**的硬编码回退（语义等价）。
   - `sync.ps1` / `config/requirements.toml` / `engine/evo/rules/interception_rules.json` / `references/钩子事件契约与注入位置矩阵_2026-09-13.md`：改为 `%DEV_ROOT%` / `$env:USERPROFILE` 占位，或改用 `Join-Path (Split-Path $env:CODEX_HOME -Parent) ...` 等**可解析写法**。
   - 本机用户级环境变量 `DGEN_DEV_ROOT`、`DEV_ROOT`、`DGEN_DELIVER_HEAL_SCRIPT` 已设置，保证运行期行为与原硬编码等价。
-  - 说明：`OpenAI.Codex`/`KeySync-Bridge` 位于便携版**根目录**下（而非 `.codex` 自身），故未套用 `%CODEX_HOME%`——那会把 `<便携版根>` 展开成错误的双重 `.codex` 层级。
+  - 说明：`OpenAI.Codex`/`KeySync-Bridge` 位于便携版**根目录**下（而非 `.codex` 自身），故未套用 `%CODEX_HOME%`——那会把 `<便携版根>` 展开成错误的双重 `.codex` 层级
+- 推送结果（2026-09-13 完成）：提交 `528510e`，`origin/main` 已同步 **0/0**；远端 `hooks/diegin_pre_tool.ps1` 实测含 `DGEN_DELIVER_HEAL_SCRIPT`、**不含**个人路径。首次推送遇 `curl 55 Connection was reset`（直连抖动，本机无可用代理）；设 `http.postBuffer=500MB` + `http.version=HTTP/1.1` 后重试成功。- 待办（非本次范围）：源码库 `pytest` 有 **15 项既有失败**（与 `git stash` 后的 HEAD 基线逐条比对**完全一致**，非本次引入），集中在 `tests/evo/test_constancy_track.py`（旧行为断言，与 2026-09-13「任务资格闸门」新契约不符）、`test_self_mirror`、`test_nine_chapters_integration`、`tests/shalou/test_core.py`；另有 3 条 `GIT-HISTORY` 敏感串警告（需重写历史 + force push，人工决策）。。

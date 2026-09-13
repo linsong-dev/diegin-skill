@@ -67,3 +67,7 @@ engine/evo/晨核一键.py
 engine/evo/论文复盘.py
 engine/evo/盘后闭环_daily.ps1
 var/reports/
+
+# [2026-09-13] 运行期/测试产物（pytest 与钩子生成，勿入库）
+tests/shalou/_test_db/
+var/logs/*.jsonl
