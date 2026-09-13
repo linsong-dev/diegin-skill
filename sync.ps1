@@ -6,6 +6,11 @@ function DIF { param([string]$m) Write-Host ("  [!]  " + $m) -ForegroundColor Ye
 function WARN { param([string]$m) Write-Host ("  [WARN] " + $m) -ForegroundColor Red }
 function INF { param([string]$m) Write-Host ("  ...  " + $m) -ForegroundColor Cyan }
 function ACT { param([string]$m) Write-Host ("  [>>>] " + $m) -ForegroundColor Magenta }
+# [2026-09-13] 已知「有意不发布」的运行时独有条目：id 内嵌机器绝对路径的自动生成垃圾条目
+# （形如 $py='c:\users\administrator\.cache\...'）。它们留在运行版、不进源码库
+# （沿用 2026-09-03「剔除含路径垃圾条目」做法）。登记在此后，check 会标为「已知排除」
+# 而非差异，防止未来把长期漂移误判为新异常。
+$script:KnownExcludedIdPattern = '\$py='
 
 $srcRoot = $PSScriptRoot
 # Auto-detect diegin runtime root (portable-aware)
@@ -40,9 +45,21 @@ function Write-Json {
 
 function Write-JsonPretty {
     param($Path, $Obj)
+    # [FIX 2026-09-13] 空值防护 + 原子写：曾因 $Obj=$null 直接落盘 -> 源文件被写成 0 字节
+    # （success_patterns_archive.json 被截断，靠 git checkout 才恢复）。
+    if ($null -eq $Obj) { WARN ("refuse to write null -> " + $Path); return }
     # Pretty print with 2-space indent
     $json = $Obj | ConvertTo-Json -Depth 10
-    [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
+    if (-not $json -or $json.Trim() -eq "") { WARN ("refuse to write empty -> " + $Path); return }
+    $tmp = $Path + ".tmp_" + [System.Guid]::NewGuid().ToString("N")
+    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+    if ([System.IO.File]::Exists($Path)) {
+        # PS 会把 $null 第三参转成空串 -> "The path is not of a legal form"，必须给真实备份路径
+        $bak = $Path + ".bak_" + [System.Guid]::NewGuid().ToString("N")
+        [System.IO.File]::Replace($tmp, $Path, $bak)
+        if ([System.IO.File]::Exists($bak)) { [System.IO.File]::Delete($bak) }
+    }
+    else { [System.IO.File]::Move($tmp, $Path) }
 }
 
 function Merge-One {
@@ -51,11 +68,21 @@ function Merge-One {
     $run = Get-Json $runFile
     $ids = @{}; foreach ($x in $src) { $ids[$x["id"]] = $true }
     $extra = @(); foreach ($x in $run) { if (-not $ids.ContainsKey($x["id"])) { $extra += $x } }
-    if ($extra.Count -eq 0) { OK ($label + ": " + $src.Count + " (consistent)"); return $false }
+    # [2026-09-13] 区分「已知有意排除」与「真差异」：前者不报警、不计入待合并项
+    $excluded = @(); $pending = @()
+    foreach ($x in $extra) {
+        if ($x["id"] -match $script:KnownExcludedIdPattern) { $excluded += $x } else { $pending += $x }
+    }
+    foreach ($x in $excluded) { Write-Host ("      known-excluded: " + $x["id"]) -ForegroundColor DarkGray }
+    if ($pending.Count -eq 0) {
+        $suffix = if ($excluded.Count -gt 0) { " (consistent; " + $excluded.Count + " known-excluded)" } else { " (consistent)" }
+        OK ($label + ": " + $src.Count + $suffix)
+        return $false
+    }
     else {
-        DIF ($label + ": src=" + $src.Count + " +rt-only=" + $extra.Count + " = " + ($src.Count + $extra.Count))
-        foreach ($x in $extra) { Write-Host ("      rt-only: " + $x["id"]) -ForegroundColor DarkYellow }
-        return $extra
+        DIF ($label + ": src=" + $src.Count + " +rt-only=" + $pending.Count + " = " + ($src.Count + $pending.Count))
+        foreach ($x in $pending) { Write-Host ("      rt-only: " + $x["id"]) -ForegroundColor DarkYellow }
+        return $pending
     }
 }
 
@@ -67,7 +94,9 @@ function Apply-Merge {
     $extra = @(); foreach ($x in $run) { if (-not $ids.ContainsKey($x["id"])) { $extra += $x } }
     if ($extra.Count -eq 0) { OK ($label + ": " + $src.Count + " (already consistent)"); return }
     
-    $merged = $src + $extra
+    # [FIX 2026-09-13] @() 强制成数组：单元素数组反序列化后退化为标量/字典时，
+    # $src + $extra 会抛 InvalidOperation，随后以 $null 落盘把源文件清空。
+    $merged = @($src) + @($extra)
     Write-JsonPretty $srcFile $merged
     ACT ($label + ": merged " + $extra.Count + " runtime-only items → src (" + $merged.Count + " total)")
 }
@@ -133,7 +162,7 @@ function SR-Sync {
 function SH-Check {
     INF "Hooks: rt→src (diff)"
     $sd = Join-Path $srcRoot "hooks"; $rd = Join-Path $dieginRoot "hooks"
-    $files = @("diegin_pre_reply.ps1","diegin_pre_tool.ps1","diegin_post_tool.ps1","diegin_stop.ps1","diegin_session_start.ps1","diegin_notify.ps1","diegin_notify_wrapper.ps1","diegin_session_image_clean.ps1","monitor_v3.py","hooks.json")
+    $files = @("diegin_pre_reply.ps1","diegin_pre_tool.ps1","diegin_post_tool.ps1","diegin_stop.ps1","diegin_session_start.ps1","diegin_notify.ps1","diegin_notify_wrapper.ps1","diegin_session_image_clean.ps1","diegin_post_compact.ps1","monitor_v3.py","hooks.json")
     $diffCount = 0
     foreach ($f in $files) {
         $rf = Join-Path $rd $f; $sf = Join-Path $sd $f
@@ -159,7 +188,7 @@ function SH-Sync {
     INF "Hooks: runtime → src (sync)"
     $sd = Join-Path $srcRoot "hooks"; $rd = Join-Path $dieginRoot "hooks"
     if (-not (Test-Path $sd)) { New-Item -ItemType Directory -Path $sd -Force | Out-Null }
-    $files = @("diegin_pre_reply.ps1","diegin_pre_tool.ps1","diegin_post_tool.ps1","diegin_stop.ps1","diegin_session_start.ps1","diegin_notify.ps1","diegin_notify_wrapper.ps1","diegin_session_image_clean.ps1","monitor_v3.py","hooks.json")
+    $files = @("diegin_pre_reply.ps1","diegin_pre_tool.ps1","diegin_post_tool.ps1","diegin_stop.ps1","diegin_session_start.ps1","diegin_notify.ps1","diegin_notify_wrapper.ps1","diegin_session_image_clean.ps1","diegin_post_compact.ps1","monitor_v3.py","hooks.json")
     $copied = 0
     foreach ($f in $files) {
         $rf = Join-Path $rd $f; $sf = Join-Path $sd $f
@@ -267,6 +296,71 @@ function Test-PublishGate {
     }
 }
 
+# ===== Self-Test（回归守卫，2026-09-13）=====
+# 背景：Apply-Merge 曾在「单元素数组」源文件上抛 InvalidOperation 后仍以 $null 落盘，
+# 把 success_patterns_archive.json 写成 0 字节；Write-JsonPretty 曾把 $null 直接落盘。
+# 本自检把这两条真实故障固化成断言，防未来改脚本时再次引入同类破坏性写入。
+function Self-Test {
+    $script:stOk = 0; $script:stFail = 0
+    function Chk { param([string]$Name,[bool]$Cond,[string]$Detail="")
+        if ($Cond) { $script:stOk++; OK $Name }
+        else { $script:stFail++; WARN ("FAIL: " + $Name + $(if ($Detail) { " | " + $Detail } else { "" })) }
+    }
+    INF "Sync self-test (regression guard)"
+    $tmpDir = Join-Path $env:TEMP ("dgen_synctest_" + [System.Guid]::NewGuid().ToString("N").Substring(0,8))
+    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+    try {
+        # T1: 单元素数组源文件 —— 曾抛异常并清空文件
+        $t1 = Join-Path $tmpDir "single_src.json"
+        $t1run = Join-Path $tmpDir "single_run.json"
+        [System.IO.File]::WriteAllText($t1run, '[{"id":"a"},{"id":"b"}]', [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($t1, '[{"id":"a"}]', [System.Text.UTF8Encoding]::new($false))
+        $threw = $false
+        try { Apply-Merge $t1 $t1run "selftest-single" | Out-Null } catch { $threw = $true }
+        $len1 = 0; if (Test-Path $t1) { $len1 = (Get-Item $t1).Length }
+        Chk "T1 单元素数组合并不抛异常" (-not $threw)
+        Chk "T1 合并后文件非空" ($len1 -gt 0) ("size=" + $len1)
+        $mergedOk = $false
+        if ($len1 -gt 0) { try { $m = Get-Json $t1; $mergedOk = (@($m).Count -eq 2) } catch { $mergedOk = $false } }
+        Chk "T1 合并后语义正确(2 条)" $mergedOk
+
+        # T2: Write-JsonPretty 收到 $null —— 必须拒写且不动原文件
+        $t2 = Join-Path $tmpDir "null_target.json"
+        $orig2 = '[{"id":"keepme"}]'
+        [System.IO.File]::WriteAllText($t2, $orig2, [System.Text.UTF8Encoding]::new($false))
+        Write-JsonPretty -Path $t2 -Obj $null
+        $after2 = [System.IO.File]::ReadAllText($t2)
+        Chk "T2 null 输入不覆盖原文件" ($after2 -eq $orig2) ("now=" + $after2.Substring(0, [Math]::Min(30, $after2.Length)))
+
+        # T3: Write-JsonPretty 正常写入 —— 原子、无 tmp/bak 残留
+        $t3 = Join-Path $tmpDir "atomic_target.json"
+        Write-JsonPretty -Path $t3 -Obj @(@{id="x"})
+        $tmpLeft = @(Get-ChildItem $tmpDir -Filter "atomic_target.json.tmp_*" -EA 0).Count
+        $bakLeft = @(Get-ChildItem $tmpDir -Filter "atomic_target.json.bak_*" -EA 0).Count
+        $ok3 = $false
+        if (Test-Path $t3) { try { $ok3 = (@(Get-Json $t3).Count -eq 1) } catch { $ok3 = $false } }
+        Chk "T3 正常写入语义正确" $ok3
+        Chk "T3 无 tmp 残留" ($tmpLeft -eq 0) ("left=" + $tmpLeft)
+        Chk "T3 无 bak 残留" ($bakLeft -eq 0) ("left=" + $bakLeft)
+
+        # T4: 已知排除分类器
+        $isExcluded = ('pat_rule_x_$py=c:\users\administrator\.cache\y' -match $script:KnownExcludedIdPattern)
+        $notExcluded = -not ('rule_normal_abc' -match $script:KnownExcludedIdPattern)
+        Chk "T4 机器路径条目被判为已知排除" $isExcluded
+        Chk "T4 正常条目不被误判" $notExcluded
+
+        # T5: 自检未破坏脚本自身
+        Chk "T5 自检未破坏 sync.ps1" (Test-Path $PSCommandPath)
+    } finally {
+        if (Test-Path $tmpDir) { [System.IO.Directory]::Delete($tmpDir, $true) }
+    }
+    Write-Host ""
+    $total = $script:stOk + $script:stFail
+    if ($script:stFail -eq 0) { Write-Host ("  Result: " + $script:stOk + "/" + $total + " passed") -ForegroundColor Green }
+    else { Write-Host ("  Result: " + $script:stOk + "/" + $total + " passed (" + $script:stFail + " FAILED)") -ForegroundColor Red }
+    return ($script:stFail -eq 0)
+}
+
 # ===== Main =====
 Write-Host "=== DGEN Sync v3 ===" -ForegroundColor Cyan
 Write-Host ("  Action: " + $Action)
@@ -276,6 +370,7 @@ Write-Host ""
 
 switch ($Action) {
     "check"       { SR-Check; Write-Host ""; SH-Check; Write-Host ""; REF-Check }
+    "self-test"   { if (-not (Self-Test)) { exit 1 } }
     "sync-rules"  { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; SR-Sync }
     "sync-hooks"  { SH-Sync }
     "sync-refs"   { if (-not (Test-PublishGate -StateDir (Join-Path $dieginRoot "var\state"))) { exit 1 }; REF-Sync }
@@ -287,5 +382,6 @@ switch ($Action) {
         Write-Host "  sync-hooks  — 同步运行时钩子 → 源码库" -ForegroundColor Cyan
         Write-Host "  sync-refs   — 同步源码库参考资料 → 运行时（src→rt 单向）" -ForegroundColor Cyan
         Write-Host "  sync-all    — 先检查，再同步全部" -ForegroundColor Cyan
+        Write-Host "  self-test   — 自检（回归守卫：防破坏性写入）" -ForegroundColor Cyan
     }
 }
