@@ -2180,7 +2180,7 @@ if __name__ == "__main__":
                     pass
             _trk = constancy_track_prompt(prompt, source="pre_reply",
                                           current_task_id=constancy_current_task_id or None,
-                                          turn_id=turn_id)
+                                          turn_id=turn_id, session_id=session_id)
             if not constancy_current_task_id and _trk and _trk.get("task_id"):
                 constancy_current_task_id = _trk["task_id"]
             # 恒常门·完成自动信号：用户明确结束语 → 标记当前任务完成

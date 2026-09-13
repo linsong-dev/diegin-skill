@@ -210,6 +210,110 @@ class TaskRegistry:
             self._save()
         return archived
 
+    # ── 会话绑定与收口（2026-09-13 受权实施·恒常门任务资格闸门配套）────
+    # 旧行为：写侧每轮无条件 begin ⇒ 一条用户消息 = 一条任务，下一轮 suspend 上一条，
+    # 实测台账 933 条而真正恢复过仅 2 条（结构性只进不出）。现补两级：
+    #   ① 资格闸门（仅多轮目标语义立项，见 main.constancy_goal_gate）
+    #   ② 会话绑定 + 会话结束自动收口（未续接任务不跨会话占待办）
+    SESSION_KEEP_DAYS = 30
+
+    def _sessions_path(self) -> str:
+        base = "constancy_tasks.json"
+        if base in self._path:
+            return self._path.replace(base, "constancy_sessions.json")
+        return self._path + ".sessions.json"
+
+    def _load_sessions(self) -> Dict[str, Any]:
+        try:
+            p = self._sessions_path()
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and isinstance(data.get("sessions"), dict):
+                    return data
+        except Exception:
+            pass
+        return {"current": "", "sessions": {}}
+
+    def _save_sessions(self, data: Dict[str, Any]) -> None:
+        try:
+            p = self._sessions_path()
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            tmp = p + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, p)
+        except Exception:
+            pass
+
+    def bind_session(self, session_id: str, task_id: str) -> bool:
+        """会话绑定：同会话后续轮次续接该任务，不再逐轮新建（每会话每目标一条任务）"""
+        sid, tid = str(session_id or "").strip(), str(task_id or "").strip()
+        if not sid or not tid:
+            return False
+        try:
+            data = self._load_sessions()
+            sess = data.setdefault("sessions", {})
+            rec = sess.setdefault(sid, {"task_ids": [], "last_seen": ""})
+            ids = rec.setdefault("task_ids", [])
+            if tid not in ids:
+                ids.append(tid)
+                rec["task_ids"] = ids[-50:]
+            rec["last_seen"] = self._now_iso()
+            data["current"] = sid
+            self._save_sessions(data)
+            return True
+        except Exception:
+            return False
+
+    def session_sync(self, session_id: str, close_reason: str = "") -> str:
+        """会话级收口：会话切换 → 上一会话遗留的未续接任务自动收口。
+        返回本会话绑定的存活（paused/blocked）任务 id；无则 ""。
+        """
+        sid = str(session_id or "").strip()
+        if not sid:
+            return ""
+        data = self._load_sessions()
+        sess = data.setdefault("sessions", {})
+        now_iso = self._now_iso()
+        changed = False
+        # 1) 收口其它会话遗留的存活任务（会话已结束）
+        for other, rec in list(sess.items()):
+            if other == sid:
+                continue
+            for tid in list((rec or {}).get("task_ids") or []):
+                t = self._tasks.get(tid)
+                if t and t.get("status") in _RECOVERABLE_STATUSES:
+                    t["status"] = "abandoned"
+                    t["abandon_reason"] = str(close_reason or "会话结束自动收口")[:500]
+                    t["updated_at"] = now_iso
+                    changed = True
+        # 2) 过期会话记录清理（30 天），防止会话表自身无限增长
+        cutoff = datetime.datetime.now() - datetime.timedelta(days=self.SESSION_KEEP_DAYS)
+        for other in list(sess.keys()):
+            if other == sid:
+                continue
+            try:
+                last = str((sess.get(other) or {}).get("last_seen") or "")
+                if last and datetime.datetime.fromisoformat(last) < cutoff:
+                    sess.pop(other, None)
+            except Exception:
+                continue
+        # 3) 本会话在办任务
+        rec = sess.setdefault(sid, {"task_ids": [], "last_seen": ""})
+        rec["last_seen"] = now_iso
+        live = ""
+        for tid in list(rec.get("task_ids") or []):
+            t = self._tasks.get(tid)
+            if t and t.get("status") in _RECOVERABLE_STATUSES:
+                live = tid
+                break
+        data["current"] = sid
+        if changed:
+            self._save()
+        self._save_sessions(data)
+        return live
+
     def _cold_pointer(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """冷存储指针：仅加载核心字段（详细日志按需 RAG 检索）"""
         return {

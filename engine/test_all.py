@@ -511,6 +511,90 @@ def test_constancy_age_fallback():
     return c1 and c2 and c3 and c4 and c5
 
 
+def test_constancy_goal_gate():
+    """恒常门·任务资格闸门（2026-09-13 受权·口径 A）回归锁。
+
+    病根：写侧每轮无条件 begin ⇒ 一条用户消息 = 一条任务（台账 933 条，
+    真正恢复过仅 2 条）。本锁保证：单轮问答 / 环境注入不建任务，多轮目标语义才建。
+    """
+    from evo.main import constancy_goal_gate as G
+    # 1) 单轮问答 / 短指令 / 环境注入 / 附件块 → 不立项
+    _no = ["现在感觉，迭进 沙漏 一片混乱，感觉无从着手处理?",
+           "恒常门每轮自动建任务是有问题的对吗",
+           "全搞定他们", "先修", "以上内容你的建议是什么？",
+           "冒烟检查", "去看TQ 交易函数",
+           "去处理 codex://threads/01a09884-797f-7a81",
+           "<in-app-browser-context source=\"ambient-ui-state\">",
+           "# Files mentioned by the user:\n\n## 某文档:",
+           "# Overview\n\nGenerate 0 to 3 hyperpersonalized sugg"]
+    c1 = check("闸门·单轮问答不立项", not any(G(_x)["qualified"] for _x in _no),
+               "误建=%s" % [_x[:20] for _x in _no if G(_x)["qualified"]])
+    # 2) 多轮目标语义 → 立项（reason 即判据，供审计）
+    _yes = [("第一步 改闸门\n第二步 补回归锁", "steps>=2"),
+            ("1修闸门\n2补测试", "steps>=2"),
+            ("1 改闸门，然后补回归锁", "step+seq"),
+            ("按 A 方案加闸门，完成后出交付件", "strong"),
+            ("继续 goal_20261231_15to50", "continue"),
+            ("A股资金增值目标: 2026-12-31 前 15万→50万", "goal+date")]
+    c2 = True
+    for _t, _r in _yes:
+        _g = G(_t)
+        if not check("闸门·立项(%s)" % _r,
+                     _g["qualified"] and _g["reason"] == _r, "got=%s" % _g):
+            c2 = False
+    # 3) 边界：过短 / 空 → 不立项
+    c3 = check("闸门·过短不立项", G("A")["qualified"] is False and
+               G("")["qualified"] is False)
+    return c1 and c2 and c3
+
+
+def test_constancy_session_close():
+    """恒常门·会话绑定与收口（2026-09-13 闸门配套）回归锁。
+
+    病根：写侧每轮新建 + 下一轮 suspend 上一条 ⇒ 台账只进不出。
+    本锁保证：① 同会话续接同一任务（不逐轮新建）
+              ② 会话切换 → 上一会话遗留任务自动收口（不再跨会话占待办）
+              ③ 会话表独立落盘，终态任务不被续接
+    """
+    import tempfile, os as _os
+    import evo.constancy as _c
+    _orig = _c._TASKS_PATH
+    _dir = tempfile.mkdtemp(prefix="diegin_sess_")
+    try:
+        _c._TASKS_PATH = _os.path.join(_dir, "constancy_tasks.json")
+        reg = _c.TaskRegistry()
+        a = reg.begin("会话A任务", completion_criteria="c",
+                      context={"session_id": "sess-A"})
+        reg.bind_session("sess-A", a["task_id"])
+        c1 = check("会话·新任务落库为 paused",
+                   bool(a.get("ok")) and
+                   reg.snapshot(a["task_id"]).get("status") == "paused")
+        c2 = check("会话·同会话返回在办任务",
+                   reg.session_sync("sess-A") == a["task_id"])
+        c3 = check("会话·无任务会话返回空", reg.session_sync("sess-B") == "")
+        c4 = check("会话·切换即收口上一会话",
+                   reg.snapshot(a["task_id"]).get("status") == "abandoned")
+        c5 = check("会话·收口理由落库",
+                   "收口" in str(reg.snapshot(a["task_id"]).get("abandon_reason", "")))
+        b = reg.begin("会话B任务", context={"session_id": "sess-B"})
+        reg.bind_session("sess-B", b["task_id"])
+        c6 = check("会话·本会话任务不受切换影响",
+                   reg.snapshot(b["task_id"]).get("status") == "paused")
+        c7 = check("会话·第二轮续接同一任务",
+                   reg.session_sync("sess-B") == b["task_id"])
+        c8 = check("会话·会话表独立落盘", _os.path.exists(reg._sessions_path()))
+        reg.complete(b["task_id"])
+        c9 = check("会话·终态任务不再被续接", reg.session_sync("sess-B") == "")
+        return all([c1, c2, c3, c4, c5, c6, c7, c8, c9])
+    finally:
+        _c._TASKS_PATH = _orig
+        try:
+            import shutil as _sh
+            _sh.rmtree(_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def test_action_memory_channel():
     """行动时刻记忆（2026-09-12 第1项）：tool_pre 必须把命中规则的 action 正文带进 inject 通道
 
@@ -609,6 +693,9 @@ def main():
     test_action_memory_channel()
     print(f"\n--- 恒常门年龄口径 (2026-09-13 修复) ---", flush=True)
     test_constancy_age_fallback()
+    print(f"\n--- 恒常门任务资格闸门/会话收口 (2026-09-13 受权·口径 A) ---", flush=True)
+    test_constancy_goal_gate()
+    test_constancy_session_close()
     
     total = passed + failed
     print(f"\n{'='*50}", flush=True)

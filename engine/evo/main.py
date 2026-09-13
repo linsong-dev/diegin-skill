@@ -3001,6 +3001,12 @@ _CONSTANCY_SYSTEM_MARKERS = (
     "you are a memory writing",
     "## memory writing",
     "consolidate raw memories and rollout summaries",
+    # [2026-09-13 闸门配套] 实测台账污染源：环境注入块/附件块被当成用户输入立项
+    "<in-app-browser-context",
+    "# files pasted by the user",
+    "# files mentioned by the user",
+    "generate 0 to 3 hyperpersonalized",
+    "run this exact shell command once",
 )
 
 
@@ -3028,27 +3034,134 @@ def _derive_pending_items(text):
     return _items
 
 
+# ── 恒常门·任务资格闸门（2026-09-13 受权实施·口径 A）────────────────
+# 病根（实测）：写侧每轮无条件 constancy_begin ⇒ 一条用户消息 = 一条任务，
+# 且下一轮 suspend 上一条。台账 933 条（abandoned 692 / completed 196）
+# 而真正恢复过仅 2 条 = 结构性只进不出、"每轮新伪待办"。
+# 口径 A：仅「多轮目标语义」的消息立项；单轮问答 / 环境注入不建任务。
+# 判据经 933 条历史 intent 实测标定：保留 66 条（7.07%），
+# 现存 45 条在办台账仅 8 条有资格（全部为长程目标 / 显式续接），无误伤。
+_CONSTANCY_GOAL_STRONG = (
+    # 显式完成标准
+    "完成后", "做完后", "改完后", "修完后", "解决为止", "才算完成", "全部完成", "验收",
+    # 多轮 / 跨轮指示
+    "第一步", "第二步", "第三步", "接下来", "下一步", "分步", "逐步",
+    "按顺序", "按这个顺序", "继续做", "继续完成", "接着做", "接着完成",
+    "继续推进", "继续跟踪",
+    # 显式任务声明
+    "这是个任务", "记为任务", "记下这个任务", "记住这个任务", "立项", "跟踪这件事",
+    "目标模式", "长期目标",
+)
+_CONSTANCY_GOAL_SEQUENCE = ("首先", "其次", "然后", "接着", "最后")
+_CONSTANCY_GOAL_STEP_RE = r"^(\d+[.、]|\s*[-*]\s|第[一二三四五六七八九十]步)"
+_CONSTANCY_GOAL_DEADLINE_RE = r"(20\d\d\s*[-/年.]\s*\d{1,2}|年底前|年底|前完成|为止)"
+_CONSTANCY_GOAL_CONTINUE_RE = r"\[dgen\][^\n]{0,20}继续"
+_CONSTANCY_GOAL_ID_RE = r"(goal_|task_)\w+"
+
+
+def _constancy_step_count(text):
+    """步骤行计数：编号 / 项目符号 / 第N步，并兼容中文习惯的「1…\\n2…」（无标点）"""
+    import re as _re
+    _n = 0
+    for line in (text or "").splitlines():
+        if _re.match(_CONSTANCY_GOAL_STEP_RE, line.strip()):
+            _n += 1
+    _nums = set(_re.findall(r"(?m)^(\d{1,2})(?![0-9\-/:])", text or ""))
+    return max(_n, len(_nums))
+
+
+def constancy_goal_gate(text):
+    """恒常门·资格闸门：判定一条用户消息是否具备「多轮目标语义」（口径 A）。
+
+    返回 {"qualified": bool, "reason": str}；reason 供审计与回归锁。
+    任一成立即立项（其余一律不建任务）：
+      1. steps>=2    步骤行 ≥2（编号 / 项目符号 / 第N步，兼容「1…\\n2…」）
+      2. strong      强目标词（显式完成标准 / 多轮指示 / 显式任务声明）
+      3. goal+date   含「目标」且有期限（长程目标）
+      4. continue    显式续接（[DGEN] 继续 … / 继续 goal_* / 继续 task_*）
+      5. step+seq    步骤行 ≥1 且有顺序词（首先 / 其次 / …）
+    """
+    _t = (text or "").strip()
+    if len(_t) < 3:
+        return {"qualified": False, "reason": "too_short"}
+    import re as _re
+    _low = _t.lower()
+    if any(_m in _low for _m in _CONSTANCY_SYSTEM_MARKERS):
+        return {"qualified": False, "reason": "system_input"}
+    _n = _constancy_step_count(_t)
+    if _n >= 2:
+        return {"qualified": True, "reason": "steps>=2"}
+    if any(_w in _t for _w in _CONSTANCY_GOAL_STRONG):
+        return {"qualified": True, "reason": "strong"}
+    if "目标" in _t and _re.search(_CONSTANCY_GOAL_DEADLINE_RE, _t):
+        return {"qualified": True, "reason": "goal+date"}
+    if (_re.search(_CONSTANCY_GOAL_CONTINUE_RE, _low) or
+            ("继续" in _t and _re.search(_CONSTANCY_GOAL_ID_RE, _t))):
+        return {"qualified": True, "reason": "continue"}
+    if _n >= 1 and any(_w in _t for _w in _CONSTANCY_GOAL_SEQUENCE):
+        return {"qualified": True, "reason": "step+seq"}
+    return {"qualified": False, "reason": "single_turn"}
+
+
+def constancy_session_sync(session_id, close_reason="会话结束自动收口"):
+    """恒常门·会话级收口：会话切换 → 上一会话遗留任务自动收口。
+    返回本会话绑定的存活任务 id（"" 表示本会话尚无在办任务）。
+    """
+    try:
+        return _get_constancy_inst().session_sync(session_id, close_reason)
+    except Exception:
+        return ""
+
+
+def constancy_bind_session(session_id, task_id):
+    """恒常门·会话绑定：同会话后续轮次续接该任务，不再逐轮新建。"""
+    try:
+        return _get_constancy_inst().bind_session(session_id, task_id)
+    except Exception:
+        return False
+
+
 def constancy_track_prompt(prompt, source="pre_reply", current_task_id=None,
-                           turn_id=None):
+                           turn_id=None, session_id=None):
     """恒常门·写侧接线：新用户意图 → begin；切换任务 → suspend 旧任务；同意图去重；恢复续接 → extend。
-    返回 {"ok": True, "action": "begin"|"extend"|"none", "task_id": ...} 或 {"ok": False}
+
+    v3.10.6（2026-09-13 受权·口径 A）补两级：
+      ① 资格闸门：仅「多轮目标语义」立项（单轮问答不建任务、不动既有任务）；
+      ② 会话绑定：本会话已有在办任务 → extend；会话切换 → 上一会话任务自动收口。
+    返回 {"ok": True, "action": "begin"|"extend"|"none", "task_id": ..., "reason": ...}
     """
     try:
         _txt = (prompt or "").strip()
         if not _txt or len(_txt) < 3:
-            return {"ok": True, "action": "none", "task_id": ""}
+            return {"ok": True, "action": "none", "task_id": "", "reason": "too_short"}
         # P2: 系统输入过滤（记忆代理等非用户输入不入库）
         _low = _txt.lower()
         if any(_m in _low for _m in _CONSTANCY_SYSTEM_MARKERS):
-            return {"ok": True, "action": "none", "task_id": ""}
+            return {"ok": True, "action": "none", "task_id": "", "reason": "system_input"}
         _reg = _get_constancy_inst()
         # 恢复续接：当前轮已恢复任务 → 不新建、不切换
         if current_task_id and bool(_reg.snapshot(current_task_id)):
-            return {"ok": True, "action": "extend", "task_id": current_task_id}
+            return {"ok": True, "action": "extend", "task_id": current_task_id,
+                    "reason": "resumed"}
+        # 会话级：钩子在 session_id 缺失时用 turn_id 顶替（见 hooks\diegin_pre_reply.ps1）
+        # —— 该回退值每轮都变，若参与会话收口会退化成"每轮新建 + 每轮收口"，故剔除。
+        _sid = str(session_id or "").strip()
+        if _sid and _sid == str(turn_id or "").strip():
+            _sid = ""
+        _sess_live = constancy_session_sync(_sid) if _sid else ""
+        if _sess_live:
+            return {"ok": True, "action": "extend", "task_id": _sess_live,
+                    "reason": "session_bound"}
+        # 资格闸门（口径 A）：不满足多轮目标语义 → 不建任务，且不动既有任务
+        _gate = constancy_goal_gate(_txt)
+        if not _gate.get("qualified"):
+            return {"ok": True, "action": "none", "task_id": "",
+                    "reason": _gate.get("reason", "single_turn")}
         _rec = constancy_recoverable()
         _latest = _rec[0] if _rec else None
         if _latest and str(_latest.get("intent_summary", ""))[:50] == _txt[:50]:
-            return {"ok": True, "action": "extend", "task_id": _latest.get("task_id", "")}
+            return {"ok": True, "action": "extend", "task_id": _latest.get("task_id", ""),
+                    "reason": "same_intent"}
         if _latest:
             constancy_suspend(_latest["task_id"], reason="切换到新任务")
         _criteria = _derive_completion_criteria(_txt)
@@ -3056,10 +3169,14 @@ def constancy_track_prompt(prompt, source="pre_reply", current_task_id=None,
         _ctx = {"source": source}
         if turn_id:
             _ctx["turn_id"] = str(turn_id)[:80]
+        if _sid:
+            _ctx["session_id"] = _sid[:80]
         _r = constancy_begin(_txt, completion_criteria=_criteria,
                              pending_items=_pending, context=_ctx)
+        if _r.get("ok") and _sid:
+            constancy_bind_session(_sid, _r.get("task_id", ""))
         return {"ok": bool(_r.get("ok")), "action": "begin",
-                "task_id": _r.get("task_id", "")}
+                "task_id": _r.get("task_id", ""), "reason": "goal_qualified"}
     except Exception:
         return {"ok": False, "action": "none", "task_id": ""}
 

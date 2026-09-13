@@ -1,4 +1,26 @@
 # Changelog · Diegin 迭进
+## v3.10.6+ 恒常门任务资格闸门 · 会话绑定与收口（2026-09-13 · 受权·口径 A）
+
+- **病根（实测）**：写侧每轮无条件 `constancy_begin` ⇒ **一条用户消息 = 一条任务**，且下一轮 `suspend` 上一条。
+  台账 933 条（abandoned 692 / completed 196 / paused 35 / blocked 9 / active 1）而 `resume_count>0` 仅 **2** 条
+  = 结构性只进不出，也是「每轮新伪待办」的来源。
+- **新增 · 任务资格闸门**（`engine/evo/main.py` `constancy_goal_gate`）：仅「多轮目标语义」的消息立项。
+  判据任一成立即立项：① 步骤行 ≥2（编号/项目符号/第N步，兼容「1…\n2…」）② 强目标词（显式完成标准/多轮指示/显式任务声明）
+  ③ 含「目标」且有期限 ④ 显式续接（`[DGEN] 继续 …` / `继续 goal_*` / `继续 task_*`）⑤ 步骤行 ≥1 + 顺序词。
+  不满足 → `action=none`，**既不建任务也不动既有任务**。
+- **标定（可复核）**：以 933 条历史 `intent_summary` 实测回归，保留 66 条（**7.07%**）；现存 45 条在办台账仅 8 条有资格
+  （全部为长程目标/显式续接），无误伤。
+- **新增 · 会话绑定与收口**：`constancy_sessions.json`（与 tasks 同级）。同会话已有在办任务 → `extend`（不再逐轮新建）；
+  会话切换 → 上一会话遗留的 `paused/blocked` 任务自动 `abandoned`（`abandon_reason=会话结束自动收口`），不再跨会话占待办；
+  会话记录 30 天过期清理。**安全兜底**：`diegin_pre_reply.ps1` 在 `session_id` 缺失时用 `turn_id` 顶替，该回退值每轮都变，
+  故 `session_id == turn_id` 时**不参与**会话收口（否则退化成「每轮新建 + 每轮收口」）——仅闸门生效。
+- **污染源过滤**：`_CONSTANCY_SYSTEM_MARKERS` 增补实测台账污染源（`<in-app-browser-context`、
+  `# Files pasted/mentioned by the user`、`Generate 0 to 3 hyperpersonalized`、`Run this exact shell command once`）。
+- **接线**：`call_diegin.py` 的 `pre_reply` 把 `session_id` 传入 `constancy_track_prompt(session_id=…)`。
+- **回归锁**：`test_all.py` 新增 `test_constancy_goal_gate`（9 项）+ `test_constancy_session_close`（9 项）；
+  `test_all.py` **99/99** 通过（源码库与运行版两处实测）。
+- **未做（冻结）**：不改仲裁优先级（律令层）；不对存量 933 条做一次性清理（「增量治理」除闸门外已冻结，存量随 30 天窗口自然冷归档）。
+
 ## v3.10.5+ 钩子事件契约沉淀 · 注入点二维矩阵 · 行动记忆去重解耦（2026-09-13 · 事故驱动续二）
 
 - 新增 `references/钩子事件契约与注入位置矩阵_2026-09-13.md`：12 事件契约表（逐条读自 `codex.exe` 内嵌 JSON Schema）、注入位置安全×存活期二维矩阵、钩子注入前 5 步强制检查清单、两个待执行实验协议（PostToolUse 隔离实杀 / SessionStart-compact 观察）
