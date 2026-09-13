@@ -51,6 +51,19 @@
         ]
       }
     ],
+    "PostCompact": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"$env:USERPROFILE\\.codex\\diegin\\hooks\\diegin_post_compact.ps1\"",
+            "statusMessage": "⚡ DGEN PostCompact",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
