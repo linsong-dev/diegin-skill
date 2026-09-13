@@ -86,3 +86,4 @@
   - `test_all.py` **102/102**（源码库与运行版各跑一次）；运行版 `diegin_self_check` status=ok、failed_checks=[]、dead_rule_count=0、fake_evidence_count=0、baseline_regressions=[]；源码库自检的 `no_stale_staging`/`baseline_no_regression` 经 `git stash` 基线比对为**既有**差异（逐条一致，非本次引入）。
   - 副本守卫：`sync.ps1 check` → engine/config 四副本（runtime / skills-mirror / plugin-cache / plugin-cache-skills）全绿；`engine/call_diegin.py` SHA256 前缀 `129D7D6E9F77C01C` 五处一致。
   - 行尾卫生：改动文件「混合行尾」=0；`engine/call_diegin.py` CRLF=3882 / LF=0；六个测试文件维持 LF；均无 BOM。
+- 推送结果（2026-09-13 完成）：提交 f33a44（9 文件 / +108 −26），188755..ff33a44  main -> main；origin/main 核对 **0/0**（已同步）。audit ALL CLEAN（0 issues；3 条既有 GIT-HISTORY 非阻断）、verify PASSED（pytest 283 passed）。审推工具走直连（本地代理不可用）。
