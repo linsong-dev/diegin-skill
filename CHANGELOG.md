@@ -1,4 +1,14 @@
 # Changelog · Diegin 迭进
+## v3.10.5+ 钩子事件契约沉淀 · 注入点二维矩阵 · 行动记忆去重解耦（2026-09-13 · 事故驱动续二）
+
+- 新增 `references/钩子事件契约与注入位置矩阵_2026-09-13.md`：12 事件契约表（逐条读自 `codex.exe` 内嵌 JSON Schema）、注入位置安全×存活期二维矩阵、钩子注入前 5 步强制检查清单、两个待执行实验协议（PostToolUse 隔离实杀 / SessionStart-compact 观察）
+- 认知修正：`PostToolUse` 的 `additionalContext` 与 `PreToolUse` 一样**是** schema 合法字段（此前误推为「不支持」）；真正无注入通道的是 `preCompact` / `postCompact` / `stop` / `subagentStop` / `interrupt`
+- 新线索：`sessionStart.command.input.source` 枚举含 `compact` → 压缩后会派发一次 SessionStart，为「压缩后立刻补投」的第二候选点；**未实测前不得放宽 matcher（现为 `startup|resume`）**
+- 行动时刻记忆去重解耦：同 key 投递不再强依赖 PostCompact 清闸门，改为 10 分钟重投窗口（内容 30 分钟陈旧上限不变）；harness 实测 5/5（首次投递 / skip_seen / redeliver_window / skip_stale / 跨会话不投递）
+- 版本号对齐：`plugin.json` 由 `3.9.11+codex.20260827043233` → `
+3.10.5+codex.20260913124320
+`，插件缓存目录同步改名
+
 
 ## v3.10.4+ PostCompact 接线 · 压缩后补投行动时刻记忆 (2026-09-13, 事故驱动续)
 

@@ -81,6 +81,11 @@ $time = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
 $pythonExe = $env:DGEN_PYTHON; if (-not $pythonExe) { $pythonExe = Join-Path $g_pr "bin\.venv\Scripts\python.exe"; if (-not (Test-Path $pythonExe)) { $pythonExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" } }
 $enginePy = Join-Path $g_pr "engine\call_diegin.py"
 $stateDir = Join-Path $g_pr "var\state"
+# [2026-09-13 去重解耦] 行动记忆同一 key 的重投时间窗（分钟）。
+# 原设计「同 key 一次即永久跳过」，其解除完全依赖 PostCompact 清除闸门文件；
+# 若压缩未发生（或 PostCompact 未触发），该特征会被永久压制。改为时间窗后，
+# 投递不再依赖任何压缩事件，同时对短间隔重复仍保持静默。
+$script:ActionMemoryRedeliverMin = 10
 # [行动时刻记忆迁移 2026-09-13] 原挂 PreToolUse：其 additionalContext 会被平台插成 developer
 # 消息并落在 function_call 与 function_call_output 之间 → 上游 400 "No tool output found
 # for tool call ..."，整轮中断（当日实测 21 次）。现改为在 UserPromptSubmit（回合边界）投递：
@@ -89,15 +94,15 @@ $stateDir = Join-Path $g_pr "var\state"
 # 去重：同会话同 inject_key 只投递一次（规则集变化才再投递）；超 30 分钟视为陈旧不投递。
 function Get-ActionMemoryInjection {
     param([string]$SessionId)
-    if (-not $SessionId) { return "" }
+    if (-not $SessionId) { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_no_session"; return "" }
     try {
         $cacheFile = Join-Path $stateDir "action_memory_last.json"
-        if (-not (Test-Path $cacheFile)) { return "" }
+        if (-not (Test-Path $cacheFile)) { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_no_file"; return "" }
         $ic = Get-Content $cacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        if (-not $ic -or -not $ic.inject) { return "" }
-        if ($ic.session_id -ne $SessionId) { return "" }
+        if (-not $ic -or -not $ic.inject) { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_no_inject"; return "" }
+        if ($ic.session_id -ne $SessionId) { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_session_mismatch file_sid=$($ic.session_id) call_sid=$SessionId"; return "" }
         $key = [string]$ic.inject_key
-        if (-not $key) { return "" }
+        if (-not $key) { Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_no_key"; return "" }
         try {
             $age = (Get-Date) - [DateTime]::Parse($ic.ts)
             if ($age.TotalMinutes -gt 30) {
@@ -107,15 +112,24 @@ function Get-ActionMemoryInjection {
         } catch {}
         $seenFile = Join-Path $stateDir "pre_reply_action_memory_seen.json"
         $seenKey = ""
+        $seenTs = ""
         try {
             if (Test-Path $seenFile) {
                 $sj = Get-Content $seenFile -Raw -Encoding UTF8 | ConvertFrom-Json
-                if ($sj -and $sj.session_id -eq $SessionId) { $seenKey = [string]$sj.key }
+                if ($sj -and $sj.session_id -eq $SessionId) { $seenKey = [string]$sj.key; if ($sj.ts) { $seenTs = [string]$sj.ts } }
             }
         } catch {}
         if ($key -eq $seenKey) {
-            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_seen key=$key"
-            return ""
+            $redeliver = $false
+            if ($seenTs) {
+                try { if (((Get-Date) - [DateTime]::Parse($seenTs)).TotalMinutes -ge $script:ActionMemoryRedeliverMin) { $redeliver = $true } } catch {}
+            }
+            if (-not $redeliver) {
+                Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] skip_seen key=$key"
+                return ""
+            }
+            $ageMin = -1; try { $ageMin = [int]((Get-Date) - [DateTime]::Parse($seenTs)).TotalMinutes } catch {}
+            Add-NoBOMLog -Path $auditLog -Message "$time [HOOK:ACTION-MEMORY][pre_reply] redeliver_window key=$key seen_age_min=$ageMin"
         }
         try {
             $rec = @{session_id=$SessionId; key=$key; ts=(Get-Date -Format "o")}

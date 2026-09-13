@@ -105,10 +105,10 @@ function SR-Check {
     INF "Rules: src←→runtime (diff)"
     $s = Join-Path $srcRoot "engine\evo\rules"
     $r = Join-Path $dieginRoot "engine\evo\rules"
-    Merge-One (Join-Path $s "interception_rules.json") (Join-Path $r "interception_rules.json") "interception"
-    Merge-One (Join-Path $s "success_patterns.json") (Join-Path $r "success_patterns.json") "patterns"
-    Merge-One (Join-Path $s "interception_rules_archive.json") (Join-Path $r "interception_rules_archive.json") "interception-archive"
-    Merge-One (Join-Path $s "success_patterns_archive.json") (Join-Path $r "success_patterns_archive.json") "patterns-archive"
+    $null = Merge-One (Join-Path $s "interception_rules.json") (Join-Path $r "interception_rules.json") "interception"
+    $null = Merge-One (Join-Path $s "success_patterns.json") (Join-Path $r "success_patterns.json") "patterns"
+    $null = Merge-One (Join-Path $s "interception_rules_archive.json") (Join-Path $r "interception_rules_archive.json") "interception-archive"
+    $null = Merge-One (Join-Path $s "success_patterns_archive.json") (Join-Path $r "success_patterns_archive.json") "patterns-archive"
     $sd = Join-Path $s "domain_rules"; $rd = Join-Path $r "domain_rules"
     $sf = Get-ChildItem $sd -Filter "*.json" -EA 0
     $rf = Get-ChildItem $rd -Filter "*.json" -EA 0
