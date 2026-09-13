@@ -315,6 +315,10 @@ class SelfMirror:
 
     def warm_start_due(self) -> bool:
         """连续跳过≥WARM_START_SKIPS 或距上次≥WARM_START_DAYS → 强制轻量校准"""
+        # [建议3 · 2026-09-11] 沙漏§6.3 第4步：虚拟重力无可驱动源时写入的「轻量校准请求」
+        # （sandglass virtual_gravity -> self_mirror_request.json；只读判定，消费在 mirror(light=True)）
+        if self.calibration_requested():
+            return True
         if int(self._state.get("consecutive_skips", 0) or 0) >= WARM_START_SKIPS:
             return True
         _last = self._state.get("last_mirror_at", "")
@@ -325,6 +329,21 @@ class SelfMirror:
             except Exception:
                 pass
         return False
+
+    def calibration_requested(self) -> dict:
+        """读取「自照镜轻量校准请求」（由沙漏虚拟重力 §6.3 第4步写入）；24h 内有效。"""
+        _p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                          "var", "state", "self_mirror_request.json")
+        try:
+            if not os.path.exists(_p):
+                return {}
+            _d = json.load(open(_p, encoding="utf-8"))
+            _ts = str(_d.get("ts", "") or "")
+            if _ts and (datetime.datetime.now() - datetime.datetime.fromisoformat(_ts)).total_seconds() <= 86400:
+                return _d if isinstance(_d, dict) else {}
+        except Exception:
+            pass
+        return {}
 
     def should_mirror(self) -> bool:
         """跟随守三深度复盘频率：每10轮或每日触发；且距上次运行至少≥3轮或≥1小时（定稿第九章最小间隔），未触发静默跳过"""
@@ -380,6 +399,19 @@ class SelfMirror:
             # 温启动·轻量校准模式：仅统计报告，不产出 P6 调权（运维手册 2.1）
             report["warm_start"] = True
             report["wakeup_report"] = "系统长期未自照，已进入轻量校准模式：仅对任务完成率/中断率做统计对比，不产出P6调权"
+            # [建议3 · 2026-09-11] 消费沙漏§6.3 第4步的轻量校准请求
+            _req = self.calibration_requested()
+            if _req:
+                report["sandglass_request"] = {"source": _req.get("source", ""),
+                                               "reason": str(_req.get("reason", ""))[:160],
+                                               "requested_at": _req.get("ts", "")}
+                report["wakeup_report"] = ("沙漏虚拟重力无可驱动源（%s）-> 轻量校准模式：仅统计对比，"
+                                           "不产出P6调权" % (_req.get("reason", "") or _req.get("source", ""))[:80])
+                try:
+                    os.remove(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                           "var", "state", "self_mirror_request.json"))
+                except Exception:
+                    pass
         if _suppress:
             report["direction_calibration"] = []
             report["emergency_suppressed"] = bool(emergency)

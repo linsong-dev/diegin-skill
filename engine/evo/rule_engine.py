@@ -591,7 +591,7 @@ class RuleEngine:
             if meta.insight:
                 m.add_unit(text=meta.insight, source="diegin_meta", uid=uid, space=m.SPACE_ABSTRACT)
 
-        # 4. 同步 strikes/override → SPACE_TRADE
+        # 4. 同步 strikes/override → SPACE_STATE（L1 2026-09-11：trade 恢复"领域规则包"语义，§2.1）
         try:
             _sp = str(Path(__file__).parent.parent.parent / "var" / "state" / "strikes_db.json")
             if os.path.exists(_sp):
@@ -616,7 +616,7 @@ class RuleEngine:
         m.save()
 
     def _shalou_sync_strikes(self, strikes_data: dict = None):
-        """同步 strike/override 记录到 SPACE_TRADE"""
+        """同步 strike/override 记录到 SPACE_STATE（运行时状态标志，§2.1；2026-09-11 由 SPACE_TRADE 迁出）"""
         if self._shalou is None:
             self._init_shalou()
         if self._shalou is None:
@@ -628,7 +628,7 @@ class RuleEngine:
         for error_type, info in strikes_data.items():
             uid = f"strike_{error_type}"
             text = json.dumps(info, ensure_ascii=False)
-            unit = m.add_unit(text=text, source="diegin_strike", uid=uid, space=m.SPACE_TRADE)
+            unit = m.add_unit(text=text, source="diegin_strike", uid=uid, space=m.SPACE_STATE)
             if unit:
                 _et_tokens = set(error_type.lower().split("_"))
                 for r in self._interceptions:

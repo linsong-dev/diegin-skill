@@ -502,8 +502,52 @@ def _flip_storage_dir() -> str:
     return _d if os.path.isdir(_d) else ""
 
 
+def _shalou_cavity_facts() -> dict:
+    """P3 供数（只读 memory.db）：{space_stats: 条数, uid_sets: 各空间 uid 集合,
+    sediment: 从未调用数（裸计数，对照）, fresh: {空间: {fresh_sum: Σ新鲜度, n}}}。
+    uid 集合用于「自上次翻转以来的真增量」精确差分（避开 timestamp 被同步刷新之坑）；
+    fresh 用于 D5/建议2 的「新鲜度加权沉积率」（last_accessed × exp(-λΔt)，半衰期 7d）。
+    失败静默返回 {}（引擎会退化为计数差兜底，不误翻转）。"""
+    db = ""
+    try:
+        db = _memory_db_path()
+    except Exception:
+        return {}
+    if not db or not os.path.exists(db):
+        return {}
+    try:
+        import sqlite3, pathlib, time as _t
+        try:
+            from shalou import flip as _sflip
+            _freshfn = _sflip.freshness
+        except Exception:
+            _freshfn = None
+        uri = pathlib.Path(db).absolute().as_uri() + "?mode=ro"
+        con = sqlite3.connect(uri, uri=True, timeout=3.0)
+        stats, uids, sed, fresh = {}, {}, {}, {}
+        _now = _t.time()
+        for sp, uid, ac, la, ts in con.execute(
+                "SELECT space, uid, COALESCE(access_count, 0), COALESCE(last_accessed, 0),"
+                " COALESCE(timestamp, 0) FROM memory_units"):
+            sp = sp or "?"
+            stats[sp] = stats.get(sp, 0) + 1
+            uids.setdefault(sp, []).append(uid)
+            if int(ac or 0) == 0:
+                sed[sp] = sed.get(sp, 0) + 1
+            _d = fresh.setdefault(sp, {"fresh_sum": 0.0, "n": 0})
+            _d["n"] += 1
+            if _freshfn is not None:
+                _d["fresh_sum"] += _freshfn(float(la or 0) or float(ts or 0), now_ts=_now)
+            else:
+                _d["fresh_sum"] += 1.0 if int(ac or 0) > 0 else 0.0
+        con.close()
+        return {"space_stats": stats, "uid_sets": uids, "sediment": sed, "fresh": fresh}
+    except Exception:
+        return {}
+
+
 def shalou_flow_tick(round_no: int, has_user_input: bool, out: dict, result: dict) -> dict:
-    """沙漏流动模型每轮协调：心跳 + 健康快照 + 自动翻转（读写平衡/规则沉积/方向信号）。
+    """沙漏流动模型每轮协调：心跳 + 健康快照 + 自动翻转（势差/规则沉积/方向信号）。
     只更新方向/停驻状态与审计，不改 Shalou 存储与规则。"""
     try:
         from shalou import flip as _sflip
@@ -514,13 +558,24 @@ def shalou_flow_tick(round_no: int, has_user_input: bool, out: dict, result: dic
         return {}
     try:
         _sflip.heartbeat(round_no, _sd, has_user_input=bool(has_user_input))
-        out["flow"] = _sflip.health(_sd)
+        # P3/D1：供数给引擎（只读）——各空间条数 / uid 集合（势差差分）/ 从未调用数（沉积率）
+        _facts = _shalou_cavity_facts()
+        out["flow"] = _sflip.health(_sd, space_stats=_facts.get("space_stats"),
+                                    uid_sets=_facts.get("uid_sets"),
+                                    sediment=_facts.get("sediment"), state_dir=_state_dir(),
+                                    fresh=_facts.get("fresh"))
         _sig = out.get("signals") or {}
         _dep = _sig.get("deposition") or {}
         _mrr = result.get("mirror_report") or {}
         _dev = bool(_mrr.get("direction_calibration"))
         _auto = _sflip.maybe_flip(_sd, signals={"deposition_warning": bool(_dep.get("warning")),
-                                                "direction_deviation": _dev})
+                                                "direction_deviation": _dev},
+                                  space_stats=_facts.get("space_stats"),
+                                  uid_sets=_facts.get("uid_sets"),
+                                  sediment=_facts.get("sediment"),
+                                  fresh=_facts.get("fresh"),
+                                  state_dir=_state_dir(),
+                                  has_user_input=bool(has_user_input))
         if _auto and _auto.get("ok") and _auto.get("event"):
             out["flip"] = _auto
             _ev = _auto["event"]
